@@ -5,7 +5,7 @@ export function rewriteQueryPatterns(
   options: {
     maxPatterns?: number;
     synonyms?: QuerySynonyms;
-  } = {},
+  } = {}
 ) {
   const patterns = [
     ...extractCommands(query),
@@ -14,12 +14,16 @@ export function rewriteQueryPatterns(
     ...extractPackageNames(query),
     ...extractFilePaths(query),
     ...extractIds(query),
+    ...extractPullRequestIds(query),
     ...extractSymbolVariants(query),
     ...expandSynonyms(query, options.synonyms ?? {}),
   ];
   const expandedPatterns = uniquePatterns(patterns);
-  const fallbackPatterns = expandedPatterns.length > 0 ? expandedPatterns : [query];
-  return options.maxPatterns === undefined ? fallbackPatterns : fallbackPatterns.slice(0, options.maxPatterns);
+  const fallbackPatterns =
+    expandedPatterns.length > 0 ? expandedPatterns : [query];
+  return options.maxPatterns === undefined
+    ? fallbackPatterns
+    : fallbackPatterns.slice(0, options.maxPatterns);
 }
 
 function extractCommands(query: string) {
@@ -36,18 +40,26 @@ function extractQuotedPhrases(query: string) {
 }
 
 function extractErrorFragments(query: string) {
-  return [...query.matchAll(/\b(?:[A-Z][A-Za-z]+Error|Error):\s+[^.;\n]+/g)].map((match) => match[0].trim());
+  return [
+    ...query.matchAll(/\b(?:[A-Z][A-Za-z]+Error|Error):\s+[^.;\n]+/g),
+  ].map((match) => match[0].trim());
 }
 
 function extractPackageNames(query: string) {
-  return [...query.matchAll(/(?:^|\s)(@[\w.-]+\/[\w.-]+)(?=$|\s|[),.;:])/g)].map((match) => match[1]);
+  return [
+    ...query.matchAll(/(?:^|\s)(@[\w.-]+\/[\w.-]+)(?=$|\s|[),.;:])/g),
+  ].map((match) => match[1]);
 }
 
 function extractFilePaths(query: string) {
   return query
     .split(/\s+/)
     .map((token) => token.replace(/^[`"']+|[`"'),.;:]+$/g, ""))
-    .filter((token) => token.includes("/") && /^(?:~|\.{1,2}|\/)?[\w.-]+(?:\/[\w.-]+)+$/.test(token));
+    .filter(
+      (token) =>
+        token.includes("/") &&
+        /^(?:~|\.{1,2}|\/)?[\w.-]+(?:\/[\w.-]+)+$/.test(token)
+    );
 }
 
 function extractSymbolVariants(query: string) {
@@ -99,7 +111,25 @@ function capitalize(word: string) {
 }
 
 function extractIds(query: string) {
-  return [...query.matchAll(/#[0-9]+\b|\bbd-[a-z0-9]+\b|\b(?:PR|pr)-?[0-9]+\b/g)].map((match) => match[0]);
+  return [
+    ...query.matchAll(/#[0-9]+\b|\bbd-[a-z0-9]+\b|\b(?:PR|pr)-?[0-9]+\b/g),
+  ].map((match) => match[0]);
+}
+
+function extractPullRequestIds(query: string) {
+  return [
+    ...query.matchAll(/\b(?:PR|pr|pull request)\s*#?\s*([0-9]+)\b/g),
+  ].flatMap((match) => {
+    const number = match[1];
+    return [
+      `PR ${number}`,
+      `PR #${number}`,
+      `pull/${number}`,
+      `pull request ${number}`,
+      `#${number}`,
+      number,
+    ];
+  });
 }
 
 function expandSynonyms(query: string, synonyms: QuerySynonyms) {

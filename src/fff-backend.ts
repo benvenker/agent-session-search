@@ -1,3 +1,5 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -24,7 +26,10 @@ export type FffClient = {
 };
 
 export type McpToolClient = {
-  callTool(input: { name: string; arguments?: Record<string, unknown> }): Promise<unknown>;
+  callTool(input: {
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<unknown>;
   close(): Promise<void>;
 };
 
@@ -47,7 +52,12 @@ export type OneRootFffSearchOutput = {
   results: SearchResult[];
 };
 
+const DEFAULT_EMPTY_RESULT_RETRY_ATTEMPTS = 3;
+const DEFAULT_EMPTY_RESULT_RETRY_DELAY_MS = 100;
+
 export class OneRootFffBackend {
+  private hasCompletedSearch = false;
+
   constructor(private readonly options: OneRootFffBackendOptions) {}
 
   async close(): Promise<void> {
@@ -63,16 +73,27 @@ export class OneRootFffBackend {
         break;
       }
 
-      const output = await this.searchPattern(pattern, remainingResults(results, input.maxResults));
+      const output = await this.searchPattern(
+        pattern,
+        remainingResults(results, input.maxResults)
+      );
       warnings.push(...output.warnings);
-      results.push(...output.results.slice(0, remainingResults(results, input.maxResults)));
+      results.push(
+        ...output.results.slice(0, remainingResults(results, input.maxResults))
+      );
     }
 
     return { warnings, results };
   }
 
-  private async searchPattern(pattern: string, maxResults: number | undefined): Promise<OneRootFffSearchOutput> {
-    const attempts = this.options.emptyResultRetryAttempts ?? 0;
+  private async searchPattern(
+    pattern: string,
+    maxResults: number | undefined
+  ): Promise<OneRootFffSearchOutput> {
+    const attempts = this.hasCompletedSearch
+      ? 0
+      : (this.options.emptyResultRetryAttempts ??
+        DEFAULT_EMPTY_RESULT_RETRY_ATTEMPTS);
 
     for (let attempt = 0; attempt <= attempts; attempt += 1) {
       let response: FffToolResult;
@@ -83,24 +104,36 @@ export class OneRootFffBackend {
             maxResults,
           }),
           this.options.timeoutMs,
-          pattern,
+          pattern
         );
       } catch (error) {
-        return { warnings: [this.warning(errorCode(error), errorMessage(error))], results: [] };
+        return {
+          warnings: [this.warning(errorCode(error), errorMessage(error))],
+          results: [],
+        };
       }
 
       if (response.isError) {
         return {
-          warnings: [this.warning("fff_backend_error", responseText(response) || "FFF backend reported an error.")],
+          warnings: [
+            this.warning(
+              "fff_backend_error",
+              responseText(response) || "FFF backend reported an error."
+            ),
+          ],
           results: [],
         };
       }
 
       const results = this.normalizeGrepResponse(pattern, response);
       if (results.length > 0 || attempt === attempts) {
+        this.hasCompletedSearch = true;
         return { warnings: [], results };
       }
-      await delay(this.options.emptyResultRetryDelayMs ?? 25);
+      await delay(
+        this.options.emptyResultRetryDelayMs ??
+          DEFAULT_EMPTY_RESULT_RETRY_DELAY_MS
+      );
     }
 
     return { warnings: [], results: [] };
@@ -115,7 +148,10 @@ export class OneRootFffBackend {
     };
   }
 
-  private normalizeGrepResponse(pattern: string, response: FffToolResult): SearchResult[] {
+  private normalizeGrepResponse(
+    pattern: string,
+    response: FffToolResult
+  ): SearchResult[] {
     const text = responseText(response);
 
     if (!text) {
@@ -155,7 +191,10 @@ export class OneRootFffBackend {
 }
 
 export class FffMcpClient implements FffClient {
-  constructor(private readonly client: McpToolClient) {}
+  constructor(
+    private readonly client: McpToolClient,
+    private readonly cleanupDir?: string
+  ) {}
 
   async grep(input: FffGrepInput): Promise<FffToolResult> {
     return (await this.client.callTool({
@@ -168,7 +207,13 @@ export class FffMcpClient implements FffClient {
   }
 
   async close(): Promise<void> {
-    await this.client.close();
+    try {
+      await this.client.close();
+    } finally {
+      if (this.cleanupDir) {
+        await rm(this.cleanupDir, { recursive: true, force: true });
+      }
+    }
   }
 }
 
@@ -177,28 +222,56 @@ export type CreateFffMcpClientOptions = {
   args?: string[];
 };
 
-export async function createFffMcpClient(root: string, options: CreateFffMcpClientOptions = {}): Promise<FffMcpClient> {
+export async function createFffMcpClient(
+  root: string,
+  options: CreateFffMcpClientOptions = {}
+): Promise<FffMcpClient> {
+  const defaultDbDir = options.args
+    ? undefined
+    : await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
+  const args = options.args ?? [
+    "--no-update-check",
+    "--frecency-db",
+    join(defaultDbDir!, "frecency.mdb"),
+    "--history-db",
+    join(defaultDbDir!, "history.mdb"),
+  ];
   const transport = new StdioClientTransport({
     command: options.command ?? "fff-mcp",
-    args: [...(options.args ?? ["--no-update-check"]), root],
+    args: [...args, root],
   });
   const client = new Client({ name: "agent-session-search", version: "0.1.0" });
 
-  await client.connect(transport);
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    if (defaultDbDir) {
+      await rm(defaultDbDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
 
-  return new FffMcpClient(client);
+  return new FffMcpClient(client, defaultDbDir);
 }
 
 function normalizePath(root: string, path: string) {
   return isAbsolute(path) ? path : join(root, path);
 }
 
-function hasReachedCap(results: SearchResult[], maxResults: number | undefined) {
+function hasReachedCap(
+  results: SearchResult[],
+  maxResults: number | undefined
+) {
   return maxResults !== undefined && results.length >= maxResults;
 }
 
-function remainingResults(results: SearchResult[], maxResults: number | undefined) {
-  return maxResults === undefined ? undefined : Math.max(maxResults - results.length, 0);
+function remainingResults(
+  results: SearchResult[],
+  maxResults: number | undefined
+) {
+  return maxResults === undefined
+    ? undefined
+    : Math.max(maxResults - results.length, 0);
 }
 
 function responseText(response: FffToolResult) {
@@ -208,7 +281,11 @@ function responseText(response: FffToolResult) {
     .join("\n");
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined, pattern: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  pattern: string
+): Promise<T> {
   if (timeoutMs === undefined) {
     return promise;
   }
@@ -221,7 +298,9 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined, patt
     timeout.unref?.();
   });
 
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+  return Promise.race([promise, timeoutPromise]).finally(() =>
+    clearTimeout(timeout)
+  );
 }
 
 function delay(ms: number) {
@@ -232,7 +311,9 @@ class FffBackendTimeout extends Error {
   readonly code = "fff_backend_timeout";
 
   constructor(timeoutMs: number, pattern: string) {
-    super(`FFF backend timed out after ${timeoutMs}ms while searching for pattern: ${pattern}`);
+    super(
+      `FFF backend timed out after ${timeoutMs}ms while searching for pattern: ${pattern}`
+    );
   }
 }
 

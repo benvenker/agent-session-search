@@ -43,7 +43,9 @@ npx agent-session-search-mcp
 ```
 
 `npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is available,
-it prints the resolved path, version, and `PATH` used for the check. In an
+it prints the resolved path, version, live grep smoke result, and `PATH` used
+for the check. The smoke check searches a temporary file with isolated FFF
+database files, matching the runtime path used by `agent-session-search`. In an
 installed package, run the same preflight with:
 
 ```bash

@@ -1,4 +1,11 @@
-import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -13,7 +20,9 @@ describe("package build and tarball", () => {
   it("ships executable bin entries without local agent files or tests", async () => {
     await execFileAsync("npm", ["run", "build"], { cwd: process.cwd() });
 
-    const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8")) as {
+    const packageJson = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8")
+    ) as {
       bin: Record<string, string>;
     };
 
@@ -21,17 +30,29 @@ describe("package build and tarball", () => {
       await access(join(process.cwd(), binTarget));
     }
 
-    const { stderr } = await execFileAsync("node", [join(process.cwd(), packageJson.bin["agent-session-search"])], {
-      cwd: process.cwd(),
-    }).catch((error: unknown) => {
-      const execError = error as { stderr?: string; stdout?: string; code?: number };
+    const { stderr } = await execFileAsync(
+      "node",
+      [join(process.cwd(), packageJson.bin["agent-session-search"])],
+      {
+        cwd: process.cwd(),
+      }
+    ).catch((error: unknown) => {
+      const execError = error as {
+        stderr?: string;
+        stdout?: string;
+        code?: number;
+      };
       expect(execError.code).toBe(1);
       return { stderr: execError.stderr ?? "", stdout: execError.stdout ?? "" };
     });
     expect(stderr).toContain("Usage: agent-session-search");
 
-    const dryRun = await execFileAsync("npm", ["pack", "--dry-run", "--json"], { cwd: process.cwd() });
-    const packed = JSON.parse(dryRun.stdout) as Array<{ files: Array<{ path: string }> }>;
+    const dryRun = await execFileAsync("npm", ["pack", "--dry-run", "--json"], {
+      cwd: process.cwd(),
+    });
+    const packed = JSON.parse(dryRun.stdout) as Array<{
+      files: Array<{ path: string }>;
+    }>;
     const packedPaths = packed[0]?.files.map((file) => file.path) ?? [];
 
     expect(packedPaths).toContain("dist/cli.js");
@@ -39,58 +60,123 @@ describe("package build and tarball", () => {
     expect(packedPaths).toContain("dist/server.js");
     expect(packedPaths).toContain("scripts/postinstall.mjs");
     expect(packedPaths).not.toContain("dist/test/packaging.test.js");
-    for (const forbiddenPrefix of [".agents/", ".claude/", ".factory/", ".goose/", ".pi/", "skills/", "test/", "dist/test/"]) {
-      expect(packedPaths.find((path) => path.startsWith(forbiddenPrefix))).toBeUndefined();
+    for (const forbiddenPrefix of [
+      ".agents/",
+      ".claude/",
+      ".factory/",
+      ".goose/",
+      ".pi/",
+      "skills/",
+      "test/",
+      "dist/test/",
+    ]) {
+      expect(
+        packedPaths.find((path) => path.startsWith(forbiddenPrefix))
+      ).toBeUndefined();
     }
     expect(packedPaths).not.toContain("skills-lock.json");
-    expect(packedPaths.find((path) => path.startsWith(".beads/.br_history/"))).toBeUndefined();
+    expect(
+      packedPaths.find((path) => path.startsWith(".beads/.br_history/"))
+    ).toBeUndefined();
 
-    const installRoot = await mkdtemp(join(tmpdir(), "agent-session-search-install-"));
+    const installRoot = await mkdtemp(
+      join(tmpdir(), "agent-session-search-install-")
+    );
     const packDestination = join(installRoot, "packed");
     const appRoot = join(installRoot, "app");
     await mkdir(packDestination);
     await mkdir(appRoot);
 
-    const pack = await execFileAsync("npm", ["pack", "--json", "--pack-destination", packDestination], { cwd: process.cwd() });
-    const tarball = (JSON.parse(pack.stdout) as Array<{ filename: string }>)[0]?.filename;
+    const pack = await execFileAsync(
+      "npm",
+      ["pack", "--json", "--pack-destination", packDestination],
+      { cwd: process.cwd() }
+    );
+    const tarball = (JSON.parse(pack.stdout) as Array<{ filename: string }>)[0]
+      ?.filename;
     expect(tarball).toBeTruthy();
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
     const emptyBin = join(installRoot, "empty-bin");
     await mkdir(emptyBin);
-    const install = await execFileAsync("npm", ["install", "--foreground-scripts", "--no-audit", "--no-fund", join(packDestination, tarball)], {
-      cwd: appRoot,
-      env: {
-        ...process.env,
-        PATH: `${emptyBin}${delimiter}${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`,
-      },
-    });
-    expect(`${install.stdout}\n${install.stderr}`).toContain("agent-session-search: fff-mcp was not found on PATH.");
+    const install = await execFileAsync(
+      "npm",
+      [
+        "install",
+        "--foreground-scripts",
+        "--no-audit",
+        "--no-fund",
+        join(packDestination, tarball),
+      ],
+      {
+        cwd: appRoot,
+        env: {
+          ...process.env,
+          PATH: `${emptyBin}${delimiter}${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`,
+        },
+      }
+    );
+    expect(`${install.stdout}\n${install.stderr}`).toContain(
+      "agent-session-search: fff-mcp was not found on PATH."
+    );
 
-    const installedCli = join(appRoot, "node_modules", ".bin", "agent-session-search");
-    const installedDoctor = join(appRoot, "node_modules", ".bin", "agent-session-search-doctor");
-    const installedServer = join(appRoot, "node_modules", ".bin", "agent-session-search-mcp");
-    const installedCliResult = await execFileAsync(installedCli, [], { cwd: appRoot }).catch((error: unknown) => {
-      const execError = error as { stderr?: string; stdout?: string; code?: number };
+    const installedCli = join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      "agent-session-search"
+    );
+    const installedDoctor = join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      "agent-session-search-doctor"
+    );
+    const installedServer = join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      "agent-session-search-mcp"
+    );
+    const installedCliResult = await execFileAsync(installedCli, [], {
+      cwd: appRoot,
+    }).catch((error: unknown) => {
+      const execError = error as {
+        stderr?: string;
+        stdout?: string;
+        code?: number;
+      };
       expect(execError.code).toBe(1);
       return { stderr: execError.stderr ?? "", stdout: execError.stdout ?? "" };
     });
-    expect(`${installedCliResult.stdout}\n${installedCliResult.stderr}`).toContain("Usage: agent-session-search");
+    expect(
+      `${installedCliResult.stdout}\n${installedCliResult.stderr}`
+    ).toContain("Usage: agent-session-search");
 
     const fakeBin = join(installRoot, "fake-bin");
     const fakeFffMcp = join(fakeBin, "fff-mcp");
     await mkdir(fakeBin);
-    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-package-test\\n'\n");
+    await writeFile(
+      fakeFffMcp,
+      "#!/bin/sh\nprintf 'fff-mcp 9.9.9-package-test\\n'\n"
+    );
     await chmod(fakeFffMcp, 0o755);
-    const installedDoctorResult = await execFileAsync(installedDoctor, [], {
-      cwd: appRoot,
-      env: {
-        ...process.env,
-        PATH: `${fakeBin}${delimiter}${dirname(process.execPath)}`,
-      },
-    });
+    const installedDoctorResult = await execFileAsync(
+      installedDoctor,
+      ["--skip-smoke"],
+      {
+        cwd: appRoot,
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}${delimiter}${dirname(process.execPath)}`,
+        },
+      }
+    );
     expect(installedDoctorResult.stdout).toContain("FFF MCP preflight passed.");
-    expect(installedDoctorResult.stdout).toContain("version: fff-mcp 9.9.9-package-test");
+    expect(installedDoctorResult.stdout).toContain(
+      "version: fff-mcp 9.9.9-package-test"
+    );
+    expect(installedDoctorResult.stdout).toContain("smoke: skipped");
 
     const transport = new StdioClientTransport({
       command: installedServer,
@@ -98,7 +184,10 @@ describe("package build and tarball", () => {
       cwd: appRoot,
       stderr: "pipe",
     });
-    const client = new Client({ name: "agent-session-search-package-test", version: "0.1.0" });
+    const client = new Client({
+      name: "agent-session-search-package-test",
+      version: "0.1.0",
+    });
 
     try {
       await client.connect(transport);

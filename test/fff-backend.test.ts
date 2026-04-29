@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -34,7 +34,9 @@ describe("OneRootFffBackend", () => {
       client,
     });
 
-    await expect(backend.search({ patterns: ["auth token"], maxResults: 5 })).resolves.toEqual({
+    await expect(
+      backend.search({ patterns: ["auth token"], maxResults: 5 })
+    ).resolves.toEqual({
       warnings: [],
       results: [
         {
@@ -74,17 +76,19 @@ describe("OneRootFffBackend", () => {
       client,
     });
 
-    await expect(backend.search({ patterns: ["auth token"] })).resolves.toEqual({
-      warnings: [
-        {
-          source: "claude",
-          root: "/tmp/claude-root",
-          code: "fff_backend_error",
-          message: "grep failed: index unavailable",
-        },
-      ],
-      results: [],
-    });
+    await expect(backend.search({ patterns: ["auth token"] })).resolves.toEqual(
+      {
+        warnings: [
+          {
+            source: "claude",
+            root: "/tmp/claude-root",
+            code: "fff_backend_error",
+            message: "grep failed: index unavailable",
+          },
+        ],
+        results: [],
+      }
+    );
   });
 
   it("returns a timeout warning when the FFF client does not respond", async () => {
@@ -101,17 +105,20 @@ describe("OneRootFffBackend", () => {
       timeoutMs: 1,
     });
 
-    await expect(backend.search({ patterns: ["auth token"] })).resolves.toEqual({
-      warnings: [
-        {
-          source: "pi",
-          root: "/tmp/pi-root",
-          code: "fff_backend_timeout",
-          message: "FFF backend timed out after 1ms while searching for pattern: auth token",
-        },
-      ],
-      results: [],
-    });
+    await expect(backend.search({ patterns: ["auth token"] })).resolves.toEqual(
+      {
+        warnings: [
+          {
+            source: "pi",
+            root: "/tmp/pi-root",
+            code: "fff_backend_timeout",
+            message:
+              "FFF backend timed out after 1ms while searching for pattern: auth token",
+          },
+        ],
+        results: [],
+      }
+    );
   });
 
   it("applies the result cap across multiple literal patterns", async () => {
@@ -156,6 +163,40 @@ describe("OneRootFffBackend", () => {
     expect(calls).toEqual([{ query: "first", maxResults: 1 }]);
   });
 
+  it("retries empty results only while warming up the first pattern", async () => {
+    const calls: unknown[] = [];
+    const client: FffClient = {
+      async grep(input) {
+        calls.push(input);
+        return {
+          content: [],
+          isError: false,
+        };
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+      emptyResultRetryAttempts: 2,
+      emptyResultRetryDelayMs: 1,
+    });
+
+    await expect(
+      backend.search({ patterns: ["first", "second"], maxResults: 5 })
+    ).resolves.toEqual({
+      warnings: [],
+      results: [],
+    });
+    expect(calls).toEqual([
+      { query: "first", maxResults: 5 },
+      { query: "first", maxResults: 5 },
+      { query: "first", maxResults: 5 },
+      { query: "second", maxResults: 5 },
+    ]);
+  });
+
   it("closes the underlying FFF client when the backend is closed", async () => {
     const calls: string[] = [];
     const client: FffClient = {
@@ -195,7 +236,9 @@ describe("OneRootFffBackend", () => {
 
     const client = new FffMcpClient(mcpClient);
 
-    await expect(client.grep({ query: "auth token", maxResults: 2 })).resolves.toEqual({
+    await expect(
+      client.grep({ query: "auth token", maxResults: 2 })
+    ).resolves.toEqual({
       content: [{ type: "text", text: "session.jsonl\n 1: auth token" }],
       isError: false,
     });
@@ -213,56 +256,91 @@ describe("OneRootFffBackend", () => {
     ]);
   });
 
-  const liveFffMcp = spawnSync("fff-mcp", ["--version"], { stdio: "ignore" }).status === 0;
+  it("removes an owned temporary FFF database directory when closed", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-cleanup-"));
+    await writeFile(join(tmp, "frecency.mdb"), "");
+    const client = new FffMcpClient(
+      {
+        async callTool() {
+          throw new Error("not used");
+        },
+        async close() {},
+      },
+      tmp
+    );
 
-  (liveFffMcp ? it : it.skip)("searches a temporary root through a live fff-mcp child process", async () => {
-    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
-    const root = join(tmp, "root");
-    const db = join(tmp, "db");
-    await mkdir(root);
-    await mkdir(db);
-    await writeFile(join(root, "session.jsonl"), "before\nauth token smoke\n");
+    await client.close();
 
-    const client = await createFffMcpClient(root, {
-      args: [
-        "--no-update-check",
-        "--frecency-db",
-        join(db, "frecency.mdb"),
-        "--history-db",
-        join(db, "history.mdb"),
-      ],
-    });
-    const backend = new OneRootFffBackend({
-      source: "codex",
-      root,
-      client,
-      timeoutMs: 2_000,
-    });
+    await expect(access(tmp)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
-    try {
-      const result = await eventuallySearch(backend, { patterns: ["smoke"], maxResults: 3 });
-      expect(result).toEqual({
-        warnings: [],
-        results: [
-          {
-            source: "codex",
-            root,
-            path: join(root, "session.jsonl"),
-            line: 2,
-            content: "auth token smoke",
-            pattern: "smoke",
-          },
+  const liveFffMcp =
+    spawnSync("fff-mcp", ["--version"], { stdio: "ignore" }).status === 0;
+
+  (liveFffMcp ? it : it.skip)(
+    "searches a temporary root through a live fff-mcp child process",
+    async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
+      const root = join(tmp, "root");
+      const db = join(tmp, "db");
+      await mkdir(root);
+      await mkdir(db);
+      await writeFile(
+        join(root, "session.jsonl"),
+        "before\nauth token smoke\n"
+      );
+
+      const client = await createFffMcpClient(root, {
+        args: [
+          "--no-update-check",
+          "--frecency-db",
+          join(db, "frecency.mdb"),
+          "--history-db",
+          join(db, "history.mdb"),
         ],
       });
-    } finally {
-      await backend.close();
+      const backend = new OneRootFffBackend({
+        source: "codex",
+        root,
+        client,
+        timeoutMs: 2_000,
+      });
+
+      try {
+        const result = await eventuallySearch(backend, {
+          patterns: ["smoke"],
+          maxResults: 3,
+        });
+        expect(result).toEqual({
+          warnings: [],
+          results: [
+            {
+              source: "codex",
+              root,
+              path: join(root, "session.jsonl"),
+              line: 2,
+              content: "auth token smoke",
+              pattern: "smoke",
+            },
+          ],
+        });
+      } finally {
+        await backend.close();
+      }
     }
-  });
+  );
 });
 
-async function eventuallySearch(backend: OneRootFffBackend, input: { patterns: string[]; maxResults: number }) {
+async function eventuallySearch(
+  backend: OneRootFffBackend,
+  input: { patterns: string[]; maxResults: number }
+) {
   let latest = await backend.search(input);
-  for (let attempt = 0; attempt < 10 && latest.results.length === 0; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 10 && latest.results.length === 0;
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 25));
     latest = await backend.search(input);
   }
