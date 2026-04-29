@@ -22,7 +22,8 @@
     "test": "vitest run",
     "smoke": "vitest run test/mcp-smoke.test.ts",
     "dev:mcp": "tsx src/server.ts",
-    "dev:cli": "tsx src/cli.ts"
+    "dev:cli": "tsx src/cli.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -31,6 +32,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.3",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
