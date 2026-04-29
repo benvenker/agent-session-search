@@ -42,6 +42,38 @@ npx agent-session-search "auth token timeout" --json
 npx agent-session-search-mcp
 ```
 
+## GitHub Packages
+
+This package is configured to publish to GitHub Packages as:
+
+```text
+@benvenker/agent-session-search
+```
+
+The GitHub repository can be public or private. Before publishing or installing
+from GitHub Packages, authenticate npm with a GitHub personal access token in
+your user-level `~/.npmrc`:
+
+```ini
+@benvenker:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=YOUR_GITHUB_PAT
+```
+
+Use `read:packages` to install. Add `write:packages` to publish from this
+machine.
+
+Publish after the GitHub repository exists and the local git remote points at it:
+
+```bash
+npm publish
+```
+
+Install globally on this machine with:
+
+```bash
+npm install -g @benvenker/agent-session-search
+```
+
 `npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is available,
 it prints the resolved path, version, live grep smoke result, and `PATH` used
 for the check. The smoke check searches a temporary file with isolated FFF

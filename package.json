@@ -1,8 +1,11 @@
 {
-  "name": "agent-session-search",
+  "name": "@benvenker/agent-session-search",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "repository": "https://github.com/benvenker/agent-session-search.git",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "bin": {
     "agent-session-search": "./dist/cli.js",
     "agent-session-search-doctor": "./dist/fff-preflight.js",
@@ -19,6 +22,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "check:beads": "node scripts/check-beads-sync.mjs",
     "check:fff": "tsx src/fff-preflight.ts",
+    "prepack": "npm run build",
     "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
     "smoke": "vitest run test/mcp-smoke.test.ts",
