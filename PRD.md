@@ -44,10 +44,10 @@ smaller tool that is fast, transparent, and easy to fall back from.
 - Preserve canonical absolute paths in results.
 - Rewrite natural-language queries into a small set of FFF-friendly literal
   patterns.
-- Return raw-ish FFF results with source/root metadata and enough context for an
-  agent to inspect the matching session file directly.
-- Avoid custom indexing, embeddings, SQLite, markdown exports, and session
-  aggregation in v1.
+- Return compact session candidates by default, with source/root metadata and an
+  explicit evidence follow-up path when the agent needs more context.
+- Avoid custom indexing, embeddings, SQLite, markdown exports, and durable
+  session aggregation in v1.
 
 ## Non-Goals
 
@@ -98,7 +98,7 @@ Agent query
       -> fff-mcp /Users/ben/.cursor/projects
       -> fff-mcp /Users/ben/.hermes/sessions
     -> normalize results to canonical absolute paths
-    -> return expanded patterns + raw hits grouped by source
+    -> return compact candidates or evidence hits grouped by source/path
 ```
 
 The wrapper should treat FFF as the search engine. It should not parse sessions
@@ -117,6 +117,8 @@ type SearchSessionsInput = {
   queries?: string[];
   operationalContext?: unknown;
   sources?: SourceName[] | "all";
+  resultsDisplayMode?: "candidates" | "evidence" | "debug";
+  paths?: string[];
   maxPatterns?: number;
   maxResultsPerSource?: number;
   context?: number;
@@ -129,6 +131,7 @@ Proposed output:
 ```ts
 type SearchSessionsOutput = {
   query: string;
+  resultsDisplayMode: "candidates" | "evidence" | "debug";
   expandedPatterns: string[];
   searchedSources: Array<{
     name: SourceName;
@@ -142,22 +145,48 @@ type SearchSessionsOutput = {
     code: string;
     message: string;
   }>;
-  results: Array<{
-    source: SourceName;
-    root: string;
-    path: string;
-    line?: number;
-    content: string;
-    query?: string;
-    pattern?: string;
-    context?: string[];
-  }>;
+  results: Array<SearchCandidate | SearchEvidenceHit>;
   debug?: unknown;
+};
+
+type SearchCandidate = {
+  source: SourceName;
+  root: string;
+  path: string;
+  sessionId?: string;
+  line?: number;
+  preview: string;
+  hitCount: number;
+  matchedQueries: string[];
+  matchedPatterns: string[];
+  more: {
+    evidence: {
+      query: string;
+      queries?: string[];
+      sources: SourceName[];
+      resultsDisplayMode: "evidence";
+      paths: string[];
+    };
+  };
+};
+
+type SearchEvidenceHit = {
+  source: SourceName;
+  root: string;
+  path: string;
+  line?: number;
+  content: string;
+  query?: string;
+  pattern?: string;
+  context?: string[];
 };
 ```
 
-The output should stay close to FFF's result shape. The extra source/root fields
-exist so agents can understand where a hit came from and read the real file.
+The default output should be compact session candidates, not a dump of every
+matching line. Candidates preserve source/root/path attribution and include a
+`more.evidence` follow-up request so the calling agent can ask for background
+context only when it needs it. Evidence and debug modes stay close to FFF's raw
+hit shape.
 
 ## Interface Design Decision
 
@@ -193,8 +222,8 @@ noise:
 ```
 
 Optional fields exist only for agent-planned probes, operational context,
-source filtering, result caps, context size, and diagnostics. Do not expose
-pipeline steps such as `resolveRoots`,
+source filtering, result depth, selected follow-up paths, result caps, context
+size, and diagnostics. Do not expose pipeline steps such as `resolveRoots`,
 `rewriteQuery`, `searchRoot`, or `readExcerpt` as MCP tools in V1. Those are
 useful internal seams and possible future code-mode operations, but exposing
 them now would make agents assemble a brittle workflow manually.
@@ -214,7 +243,8 @@ single tool:
 - A path normalizer that converts returned paths into canonical absolute paths
   while preserving source/root attribution.
 - A response shaper that returns expanded patterns, searched source status,
-  warnings, and raw-ish hits without session aggregation or custom ranking.
+  warnings, compact candidates by default, and raw-ish evidence hits on
+  request.
 
 The internal module boundaries are for implementation quality and tests, not
 for the public MCP API.
@@ -383,10 +413,12 @@ An optional CLI can share the same library:
 ```bash
 agent-session-search "where did we debug global search embedding timeout?"
 agent-session-search "auth token timeout" --source codex --json --debug
+agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
 
 The CLI is useful for humans and fallback workflows, but MCP is the primary
-product surface.
+product surface. CLI flags should map to the same result modes so fallback
+agents do not have to invent a separate workflow.
 
 ## Future Roadmap
 
@@ -481,7 +513,8 @@ practical, and paths returned from nested session directories.
 
 Test the MCP tool contract with the common `{ "query": "..." }` call and with a
 fully specified request. Assertions should cover `expandedPatterns`,
-`searchedSources`, `warnings`, and raw-ish hit shape.
+`searchedSources`, `warnings`, compact candidate shape, and raw-ish evidence hit
+shape.
 
 ## Acceptance Criteria
 
@@ -505,7 +538,7 @@ V1 is acceptable when:
     normalization, fanout failure handling, path normalization, and MCP response
     shape.
 16. It does not implement custom indexing, embeddings, markdown export, or
-    session aggregation.
+    durable session aggregation beyond per-response candidate grouping.
 
 ## Open Questions
 

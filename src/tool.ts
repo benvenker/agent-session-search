@@ -6,6 +6,8 @@ export const searchSessionsInputSchema = z.object({
   queries: z.array(z.string().min(1)).optional(),
   operationalContext: z.unknown().optional(),
   sources: z.union([z.array(z.string()), z.literal("all")]).optional(),
+  resultsDisplayMode: z.enum(["candidates", "evidence", "debug"]).optional(),
+  paths: z.array(z.string().min(1)).optional(),
   maxPatterns: z.number().int().positive().optional(),
   maxResultsPerSource: z.number().int().positive().optional(),
   context: z.number().int().min(0).optional(),

@@ -1,4 +1,6 @@
 import type {
+  SearchCandidate,
+  SearchResult,
   SearchSessionsInput,
   SearchSessionsOutput,
   SessionSearch,
@@ -17,6 +19,7 @@ import {
   type SessionRootConfig,
 } from "./roots.js";
 import { rewriteQueryPatterns } from "./query-rewriter.js";
+import { basename } from "node:path";
 
 export type SessionSearchBackendInput = {
   patterns: string[];
@@ -58,7 +61,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
       ...source,
     }));
     const warnings = [...resolvedRoots.warnings];
-    const results: SearchSessionsOutput["results"] = [];
+    const rawResults: SearchResult[] = [];
     const createBackend =
       this.options.createBackend ??
       ((source) =>
@@ -95,7 +98,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
                 }
               : result
           );
-        results.push(...sourceResults);
+        rawResults.push(...sourceResults);
         if (sourceResults.length === 0) {
           const backendFailure = output.warnings.find(isBackendFailureWarning);
           if (backendFailure) {
@@ -123,7 +126,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
     if (
       attemptedSourceCount > 0 &&
       failedSourceCount === attemptedSourceCount &&
-      results.length === 0
+      rawResults.length === 0
     ) {
       warnings.push({
         code: "all_sources_failed",
@@ -132,13 +135,25 @@ export class CoordinatedSessionSearch implements SessionSearch {
       });
     }
 
+    const resultsDisplayMode =
+      input.resultsDisplayMode ?? (input.debug ? "debug" : "candidates");
+    const filteredResults = input.paths?.length
+      ? rawResults.filter((result) => input.paths?.includes(result.path))
+      : rawResults;
+    const results =
+      resultsDisplayMode === "candidates"
+        ? toCandidates(filteredResults, input)
+        : filteredResults;
+    const shouldIncludeDebug = input.debug || resultsDisplayMode === "debug";
+
     return {
       query: input.query,
+      resultsDisplayMode,
       expandedPatterns,
       searchedSources,
       warnings,
       results,
-      ...(input.debug
+      ...(shouldIncludeDebug
         ? {
             debug: {
               input,
@@ -148,6 +163,67 @@ export class CoordinatedSessionSearch implements SessionSearch {
         : {}),
     };
   }
+}
+
+function toCandidates(
+  results: SearchResult[],
+  input: SearchSessionsInput
+): SearchCandidate[] {
+  const candidates = new Map<string, SearchCandidate>();
+
+  for (const result of results) {
+    const key = `${result.source}\0${result.path}`;
+    const existing = candidates.get(key);
+    if (existing) {
+      existing.hitCount += 1;
+      addUnique(existing.matchedPatterns, result.pattern);
+      addUnique(existing.matchedQueries, result.query);
+      if (
+        result.line !== undefined &&
+        (existing.line === undefined || result.line < existing.line)
+      ) {
+        existing.line = result.line;
+        existing.preview = result.content;
+      }
+      continue;
+    }
+
+    const sessionId = sessionIdFromPath(result.path);
+    candidates.set(key, {
+      source: result.source,
+      root: result.root,
+      path: result.path,
+      ...(sessionId ? { sessionId } : {}),
+      line: result.line,
+      preview: result.content,
+      hitCount: 1,
+      matchedQueries: result.query ? [result.query] : [],
+      matchedPatterns: result.pattern ? [result.pattern] : [],
+      more: {
+        evidence: {
+          query: input.query,
+          ...(input.queries ? { queries: input.queries } : {}),
+          sources: [result.source],
+          resultsDisplayMode: "evidence",
+          paths: [result.path],
+        },
+      },
+    });
+  }
+
+  return Array.from(candidates.values());
+}
+
+function addUnique(values: string[], value: string | undefined) {
+  if (value && !values.includes(value)) {
+    values.push(value);
+  }
+}
+
+function sessionIdFromPath(path: string) {
+  return basename(path).match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/
+  )?.[0];
 }
 
 function expandPatternPlans(

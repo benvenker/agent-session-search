@@ -2,13 +2,15 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createSessionSearch } from "./search.js";
+import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
 
 function usage() {
   return [
-    "Usage: agent-session-search <query> [--json] [--source <source>...]",
+    "Usage: agent-session-search <query> [--json] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...]",
     "",
     "Examples:",
     '  agent-session-search "auth token timeout" --json',
+    '  agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl',
     '  agent-session-search "global search" --source codex --source claude',
   ].join("\n");
 }
@@ -17,12 +19,18 @@ type ParsedArgs = {
   query: string;
   json: boolean;
   sources: string[];
+  resultsDisplayMode?: ResultsDisplayMode;
+  paths: string[];
+  debug: boolean;
 };
 
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const sources: string[] = [];
+  const paths: string[] = [];
   const queryParts: string[] = [];
   let json = false;
+  let resultsDisplayMode: ResultsDisplayMode | undefined;
+  let debug = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -39,6 +47,36 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--mode" || arg === "--results-display-mode") {
+      resultsDisplayMode = parseResultsDisplayMode(argv[index + 1], arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--candidates") {
+      resultsDisplayMode = "candidates";
+      continue;
+    }
+    if (arg === "--evidence") {
+      resultsDisplayMode = "evidence";
+      continue;
+    }
+    if (arg === "--debug") {
+      debug = true;
+      resultsDisplayMode = "debug";
+      continue;
+    }
+    if (arg === "--path") {
+      const path = argv[index + 1];
+      if (!path) {
+        throw new Error("--path requires a value");
+      }
+      paths.push(path);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      throw new Error(`unknown option: ${arg}`);
+    }
     queryParts.push(arg);
   }
 
@@ -47,16 +85,25 @@ function parseArgs(argv: string[]): ParsedArgs {
     throw new Error("query is required");
   }
 
-  return { query, json, sources };
+  return { query, json, sources, resultsDisplayMode, paths, debug };
+}
+
+export function searchInputFromParsedArgs(
+  args: ParsedArgs
+): SearchSessionsInput {
+  return {
+    query: args.query,
+    sources: args.sources.length > 0 ? args.sources : undefined,
+    resultsDisplayMode: args.resultsDisplayMode,
+    paths: args.paths.length > 0 ? args.paths : undefined,
+    debug: args.debug || undefined,
+  };
 }
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const search = createSessionSearch();
-  const result = await search.searchSessions({
-    query: args.query,
-    sources: args.sources.length > 0 ? args.sources : undefined,
-  });
+  const result = await search.searchSessions(searchInputFromParsedArgs(args));
 
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -69,6 +116,19 @@ export async function main(argv = process.argv.slice(2)) {
   for (const warning of result.warnings) {
     console.warn(`warning: ${warning.code}: ${warning.message}`);
   }
+}
+
+function parseResultsDisplayMode(
+  value: string | undefined,
+  option: string
+): ResultsDisplayMode {
+  if (!value) {
+    throw new Error(`${option} requires a value`);
+  }
+  if (value === "candidates" || value === "evidence" || value === "debug") {
+    return value;
+  }
+  throw new Error(`${option} must be one of: candidates, evidence, debug`);
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {

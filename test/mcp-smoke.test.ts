@@ -13,12 +13,15 @@ describe("MCP search_sessions smoke path", () => {
     const configPath = join(tmp, "config.json");
     await mkdir(root);
     await mkdir(db);
-    await writeFile(join(root, "session.jsonl"), "before\nauth token timeout smoke\n");
+    await writeFile(
+      join(root, "session.jsonl"),
+      "before\nauth token timeout smoke\n"
+    );
     await writeFile(
       configPath,
       JSON.stringify({
         roots: [{ name: "smoke", path: root, include: ["*.jsonl"] }],
-      }),
+      })
     );
     const canonicalRoot = await realpath(root);
 
@@ -35,7 +38,10 @@ describe("MCP search_sessions smoke path", () => {
       }),
       stderr: "pipe",
     });
-    const client = new Client({ name: "agent-session-search-smoke", version: "0.1.0" });
+    const client = new Client({
+      name: "agent-session-search-smoke",
+      version: "0.1.0",
+    });
 
     try {
       await client.connect(transport);
@@ -47,6 +53,7 @@ describe("MCP search_sessions smoke path", () => {
 
       expect(result).toMatchObject({
         query: "timeout smoke",
+        resultsDisplayMode: "candidates",
         expandedPatterns: ["timeout smoke"],
         searchedSources: [
           {
@@ -63,8 +70,18 @@ describe("MCP search_sessions smoke path", () => {
           root: canonicalRoot,
           path: join(canonicalRoot, "session.jsonl"),
           line: 2,
-          content: "auth token timeout smoke",
-          pattern: "timeout smoke",
+          preview: "auth token timeout smoke",
+          hitCount: 1,
+          matchedQueries: [],
+          matchedPatterns: ["timeout smoke"],
+          more: {
+            evidence: {
+              query: "timeout smoke",
+              sources: ["smoke"],
+              resultsDisplayMode: "evidence",
+              paths: [join(canonicalRoot, "session.jsonl")],
+            },
+          },
         },
       ]);
     } finally {
@@ -73,21 +90,33 @@ describe("MCP search_sessions smoke path", () => {
   });
 });
 
-async function eventuallyCallSearchSessions(client: Client, input: Record<string, unknown>) {
+async function eventuallyCallSearchSessions(
+  client: Client,
+  input: Record<string, unknown>
+) {
   let result = await callSearchSessions(client, input);
-  for (let attempt = 0; attempt < 10 && result.results.length === 0; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 10 && result.results.length === 0;
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 25));
     result = await callSearchSessions(client, input);
   }
   return result;
 }
 
-async function callSearchSessions(client: Client, input: Record<string, unknown>) {
+async function callSearchSessions(
+  client: Client,
+  input: Record<string, unknown>
+) {
   const output = await client.callTool({
     name: "search_sessions",
     arguments: input,
   });
-  const content = (output as { content?: Array<{ type: string; text?: string }> }).content;
+  const content = (
+    output as { content?: Array<{ type: string; text?: string }> }
+  ).content;
   const text = content
     ?.filter((item) => item.type === "text" && typeof item.text === "string")
     .map((item) => item.text)
@@ -105,5 +134,9 @@ async function callSearchSessions(client: Client, input: Record<string, unknown>
 }
 
 function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
 }

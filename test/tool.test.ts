@@ -10,6 +10,7 @@ describe("search_sessions tool boundary", () => {
         calls.push(input);
         return {
           query: input.query,
+          resultsDisplayMode: input.resultsDisplayMode ?? "candidates",
           expandedPatterns: [input.query],
           searchedSources: [],
           warnings: [],
@@ -26,6 +27,8 @@ describe("search_sessions tool boundary", () => {
         branch: "paper-cuts",
       },
       sources: ["codex", "claude"],
+      resultsDisplayMode: "evidence",
+      paths: ["/Users/ben/.codex/sessions/session.jsonl"],
       maxPatterns: 3,
       maxResultsPerSource: 10,
       context: 2,
@@ -41,6 +44,8 @@ describe("search_sessions tool boundary", () => {
           branch: "paper-cuts",
         },
         sources: ["codex", "claude"],
+        resultsDisplayMode: "evidence",
+        paths: ["/Users/ben/.codex/sessions/session.jsonl"],
         maxPatterns: 3,
         maxResultsPerSource: 10,
         context: 2,
@@ -49,6 +54,7 @@ describe("search_sessions tool boundary", () => {
     ]);
     expect(result).toEqual({
       query: "auth token timeout",
+      resultsDisplayMode: "evidence",
       expandedPatterns: ["auth token timeout"],
       searchedSources: [],
       warnings: [],

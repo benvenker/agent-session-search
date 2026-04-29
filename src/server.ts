@@ -24,6 +24,7 @@ export function createServer(options: CreateSessionSearchOptions = {}) {
       "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
       "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
       "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
+      "The default `resultsDisplayMode` is `candidates`: compact session-level leads grouped by source/path. Use a candidate `more.evidence` object as the next tool input when you need matching snippets from a selected session. Use `debug` only when inspecting query expansion or backend behavior.",
     ].join(" "),
     parameters: searchSessionsInputSchema,
     execute: async (input) => {

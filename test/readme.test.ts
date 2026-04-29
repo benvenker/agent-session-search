@@ -37,6 +37,7 @@ describe("README setup documentation", () => {
       '"*.jsonl"',
       '"*/agent-transcripts/*"',
       'sources: "all"',
+      "resultsDisplayMode",
       "--source codex",
       "missing_root",
       "unreadable_root",

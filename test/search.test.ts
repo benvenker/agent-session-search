@@ -5,6 +5,119 @@ import { describe, expect, it } from "vitest";
 import { createSessionSearch } from "../src/search.js";
 
 describe("createSessionSearch", () => {
+  it("returns compact session candidates by default", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            const sessionPath = join(
+              source.root,
+              "rollout-2026-04-29T10-15-17-019dd9cf-08bd-7580-827e-870084b36b6a.jsonl"
+            );
+            const otherSessionPath = join(source.root, "other.jsonl");
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 12,
+                  content: "Done on paper-cuts / PR #227",
+                  pattern: "PR #227",
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 40,
+                  content:
+                    "Pushed https://github.com/poolsideai/poolside-studio/pull/227",
+                  pattern: "pull/227",
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: otherSessionPath,
+                  line: 3,
+                  content: "Unrelated bare timestamp 227",
+                  pattern: "227",
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "find PR 227 papercuts branch",
+      queries: ["PR #227", "paper-cuts"],
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalSessionPath = join(
+      canonicalCodexRoot,
+      "rollout-2026-04-29T10-15-17-019dd9cf-08bd-7580-827e-870084b36b6a.jsonl"
+    );
+    const canonicalOtherPath = join(canonicalCodexRoot, "other.jsonl");
+
+    expect(result.resultsDisplayMode).toBe("candidates");
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: canonicalSessionPath,
+        sessionId: "019dd9cf-08bd-7580-827e-870084b36b6a",
+        line: 12,
+        preview: "Done on paper-cuts / PR #227",
+        hitCount: 2,
+        matchedQueries: ["PR #227"],
+        matchedPatterns: ["PR #227", "pull/227"],
+        more: {
+          evidence: {
+            query: "find PR 227 papercuts branch",
+            queries: ["PR #227", "paper-cuts"],
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalSessionPath],
+          },
+        },
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: canonicalOtherPath,
+        line: 3,
+        preview: "Unrelated bare timestamp 227",
+        hitCount: 1,
+        matchedQueries: ["PR #227"],
+        matchedPatterns: ["227"],
+        more: {
+          evidence: {
+            query: "find PR 227 papercuts branch",
+            queries: ["PR #227", "paper-cuts"],
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalOtherPath],
+          },
+        },
+      },
+    ]);
+  });
+
   it("fans out one query across multiple selected roots and returns raw hits", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -51,12 +164,14 @@ describe("createSessionSearch", () => {
     const result = await search.searchSessions({
       query: "auth token timeout",
       sources: ["codex", "claude"],
+      resultsDisplayMode: "evidence",
     });
 
     const canonicalCodexRoot = await realpath(codexRoot);
     const canonicalClaudeRoot = await realpath(claudeRoot);
     expect(result).toEqual({
       query: "auth token timeout",
+      resultsDisplayMode: "evidence",
       expandedPatterns: ["auth token timeout"],
       searchedSources: [
         {
@@ -122,6 +237,70 @@ describe("createSessionSearch", () => {
     ]);
   });
 
+  it("restricts evidence results to selected session paths", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "selected.jsonl"),
+                  line: 7,
+                  content: `selected ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "other.jsonl"),
+                  line: 9,
+                  content: `other ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const selectedPath = join(canonicalCodexRoot, "selected.jsonl");
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      paths: [selectedPath],
+    });
+
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 7,
+        content: "selected auth token timeout",
+        pattern: "auth token timeout",
+      },
+    ]);
+  });
+
   it("uses agent-planned queries as the search probes while preserving the original request", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -163,12 +342,14 @@ describe("createSessionSearch", () => {
     const result = await search.searchSessions({
       query: "use agent-session-search to find PR 227 and papercuts branch",
       queries: ["PR #227", "paper-cuts"],
+      resultsDisplayMode: "evidence",
       debug: true,
     });
 
     expect(result.query).toBe(
       "use agent-session-search to find PR 227 and papercuts branch"
     );
+    expect(result.resultsDisplayMode).toBe("evidence");
     expect(result.expandedPatterns).toEqual([
       "PR #227",
       "PR 227",
@@ -307,6 +488,7 @@ describe("createSessionSearch", () => {
     const result = await search.searchSessions({
       query: "auth token timeout",
       sources: ["codex", "claude"],
+      resultsDisplayMode: "evidence",
     });
     const canonicalCodexRoot = await realpath(codexRoot);
     const canonicalClaudeRoot = await realpath(claudeRoot);
@@ -468,6 +650,7 @@ describe("createSessionSearch", () => {
       },
     ]);
     expect(result.expandedPatterns).toEqual(["auth token timeout"]);
+    expect(result.resultsDisplayMode).toBe("debug");
     expect(result.results.map((hit) => hit.line)).toEqual([1, 2]);
     expect(result.debug).toEqual({
       input: {
@@ -476,6 +659,45 @@ describe("createSessionSearch", () => {
         maxResultsPerSource: 2,
         context: 4,
         debug: true,
+      },
+      expandedPatterns: ["auth token timeout"],
+    });
+  });
+
+  it("includes debug details when requested through resultsDisplayMode", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search() {
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "debug",
+    });
+
+    expect(result.resultsDisplayMode).toBe("debug");
+    expect(result.debug).toEqual({
+      input: {
+        query: "auth token timeout",
+        resultsDisplayMode: "debug",
       },
       expandedPatterns: ["auth token timeout"],
     });

@@ -6,11 +6,15 @@ export type SearchSessionsInput = {
   queries?: string[];
   operationalContext?: unknown;
   sources?: SourceName[] | "all";
+  resultsDisplayMode?: ResultsDisplayMode;
+  paths?: string[];
   maxPatterns?: number;
   maxResultsPerSource?: number;
   context?: number;
   debug?: boolean;
 };
+
+export type ResultsDisplayMode = "candidates" | "evidence" | "debug";
 
 export type SearchedSource = {
   name: SourceName;
@@ -37,12 +41,34 @@ export type SearchResult = {
   context?: string[];
 };
 
+export type SearchCandidate = {
+  source: SourceName;
+  root: string;
+  path: string;
+  sessionId?: string;
+  line?: number;
+  preview: string;
+  hitCount: number;
+  matchedQueries: string[];
+  matchedPatterns: string[];
+  more: {
+    evidence: {
+      query: string;
+      queries?: string[];
+      sources: SourceName[];
+      resultsDisplayMode: "evidence";
+      paths: string[];
+    };
+  };
+};
+
 export type SearchSessionsOutput = {
   query: string;
+  resultsDisplayMode: ResultsDisplayMode;
   expandedPatterns: string[];
   searchedSources: SearchedSource[];
   warnings: SearchWarning[];
-  results: SearchResult[];
+  results: Array<SearchResult | SearchCandidate>;
   debug?: unknown;
 };
 

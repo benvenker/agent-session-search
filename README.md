@@ -153,6 +153,7 @@ Example tool input:
 {
   "query": "auth token timeout",
   "sources": "all",
+  "resultsDisplayMode": "candidates",
   "maxResultsPerSource": 20,
   "context": 2
 }
@@ -179,6 +180,12 @@ requests, and examples from `query`; put useful environment details in
 If `queries` is omitted, the tool falls back to deterministic rewriting of
 `query`.
 
+The default `resultsDisplayMode` is `"candidates"`. It returns compact
+session-level leads grouped by `source` and `path`, with a short `preview`,
+`hitCount`, matched patterns, and a complete `more.evidence` follow-up request.
+If the agent needs matching snippets from a selected session, it can call the
+same tool again with the candidate's `more.evidence` object as input.
+
 Omit `sources` or pass `sources: "all"` to search every enabled source. To search
 only specific sources, pass an array such as `"sources": ["codex", "claude"]`.
 
@@ -202,18 +209,22 @@ After installation, use the packaged CLI:
 ```bash
 agent-session-search "auth token timeout" --json
 agent-session-search "auth token timeout" --source codex --source claude --json
+agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
 
 The JSON output includes:
 
 - `query`: the original query.
+- `resultsDisplayMode`: `candidates`, `evidence`, or `debug`.
 - `expandedPatterns`: deterministic FFF-friendly literal patterns searched.
 - `searchedSources`: source names, canonical roots, status, and any source-level
   warning.
 - `warnings`: missing roots, unreadable roots, backend failures, and
   partial-success notices.
-- `results`: FFF-backed hits with `source`, `root`, canonical absolute `path`,
-  `line`, `content`, optional `pattern`, and optional `context`.
+- `results`: compact candidates by default, or FFF-backed evidence hits with
+  `source`, `root`, canonical absolute `path`, `line`, `content`, optional
+  `pattern`, and optional `context` when `resultsDisplayMode` is `"evidence"` or
+  `"debug"`.
 
 ## Warnings And Partial Success
 
