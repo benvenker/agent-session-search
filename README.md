@@ -26,6 +26,22 @@ npm run build
 npm run smoke
 ```
 
+Before handing off a local package build, inspect the tarball contents and test
+the installed bin shims from a clean temporary app:
+
+```bash
+npm pack --dry-run --json
+tmpdir="$(mktemp -d)"
+npm pack --pack-destination "$tmpdir"
+mkdir "$tmpdir/app"
+cd "$tmpdir/app"
+npm init -y
+npm install --foreground-scripts --no-audit --no-fund "$tmpdir"/agent-session-search-*.tgz
+npx agent-session-search-doctor
+npx agent-session-search "auth token timeout" --json
+npx agent-session-search-mcp
+```
+
 `npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is available,
 it prints the resolved path, version, and `PATH` used for the check. In an
 installed package, run the same preflight with:
