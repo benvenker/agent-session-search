@@ -158,12 +158,14 @@ Example tool input:
 }
 ```
 
-For conversational recall requests, agents should keep `query` as the original
-request and provide short planned probes plus any useful operational context:
+For conversational recall requests, agents should set `query` to a concise
+recall task, not the full prompt. Strip tool-use directions, output-format
+requests, and examples from `query`; put useful environment details in
+`operationalContext` and short planned probes in `queries`:
 
 ```json
 {
-  "query": "use agent-session-search to find PR 227 and papercuts branch",
+  "query": "Find the prior session about PR 227 and the papercuts branch.",
   "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
   "operationalContext": {
     "cwd": "/Users/ben/code/poolside/poolside-studio",

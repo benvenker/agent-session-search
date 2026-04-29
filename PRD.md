@@ -173,13 +173,16 @@ The common fallback call should be boring:
 { "query": "where did we debug global search embedding timeout?" }
 ```
 
-The agent-native call should preserve the original user request while letting
-the calling LLM agent provide planned literal probes and lightweight operational
-context:
+The agent-native call should preserve the user's recall intent while letting the
+calling LLM agent provide planned literal probes and lightweight operational
+context. `query` should be a concise recall task, not a verbatim dump of the
+full prompt. Agents should strip tool-use directions, output-format requests,
+and examples from `query` so those instructions do not become future searchable
+noise:
 
 ```json
 {
-  "query": "use agent-session-search to find PR 227 and papercuts branch",
+  "query": "Find the prior session about PR 227 and the papercuts branch.",
   "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
   "operationalContext": {
     "cwd": "/Users/ben/code/poolside/poolside-studio",
@@ -225,7 +228,7 @@ layer.
 
 When an agent has enough context, it should infer the operational recall task
 from the user request and environment, then provide short literal probes in
-`queries`. The tool preserves `query` as the original request for audit/debug,
+`queries`. The tool preserves `query` as the concise recall task for audit/debug,
 searches the planned probes, and records the probe that produced each hit.
 
 The deterministic rules-based rewriter should emit literal search patterns, not
