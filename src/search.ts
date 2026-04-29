@@ -1,5 +1,10 @@
 import type { SearchSessionsInput, SearchSessionsOutput, SessionSearch } from "./types.js";
-import { createFffMcpClient, OneRootFffBackend, type OneRootFffSearchOutput } from "./fff-backend.js";
+import {
+  createFffMcpClient,
+  OneRootFffBackend,
+  type CreateFffMcpClientOptions,
+  type OneRootFffSearchOutput,
+} from "./fff-backend.js";
 import {
   resolveSessionRoots,
   type ResolvedSessionSource,
@@ -35,7 +40,14 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const searchedSources = resolvedRoots.sources.map((source) => ({ ...source }));
     const warnings = [...resolvedRoots.warnings];
     const results: SearchSessionsOutput["results"] = [];
-    const createBackend = this.options.createBackend ?? createDefaultBackend;
+    const createBackend =
+      this.options.createBackend ??
+      ((source) =>
+        createDefaultBackend(source, {
+          fffMcp: this.options.fffMcp,
+          emptyResultRetryAttempts: this.options.fffEmptyResultRetryAttempts,
+          emptyResultRetryDelayMs: this.options.fffEmptyResultRetryDelayMs,
+        }));
     let attemptedSourceCount = 0;
     let failedSourceCount = 0;
 
@@ -106,17 +118,29 @@ export class CoordinatedSessionSearch implements SessionSearch {
 export type CreateSessionSearchOptions = Pick<ResolveSessionRootsInput, "configPath"> & {
   defaultRoots?: SessionRootConfig[];
   createBackend?: CreateSessionSearchBackend;
+  fffMcp?: CreateFffMcpClientOptions;
+  fffEmptyResultRetryAttempts?: number;
+  fffEmptyResultRetryDelayMs?: number;
 };
 
 export function createSessionSearch(options: CreateSessionSearchOptions = {}): SessionSearch {
   return new CoordinatedSessionSearch(options);
 }
 
-async function createDefaultBackend(source: ResolvedSessionSource): Promise<SessionSearchBackend> {
+async function createDefaultBackend(
+  source: ResolvedSessionSource,
+  options: {
+    fffMcp?: CreateFffMcpClientOptions;
+    emptyResultRetryAttempts?: number;
+    emptyResultRetryDelayMs?: number;
+  } = {},
+): Promise<SessionSearchBackend> {
   return new OneRootFffBackend({
     source: source.name,
     root: source.root,
-    client: await createFffMcpClient(source.root),
+    client: await createFffMcpClient(source.root, options.fffMcp),
+    emptyResultRetryAttempts: options.emptyResultRetryAttempts,
+    emptyResultRetryDelayMs: options.emptyResultRetryDelayMs,
   });
 }
 

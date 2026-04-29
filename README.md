@@ -36,8 +36,19 @@ backend is implemented by the follow-up beads.
 
 ## CLI Smoke Path
 
-Run the shared library through the local CLI:
+Run the automated smoke path through the real stdio MCP entrypoint with a
+deterministic fixture root:
+
+```bash
+npm run smoke
+```
+
+For manual local checks against your configured session roots, run the shared
+library through the local CLI:
 
 ```bash
 npm run dev:cli -- "auth token timeout" --json
 ```
+
+The JSON output includes the original `query`, `expandedPatterns`,
+`searchedSources`, `warnings`, and `results`.

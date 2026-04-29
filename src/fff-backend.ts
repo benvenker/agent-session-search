@@ -33,6 +33,8 @@ export type OneRootFffBackendOptions = {
   root: string;
   client: FffClient;
   timeoutMs?: number;
+  emptyResultRetryAttempts?: number;
+  emptyResultRetryDelayMs?: number;
 };
 
 export type OneRootFffSearchInput = {
@@ -61,30 +63,47 @@ export class OneRootFffBackend {
         break;
       }
 
+      const output = await this.searchPattern(pattern, remainingResults(results, input.maxResults));
+      warnings.push(...output.warnings);
+      results.push(...output.results.slice(0, remainingResults(results, input.maxResults)));
+    }
+
+    return { warnings, results };
+  }
+
+  private async searchPattern(pattern: string, maxResults: number | undefined): Promise<OneRootFffSearchOutput> {
+    const attempts = this.options.emptyResultRetryAttempts ?? 0;
+
+    for (let attempt = 0; attempt <= attempts; attempt += 1) {
       let response: FffToolResult;
       try {
         response = await withTimeout(
           this.options.client.grep({
             query: pattern,
-            maxResults: remainingResults(results, input.maxResults),
+            maxResults,
           }),
           this.options.timeoutMs,
           pattern,
         );
       } catch (error) {
-        warnings.push(this.warning(errorCode(error), errorMessage(error)));
-        continue;
+        return { warnings: [this.warning(errorCode(error), errorMessage(error))], results: [] };
       }
 
       if (response.isError) {
-        warnings.push(this.warning("fff_backend_error", responseText(response) || "FFF backend reported an error."));
-        continue;
+        return {
+          warnings: [this.warning("fff_backend_error", responseText(response) || "FFF backend reported an error.")],
+          results: [],
+        };
       }
 
-      results.push(...this.normalizeGrepResponse(pattern, response).slice(0, remainingResults(results, input.maxResults)));
+      const results = this.normalizeGrepResponse(pattern, response);
+      if (results.length > 0 || attempt === attempts) {
+        return { warnings: [], results };
+      }
+      await delay(this.options.emptyResultRetryDelayMs ?? 25);
     }
 
-    return { warnings, results };
+    return { warnings: [], results: [] };
   }
 
   private warning(code: string, message: string): SearchWarning {
@@ -203,6 +222,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined, patt
   });
 
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class FffBackendTimeout extends Error {

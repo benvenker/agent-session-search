@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "smoke": "vitest run test/mcp-smoke.test.ts",
     "dev:mcp": "tsx src/server.ts",
     "dev:cli": "tsx src/cli.ts"
   },
