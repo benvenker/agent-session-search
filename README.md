@@ -112,13 +112,24 @@ Example configuration:
   "synonyms": {
     "auth": ["authentication", "login"],
     "timeout": ["timed out", "deadline"]
+  },
+  "defaults": {
+    "maxPatterns": 8,
+    "maxResultsPerSource": 50,
+    "context": 0
   }
 }
 ```
 
 The built-in defaults cover the same five source names: `codex`, `claude`, `pi`,
 `cursor`, and `hermes`. A configured root with the same name replaces the
-built-in default. Set `"enabled": false` on a root to disable it.
+built-in default. Set `"enabled": false` on a root to disable it. `include`
+patterns are enforced against returned paths; slashless patterns such as
+`*.jsonl` match basenames anywhere under the root, while patterns containing `/`
+match root-relative paths.
+
+`defaults` are optional. Request fields override configured defaults. Invalid
+default values are ignored.
 
 ## MCP Server
 
@@ -154,8 +165,7 @@ Example tool input:
   "query": "auth token timeout",
   "sources": "all",
   "resultsDisplayMode": "candidates",
-  "maxResultsPerSource": 20,
-  "context": 2
+  "maxResultsPerSource": 20
 }
 ```
 
@@ -185,6 +195,12 @@ session-level leads grouped by `source` and `path`, with a short `preview`,
 `hitCount`, matched patterns, and a complete `more.evidence` follow-up request.
 If the agent needs matching snippets from a selected session, it can call the
 same tool again with the candidate's `more.evidence` object as input.
+Path-restricted evidence requests are searched without the normal per-source cap
+first, then filtered and capped, so a selected session is not lost behind other
+hits from the same source.
+
+The input schema accepts `context` for forward compatibility. The current FFF
+backend returns bounded matching lines, not surrounding context lines.
 
 Omit `sources` or pass `sources: "all"` to search every enabled source. To search
 only specific sources, pass an array such as `"sources": ["codex", "claude"]`.
@@ -222,9 +238,8 @@ The JSON output includes:
 - `warnings`: missing roots, unreadable roots, backend failures, and
   partial-success notices.
 - `results`: compact candidates by default, or FFF-backed evidence hits with
-  `source`, `root`, canonical absolute `path`, `line`, `content`, optional
-  `pattern`, and optional `context` when `resultsDisplayMode` is `"evidence"` or
-  `"debug"`.
+  `source`, `root`, canonical absolute `path`, `line`, bounded `content`,
+  optional `query`, and optional `pattern`.
 
 ## Warnings And Partial Success
 
@@ -235,14 +250,19 @@ results.
 When at least one source can be searched, partial results are expected instead of
 failing the whole request.
 
+Unknown or disabled requested sources emit `unknown_source`; if no enabled roots
+match a source filter, the response also includes `no_sources_selected`.
+
 If every attempted source fails and there are no results, the response includes
-an `all_sources_failed` warning.
+an `all_sources_failed` warning with a concrete `rg` fallback command.
 
 ## Environment Variables
 
 - `AGENT_SESSION_SEARCH_CONFIG`: path to the JSON source-root configuration file.
 - `AGENT_SESSION_SEARCH_FFF_DB_DIR`: directory containing `frecency.mdb` and
   `history.mdb` for FFF MCP.
+- `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`: per-pattern FFF timeout in
+  milliseconds. Runtime searches default to 15000.
 - `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS`: retry count for empty FFF
   results.
 - `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS`: delay between empty-result

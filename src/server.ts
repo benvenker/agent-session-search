@@ -65,6 +65,7 @@ export function searchOptionsFromEnv(
     fffEmptyResultRetryDelayMs: numberFromEnv(
       env.AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS
     ),
+    fffTimeoutMs: numberFromEnv(env.AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS),
   };
 }
 

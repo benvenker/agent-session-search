@@ -196,6 +196,7 @@ describe("createSessionSearch", () => {
           line: 7,
           content: "codex saw auth token timeout",
           pattern: "auth token timeout",
+          query: "auth token timeout",
         },
         {
           source: "claude",
@@ -204,6 +205,7 @@ describe("createSessionSearch", () => {
           line: 7,
           content: "claude saw auth token timeout",
           pattern: "auth token timeout",
+          query: "auth token timeout",
         },
       ],
     });
@@ -219,6 +221,7 @@ describe("createSessionSearch", () => {
           patterns: ["auth token timeout"],
           maxResults: undefined,
           context: undefined,
+          include: ["*.jsonl"],
         },
       },
       {
@@ -232,6 +235,7 @@ describe("createSessionSearch", () => {
           patterns: ["auth token timeout"],
           maxResults: undefined,
           context: undefined,
+          include: ["*.jsonl"],
         },
       },
     ]);
@@ -297,6 +301,164 @@ describe("createSessionSearch", () => {
         line: 7,
         content: "selected auth token timeout",
         pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+    ]);
+  });
+
+  it("does not lose path-restricted evidence behind the normal result cap", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            const results = [
+              {
+                source: source.name,
+                root: source.root,
+                path: join(source.root, "other.jsonl"),
+                line: 1,
+                content: "other auth token timeout",
+                pattern: input.patterns[0],
+              },
+              {
+                source: source.name,
+                root: source.root,
+                path: join(source.root, "selected.jsonl"),
+                line: 2,
+                content: "selected auth token timeout",
+                pattern: input.patterns[0],
+              },
+            ];
+            return {
+              warnings: [],
+              results:
+                input.maxResults === undefined
+                  ? results
+                  : results.slice(0, input.maxResults),
+            };
+          },
+        };
+      },
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const selectedPath = join(canonicalCodexRoot, "selected.jsonl");
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      maxResultsPerSource: 1,
+      paths: [selectedPath],
+    });
+
+    expect(calls).toEqual([
+      {
+        patterns: ["auth token timeout"],
+        maxResults: undefined,
+        context: undefined,
+        paths: [selectedPath],
+        include: ["*.jsonl"],
+      },
+    ]);
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 2,
+        content: "selected auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+    ]);
+  });
+
+  it("filters results through configured include patterns", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const cursorRoot = join(tmp, "cursor");
+    const configPath = join(tmp, "config.json");
+    await mkdir(cursorRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          {
+            name: "cursor",
+            path: cursorRoot,
+            include: ["*/agent-transcripts/*"],
+          },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(
+                    source.root,
+                    "project/agent-transcripts/session.txt"
+                  ),
+                  line: 2,
+                  content: `allowed ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "project/logs/session.txt"),
+                  line: 3,
+                  content: `noise ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    const canonicalCursorRoot = await realpath(cursorRoot);
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      sources: ["cursor"],
+      resultsDisplayMode: "evidence",
+    });
+
+    expect(result.results).toEqual([
+      {
+        source: "cursor",
+        root: canonicalCursorRoot,
+        path: join(
+          canonicalCursorRoot,
+          "project/agent-transcripts/session.txt"
+        ),
+        line: 2,
+        content: "allowed auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
       },
     ]);
   });
@@ -366,6 +528,7 @@ describe("createSessionSearch", () => {
         patterns: result.expandedPatterns,
         maxResults: undefined,
         context: undefined,
+        include: ["*.jsonl"],
       },
     ]);
     expect(result.results[0]).toMatchObject({
@@ -439,6 +602,47 @@ describe("createSessionSearch", () => {
       ],
       results: [],
     });
+  });
+
+  it("warns when requested sources do not select any enabled configured root", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        throw new Error("backend should not be created");
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      sources: ["codx"],
+    });
+
+    expect(result.searchedSources).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        source: "codx",
+        code: "unknown_source",
+        message: "Requested source is not configured or is disabled: codx",
+      },
+      {
+        code: "no_sources_selected",
+        message:
+          "No enabled configured sources matched the requested source filter.",
+      },
+    ]);
+    expect(result.results).toEqual([]);
   });
 
   it("reports a backend failure for one source while keeping successful source hits", async () => {
@@ -522,6 +726,7 @@ describe("createSessionSearch", () => {
         line: 3,
         content: "matched auth token timeout",
         pattern: "auth token timeout",
+        query: "auth token timeout",
       },
     ]);
   });
@@ -592,8 +797,7 @@ describe("createSessionSearch", () => {
       },
       {
         code: "all_sources_failed",
-        message:
-          "All searchable sources failed. Try rg directly against the configured source roots if FFF is unavailable.",
+        message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}' '${canonicalClaudeRoot}'`,
       },
     ]);
   });
@@ -661,6 +865,119 @@ describe("createSessionSearch", () => {
         debug: true,
       },
       expandedPatterns: ["auth token timeout"],
+    });
+  });
+
+  it("uses validated config defaults when request options are omitted", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+        defaults: {
+          maxPatterns: 2,
+          maxResultsPerSource: 1,
+          context: 3,
+        },
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            return {
+              warnings: [],
+              results: [1, 2].map((line) => ({
+                source: source.name,
+                root: source.root,
+                path: join(source.root, `${line}.jsonl`),
+                line,
+                content: `match ${line}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: 'Find "auth token timeout" near parseSearchSessionsInput',
+      resultsDisplayMode: "evidence",
+    });
+
+    expect(calls).toEqual([
+      {
+        patterns: ["auth token timeout", "parseSearchSessionsInput"],
+        maxResults: 1,
+        context: 3,
+      },
+    ]);
+    expect(result.expandedPatterns).toEqual([
+      "auth token timeout",
+      "parseSearchSessionsInput",
+    ]);
+    expect(result.results).toHaveLength(1);
+  });
+
+  it("caps evidence content and candidate previews", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+    const longContent = "x".repeat(9_000);
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 1,
+                  content: longContent,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const evidence = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+    });
+    const candidates = await search.searchSessions({
+      query: "auth token timeout",
+    });
+
+    expect(evidence.results[0]).toMatchObject({
+      content: `${"x".repeat(8_189)}...`,
+    });
+    expect(candidates.results[0]).toMatchObject({
+      preview: `${"x".repeat(497)}...`,
     });
   });
 
@@ -907,8 +1224,7 @@ describe("createSessionSearch", () => {
       },
       {
         code: "all_sources_failed",
-        message:
-          "All searchable sources failed. Try rg directly against the configured source roots if FFF is unavailable.",
+        message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}'`,
       },
     ]);
   });

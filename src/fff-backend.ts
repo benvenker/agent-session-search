@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { SearchResult, SearchWarning, SourceName } from "./types.js";
+import { pathMatchesInclude } from "./roots.js";
 
 export type FffGrepInput = {
   query: string;
@@ -45,6 +46,9 @@ export type OneRootFffBackendOptions = {
 export type OneRootFffSearchInput = {
   patterns: string[];
   maxResults?: number;
+  context?: number;
+  paths?: string[];
+  include?: string[];
 };
 
 export type OneRootFffSearchOutput = {
@@ -75,11 +79,16 @@ export class OneRootFffBackend {
 
       const output = await this.searchPattern(
         pattern,
-        remainingResults(results, input.maxResults)
+        input.paths?.length
+          ? undefined
+          : remainingResults(results, input.maxResults)
       );
       warnings.push(...output.warnings);
+      const filteredResults = output.results.filter((result) =>
+        resultMatchesSearchInput(result, this.options.root, input)
+      );
       results.push(
-        ...output.results.slice(0, remainingResults(results, input.maxResults))
+        ...filteredResults.slice(0, remainingResults(results, input.maxResults))
       );
     }
 
@@ -188,6 +197,20 @@ export class OneRootFffBackend {
 
     return results;
   }
+}
+
+function resultMatchesSearchInput(
+  result: SearchResult,
+  root: string,
+  input: OneRootFffSearchInput
+) {
+  if (!pathMatchesInclude(root, result.path, input.include)) {
+    return false;
+  }
+  if (input.paths?.length && !input.paths.includes(result.path)) {
+    return false;
+  }
+  return true;
 }
 
 export class FffMcpClient implements FffClient {

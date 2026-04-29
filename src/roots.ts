@@ -1,7 +1,8 @@
 import { access, readFile, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
+import { basename } from "node:path/posix";
 import type { SearchWarning, SourceName } from "./types.js";
 
 export type SessionRootConfig = {
@@ -22,6 +23,7 @@ export type ResolvedSessionSource = {
 export type ResolveSessionRootsInput = {
   sources?: SourceName[] | "all";
   configPath?: string;
+  config?: ConfigFile;
   defaultRoots?: SessionRootConfig[];
 };
 
@@ -30,9 +32,16 @@ export type ResolveSessionRootsOutput = {
   warnings: SearchWarning[];
 };
 
-type ConfigFile = {
+export type SearchDefaultsConfig = {
+  maxPatterns?: number;
+  maxResultsPerSource?: number;
+  context?: number;
+};
+
+export type ConfigFile = {
   roots?: SessionRootConfig[];
   synonyms?: Record<string, string[]>;
+  defaults?: SearchDefaultsConfig;
 };
 
 export function defaultConfigPath(home = homedir()) {
@@ -41,20 +50,40 @@ export function defaultConfigPath(home = homedir()) {
 
 export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
   return [
-    { name: "codex", path: join(home, ".codex", "sessions"), include: ["*.jsonl"] },
-    { name: "claude", path: join(home, ".claude", "projects"), include: ["*.jsonl"] },
-    { name: "pi", path: join(home, ".pi", "agent", "sessions"), include: ["*"] },
-    { name: "cursor", path: join(home, ".cursor", "projects"), include: ["*/agent-transcripts/*"] },
+    {
+      name: "codex",
+      path: join(home, ".codex", "sessions"),
+      include: ["*.jsonl"],
+    },
+    {
+      name: "claude",
+      path: join(home, ".claude", "projects"),
+      include: ["*.jsonl"],
+    },
+    {
+      name: "pi",
+      path: join(home, ".pi", "agent", "sessions"),
+      include: ["*"],
+    },
+    {
+      name: "cursor",
+      path: join(home, ".cursor", "projects"),
+      include: ["*/agent-transcripts/*"],
+    },
     { name: "hermes", path: join(home, ".hermes", "sessions"), include: ["*"] },
   ];
 }
 
 export async function resolveSessionRoots(
-  input: ResolveSessionRootsInput = {},
+  input: ResolveSessionRootsInput = {}
 ): Promise<ResolveSessionRootsOutput> {
-  const configuredRoots = (await loadSearchConfig(input.configPath)).roots;
+  const configuredRoots = (
+    input.config ?? (await loadSearchConfig(input.configPath))
+  ).roots;
   const baseRoots = input.defaultRoots ?? defaultSessionRoots();
-  const roots = configuredRoots ? mergeRootConfigs(baseRoots, configuredRoots) : baseRoots;
+  const roots = configuredRoots
+    ? mergeRootConfigs(baseRoots, configuredRoots)
+    : baseRoots;
   const enabledRoots = roots.filter((root) => root.enabled !== false);
   const selectedRoots =
     input.sources && input.sources !== "all"
@@ -64,6 +93,25 @@ export async function resolveSessionRoots(
   const sources: ResolvedSessionSource[] = [];
   const warnings: SearchWarning[] = [];
 
+  if (input.sources && input.sources !== "all") {
+    for (const sourceName of input.sources) {
+      if (!enabledRoots.some((root) => root.name === sourceName)) {
+        warnings.push({
+          source: sourceName,
+          code: "unknown_source",
+          message: `Requested source is not configured or is disabled: ${sourceName}`,
+        });
+      }
+    }
+    if (selectedRoots.length === 0) {
+      warnings.push({
+        code: "no_sources_selected",
+        message:
+          "No enabled configured sources matched the requested source filter.",
+      });
+    }
+  }
+
   for (const source of selectedRoots) {
     const resolved = await resolveOneRoot(source);
     sources.push(resolved);
@@ -71,7 +119,8 @@ export async function resolveSessionRoots(
       warnings.push({
         source: source.name,
         root: source.path,
-        code: resolved.status === "missing" ? "missing_root" : "unreadable_root",
+        code:
+          resolved.status === "missing" ? "missing_root" : "unreadable_root",
         message: resolved.warning,
       });
     }
@@ -82,10 +131,12 @@ export async function resolveSessionRoots(
 
 export function mergeRootConfigs(
   defaults: SessionRootConfig[],
-  configured: SessionRootConfig[],
+  configured: SessionRootConfig[]
 ): SessionRootConfig[] {
   const merged = [...defaults];
-  const indexesByName = new Map(defaults.map((root, index) => [root.name, index]));
+  const indexesByName = new Map(
+    defaults.map((root, index) => [root.name, index])
+  );
 
   for (const root of configured) {
     const existingIndex = indexesByName.get(root.name);
@@ -100,7 +151,9 @@ export function mergeRootConfigs(
   return merged;
 }
 
-export async function loadSearchConfig(configPath = defaultConfigPath()): Promise<ConfigFile> {
+export async function loadSearchConfig(
+  configPath = defaultConfigPath()
+): Promise<ConfigFile> {
   try {
     return JSON.parse(await readFile(configPath, "utf8")) as ConfigFile;
   } catch (error) {
@@ -111,9 +164,11 @@ export async function loadSearchConfig(configPath = defaultConfigPath()): Promis
   }
 }
 
-async function resolveOneRoot(root: SessionRootConfig): Promise<ResolvedSessionSource> {
+async function resolveOneRoot(
+  root: SessionRootConfig
+): Promise<ResolvedSessionSource> {
   try {
-    await access(root.path, constants.R_OK);
+    await access(root.path, constants.R_OK | constants.X_OK);
     return {
       name: root.name,
       root: await realpath(root.path),
@@ -138,6 +193,71 @@ async function resolveOneRoot(root: SessionRootConfig): Promise<ResolvedSessionS
       warning: `Configured root is not readable: ${root.path}`,
     };
   }
+}
+
+export function pathMatchesInclude(
+  root: string,
+  path: string,
+  include: string[] | undefined
+) {
+  if (!include?.length || include.includes("*")) {
+    return true;
+  }
+
+  const relativePath = toPosixRelative(root, path);
+  if (relativePath === undefined) {
+    return false;
+  }
+
+  return include.some((pattern) => {
+    if (!pattern.includes("/")) {
+      return globMatches(basename(relativePath), pattern);
+    }
+    return globMatches(relativePath, pattern);
+  });
+}
+
+function toPosixRelative(root: string, path: string) {
+  const relativePath = relative(root, path);
+  if (
+    relativePath === "" ||
+    relativePath.startsWith("..") ||
+    relativePath.startsWith(`..${sep}`)
+  ) {
+    return undefined;
+  }
+  return relativePath.split(sep).join("/");
+}
+
+function globMatches(value: string, pattern: string) {
+  return globToRegExp(pattern).test(value);
+}
+
+function globToRegExp(pattern: string) {
+  let source = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    source += escapeRegExp(char);
+  }
+  source += "$";
+  return new RegExp(source);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 }
 
 function isMissingFileError(error: unknown) {
