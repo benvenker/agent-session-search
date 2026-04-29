@@ -5,16 +5,20 @@
   "type": "module",
   "bin": {
     "agent-session-search": "./dist/cli.js",
+    "agent-session-search-doctor": "./dist/fff-preflight.js",
     "agent-session-search-mcp": "./dist/server.js"
   },
   "files": [
     "dist/*.js",
+    "scripts/postinstall.mjs",
     "README.md"
   ],
   "scripts": {
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "check:fff": "tsx src/fff-preflight.ts",
+    "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
     "smoke": "vitest run test/mcp-smoke.test.ts",
     "dev:mcp": "tsx src/server.ts",

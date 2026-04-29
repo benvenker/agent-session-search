@@ -1,6 +1,6 @@
-import { access, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,9 @@ describe("package build and tarball", () => {
     const packedPaths = packed[0]?.files.map((file) => file.path) ?? [];
 
     expect(packedPaths).toContain("dist/cli.js");
+    expect(packedPaths).toContain("dist/fff-preflight.js");
     expect(packedPaths).toContain("dist/server.js");
+    expect(packedPaths).toContain("scripts/postinstall.mjs");
     expect(packedPaths).not.toContain("dist/test/packaging.test.js");
     for (const forbiddenPrefix of [".agents/", ".claude/", ".factory/", ".goose/", ".pi/", "skills/", "test/", "dist/test/"]) {
       expect(packedPaths.find((path) => path.startsWith(forbiddenPrefix))).toBeUndefined();
@@ -54,9 +56,19 @@ describe("package build and tarball", () => {
     expect(tarball).toBeTruthy();
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
-    await execFileAsync("npm", ["install", "--no-audit", "--no-fund", join(packDestination, tarball)], { cwd: appRoot });
+    const emptyBin = join(installRoot, "empty-bin");
+    await mkdir(emptyBin);
+    const install = await execFileAsync("npm", ["install", "--foreground-scripts", "--no-audit", "--no-fund", join(packDestination, tarball)], {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        PATH: `${emptyBin}${delimiter}${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`,
+      },
+    });
+    expect(`${install.stdout}\n${install.stderr}`).toContain("agent-session-search: fff-mcp was not found on PATH.");
 
     const installedCli = join(appRoot, "node_modules", ".bin", "agent-session-search");
+    const installedDoctor = join(appRoot, "node_modules", ".bin", "agent-session-search-doctor");
     const installedServer = join(appRoot, "node_modules", ".bin", "agent-session-search-mcp");
     const installedCliResult = await execFileAsync(installedCli, [], { cwd: appRoot }).catch((error: unknown) => {
       const execError = error as { stderr?: string; stdout?: string; code?: number };
@@ -64,6 +76,21 @@ describe("package build and tarball", () => {
       return { stderr: execError.stderr ?? "", stdout: execError.stdout ?? "" };
     });
     expect(`${installedCliResult.stdout}\n${installedCliResult.stderr}`).toContain("Usage: agent-session-search");
+
+    const fakeBin = join(installRoot, "fake-bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-package-test\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+    const installedDoctorResult = await execFileAsync(installedDoctor, [], {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${delimiter}${dirname(process.execPath)}`,
+      },
+    });
+    expect(installedDoctorResult.stdout).toContain("FFF MCP preflight passed.");
+    expect(installedDoctorResult.stdout).toContain("version: fff-mcp 9.9.9-package-test");
 
     const transport = new StdioClientTransport({
       command: installedServer,
