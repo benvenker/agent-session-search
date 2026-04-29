@@ -15,6 +15,7 @@
     "dev:cli": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "fastmcp": "^4.0.1",
     "zod": "^4.3.6"
   },
