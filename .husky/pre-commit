@@ -1,3 +1,4 @@
 npx lint-staged
+npm run check:beads
 npm run check
 npm run test

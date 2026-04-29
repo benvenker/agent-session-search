@@ -17,6 +17,7 @@
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "check:beads": "node scripts/check-beads-sync.mjs",
     "check:fff": "tsx src/fff-preflight.ts",
     "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
