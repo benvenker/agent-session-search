@@ -13,9 +13,12 @@ import {
 } from "./fff-backend.js";
 import {
   loadSearchConfig,
+  pathMatchesInclude,
   resolveSessionRoots,
+  type ConfigFile,
   type ResolvedSessionSource,
   type ResolveSessionRootsInput,
+  type SearchDefaultsConfig,
   type SessionRootConfig,
 } from "./roots.js";
 import { rewriteQueryPatterns } from "./query-rewriter.js";
@@ -25,6 +28,8 @@ export type SessionSearchBackendInput = {
   patterns: string[];
   maxResults?: number;
   context?: number;
+  paths?: string[];
+  include?: string[];
 };
 
 export type SessionSearchBackend = {
@@ -42,21 +47,26 @@ export class CoordinatedSessionSearch implements SessionSearch {
   async searchSessions(
     input: SearchSessionsInput
   ): Promise<SearchSessionsOutput> {
+    const searchConfig = await loadSearchConfig(this.options.configPath);
     const resolvedRoots = await resolveSessionRoots({
       sources: input.sources,
       configPath: this.options.configPath,
+      config: searchConfig,
       defaultRoots: this.options.defaultRoots,
     });
-    const searchConfig = await loadSearchConfig(this.options.configPath);
-    const patternPlans = expandPatternPlans(input, searchConfig.synonyms);
+    const defaults = validatedDefaults(searchConfig.defaults);
+    const maxPatterns = input.maxPatterns ?? defaults.maxPatterns;
+    const maxResultsPerSource =
+      input.maxResultsPerSource ?? defaults.maxResultsPerSource;
+    const context = input.context ?? defaults.context;
+    const patternPlans = expandPatternPlans(input, searchConfig);
     const expandedPatterns =
-      input.maxPatterns === undefined
+      maxPatterns === undefined
         ? patternPlans.map((plan) => plan.pattern)
-        : patternPlans.map((plan) => plan.pattern).slice(0, input.maxPatterns);
+        : patternPlans.map((plan) => plan.pattern).slice(0, maxPatterns);
     const queryByPattern = new Map(
       patternPlans.map((plan) => [plan.pattern, plan.query])
     );
-    const shouldAnnotateResultQuery = Boolean(input.queries?.length);
     const searchedSources = resolvedRoots.sources.map((source) => ({
       ...source,
     }));
@@ -67,6 +77,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
       ((source) =>
         createDefaultBackend(source, {
           fffMcp: this.options.fffMcp,
+          timeoutMs: this.options.fffTimeoutMs,
           emptyResultRetryAttempts: this.options.fffEmptyResultRetryAttempts,
           emptyResultRetryDelayMs: this.options.fffEmptyResultRetryDelayMs,
         }));
@@ -82,16 +93,25 @@ export class CoordinatedSessionSearch implements SessionSearch {
       let backend: SessionSearchBackend | undefined;
       try {
         backend = await createBackend(source);
-        const output = await backend.search({
+        const backendInput: SessionSearchBackendInput = {
           patterns: expandedPatterns,
-          maxResults: input.maxResultsPerSource,
-          context: input.context,
-        });
+          maxResults: input.paths?.length ? undefined : maxResultsPerSource,
+          context,
+        };
+        if (input.paths?.length) {
+          backendInput.paths = input.paths;
+        }
+        if (source.include?.length) {
+          backendInput.include = source.include;
+        }
+        const output = await backend.search(backendInput);
         warnings.push(...output.warnings);
         const sourceResults = output.results
-          .slice(0, input.maxResultsPerSource)
+          .filter((result) => resultMatchesSourceFilters(result, source, input))
+          .slice(0, maxResultsPerSource)
+          .map(truncateEvidenceResult)
           .map((result) =>
-            shouldAnnotateResultQuery && result.pattern
+            result.pattern
               ? {
                   ...result,
                   query: queryByPattern.get(result.pattern),
@@ -130,8 +150,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
     ) {
       warnings.push({
         code: "all_sources_failed",
-        message:
-          "All searchable sources failed. Try rg directly against the configured source roots if FFF is unavailable.",
+        message: allSourcesFailedMessage(input.query, searchedSources),
       });
     }
 
@@ -183,7 +202,7 @@ function toCandidates(
         (existing.line === undefined || result.line < existing.line)
       ) {
         existing.line = result.line;
-        existing.preview = result.content;
+        existing.preview = truncateUtf8(result.content, PREVIEW_MAX_BYTES);
       }
       continue;
     }
@@ -195,7 +214,7 @@ function toCandidates(
       path: result.path,
       ...(sessionId ? { sessionId } : {}),
       line: result.line,
-      preview: result.content,
+      preview: truncateUtf8(result.content, PREVIEW_MAX_BYTES),
       hitCount: 1,
       matchedQueries: result.query ? [result.query] : [],
       matchedPatterns: result.pattern ? [result.pattern] : [],
@@ -226,10 +245,7 @@ function sessionIdFromPath(path: string) {
   )?.[0];
 }
 
-function expandPatternPlans(
-  input: SearchSessionsInput,
-  synonyms: Record<string, string[]> | undefined
-) {
+function expandPatternPlans(input: SearchSessionsInput, config: ConfigFile) {
   const hasPlannedQueries = Boolean(input.queries?.length);
   const queries = hasPlannedQueries ? input.queries! : [input.query];
   const plans: Array<{ query: string; pattern: string }> = [];
@@ -237,8 +253,8 @@ function expandPatternPlans(
 
   for (const query of queries) {
     const patterns = hasPlannedQueries
-      ? [query, ...rewriteQueryPatterns(query, { synonyms })]
-      : rewriteQueryPatterns(query, { synonyms });
+      ? [query, ...rewriteQueryPatterns(query, { synonyms: config.synonyms })]
+      : rewriteQueryPatterns(query, { synonyms: config.synonyms });
     for (const pattern of patterns) {
       if (seen.has(pattern)) {
         continue;
@@ -258,6 +274,7 @@ export type CreateSessionSearchOptions = Pick<
   defaultRoots?: SessionRootConfig[];
   createBackend?: CreateSessionSearchBackend;
   fffMcp?: CreateFffMcpClientOptions;
+  fffTimeoutMs?: number;
   fffEmptyResultRetryAttempts?: number;
   fffEmptyResultRetryDelayMs?: number;
 };
@@ -272,6 +289,7 @@ async function createDefaultBackend(
   source: ResolvedSessionSource,
   options: {
     fffMcp?: CreateFffMcpClientOptions;
+    timeoutMs?: number;
     emptyResultRetryAttempts?: number;
     emptyResultRetryDelayMs?: number;
   } = {}
@@ -280,6 +298,7 @@ async function createDefaultBackend(
     source: source.name,
     root: source.root,
     client: await createFffMcpClient(source.root, options.fffMcp),
+    timeoutMs: options.timeoutMs ?? DEFAULT_FFF_TIMEOUT_MS,
     emptyResultRetryAttempts: options.emptyResultRetryAttempts,
     emptyResultRetryDelayMs: options.emptyResultRetryDelayMs,
   });
@@ -297,4 +316,88 @@ function isBackendFailureWarning(warning: { code: string }) {
     warning.code === "fff_backend_error" ||
     warning.code === "fff_backend_timeout"
   );
+}
+
+const DEFAULT_FFF_TIMEOUT_MS = 15_000;
+const EVIDENCE_CONTENT_MAX_BYTES = 8_192;
+const PREVIEW_MAX_BYTES = 500;
+
+function resultMatchesSourceFilters(
+  result: SearchResult,
+  source: ResolvedSessionSource,
+  input: SearchSessionsInput
+) {
+  if (!pathMatchesInclude(source.root, result.path, source.include)) {
+    return false;
+  }
+  if (input.paths?.length && !input.paths.includes(result.path)) {
+    return false;
+  }
+  return true;
+}
+
+function truncateEvidenceResult(result: SearchResult): SearchResult {
+  return {
+    ...result,
+    content: truncateUtf8(result.content, EVIDENCE_CONTENT_MAX_BYTES),
+  };
+}
+
+function truncateUtf8(value: string, maxBytes: number) {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) {
+    return value;
+  }
+
+  let output = "";
+  let outputBytes = 0;
+  const suffix = "...";
+  const limit = Math.max(maxBytes - Buffer.byteLength(suffix, "utf8"), 0);
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (outputBytes + charBytes > limit) {
+      break;
+    }
+    output += char;
+    outputBytes += charBytes;
+  }
+  return `${output}${suffix}`;
+}
+
+function validatedDefaults(defaults: SearchDefaultsConfig | undefined) {
+  return {
+    maxPatterns: positiveInteger(defaults?.maxPatterns),
+    maxResultsPerSource: positiveInteger(defaults?.maxResultsPerSource),
+    context: nonNegativeInteger(defaults?.context),
+  };
+}
+
+function positiveInteger(value: number | undefined) {
+  return value !== undefined && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function nonNegativeInteger(value: number | undefined) {
+  return value !== undefined && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function allSourcesFailedMessage(
+  query: string,
+  searchedSources: Array<{ root: string; status: string }>
+) {
+  const roots = searchedSources.map((source) => source.root);
+  const rgCommand = [
+    "rg",
+    "--line-number",
+    "--fixed-strings",
+    shellQuote(query),
+    ...roots.map(shellQuote),
+  ].join(" ");
+  return `All searchable sources failed. Fallback command: ${rgCommand}`;
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

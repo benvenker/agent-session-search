@@ -72,7 +72,7 @@ describe("MCP search_sessions smoke path", () => {
           line: 2,
           preview: "auth token timeout smoke",
           hitCount: 1,
-          matchedQueries: [],
+          matchedQueries: ["timeout smoke"],
           matchedPatterns: ["timeout smoke"],
           more: {
             evidence: {

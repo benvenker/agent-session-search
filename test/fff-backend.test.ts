@@ -163,6 +163,54 @@ describe("OneRootFffBackend", () => {
     expect(calls).toEqual([{ query: "first", maxResults: 1 }]);
   });
 
+  it("filters paths and include patterns before applying the caller result cap", async () => {
+    const calls: unknown[] = [];
+    const client: FffClient = {
+      async grep(input) {
+        calls.push(input);
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                "logs/session.txt",
+                " 1: auth token timeout",
+                "sessions/selected.jsonl",
+                " 2: auth token timeout",
+              ].join("\n"),
+            },
+          ],
+          isError: false,
+        };
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+    });
+
+    const result = await backend.search({
+      patterns: ["auth token"],
+      maxResults: 1,
+      paths: ["/tmp/session-root/sessions/selected.jsonl"],
+      include: ["*.jsonl"],
+    });
+
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: "/tmp/session-root",
+        path: "/tmp/session-root/sessions/selected.jsonl",
+        line: 2,
+        content: "auth token timeout",
+        pattern: "auth token",
+      },
+    ]);
+    expect(calls).toEqual([{ query: "auth token", maxResults: undefined }]);
+  });
+
   it("retries empty results only while warming up the first pattern", async () => {
     const calls: unknown[] = [];
     const client: FffClient = {
