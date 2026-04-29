@@ -19,7 +19,7 @@ describe("FFF preflight command", () => {
     const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
 
     expect(packageJson.bin["agent-session-search-doctor"]).toBe(
-      "./dist/fff-preflight.js"
+      "dist/fff-preflight.js"
     );
     expect(packageJson.scripts["check:fff"]).toBe("tsx src/fff-preflight.ts");
     expect(packageJson.scripts.postinstall).toBe(
