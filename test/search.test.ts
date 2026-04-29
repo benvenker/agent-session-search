@@ -403,6 +403,145 @@ describe("createSessionSearch", () => {
     });
   });
 
+  it("rewrites natural-language queries into capped literal backend patterns", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      }),
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search(input) {
+            calls.push(input);
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: 'Find the bug in "auth token timeout" around src/search.ts for bd-iwz code thing',
+      maxPatterns: 3,
+    });
+
+    expect(result.expandedPatterns).toEqual(["auth token timeout", "src/search.ts", "bd-iwz"]);
+    expect(calls).toEqual([
+      {
+        patterns: ["auth token timeout", "src/search.ts", "bd-iwz"],
+        maxResults: undefined,
+        context: undefined,
+      },
+    ]);
+  });
+
+  it("applies configured synonyms when rewriting search patterns", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+        synonyms: {
+          auth: ["auth", "authentication", "login"],
+          timeout: ["timeout", "deadline"],
+        },
+      }),
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search(input) {
+            calls.push(input);
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "Find the auth timeout problem",
+      maxPatterns: 4,
+    });
+
+    expect(result.expandedPatterns).toEqual(["auth", "authentication", "login", "timeout"]);
+    expect(calls).toEqual([
+      {
+        patterns: ["auth", "authentication", "login", "timeout"],
+        maxResults: undefined,
+        context: undefined,
+      },
+    ]);
+  });
+
+  it("preserves commands and emits obvious symbol naming variants", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      }),
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search(input) {
+            calls.push(input);
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "Run `npm test -- test/search.test.ts` near parseSearchSessionsInput",
+      maxPatterns: 5,
+    });
+
+    expect(result.expandedPatterns).toEqual([
+      "npm test -- test/search.test.ts",
+      "test/search.test.ts",
+      "parseSearchSessionsInput",
+      "parse_search_sessions_input",
+      "parse-search-sessions-input",
+    ]);
+    expect(calls).toEqual([
+      {
+        patterns: [
+          "npm test -- test/search.test.ts",
+          "test/search.test.ts",
+          "parseSearchSessionsInput",
+          "parse_search_sessions_input",
+          "parse-search-sessions-input",
+        ],
+        maxResults: undefined,
+        context: undefined,
+      },
+    ]);
+  });
+
   it("treats backend error warnings without hits as source failures", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");

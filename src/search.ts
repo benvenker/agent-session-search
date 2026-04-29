@@ -6,11 +6,13 @@ import {
   type OneRootFffSearchOutput,
 } from "./fff-backend.js";
 import {
+  loadSearchConfig,
   resolveSessionRoots,
   type ResolvedSessionSource,
   type ResolveSessionRootsInput,
   type SessionRootConfig,
 } from "./roots.js";
+import { rewriteQueryPatterns } from "./query-rewriter.js";
 
 export type SessionSearchBackendInput = {
   patterns: string[];
@@ -36,7 +38,11 @@ export class CoordinatedSessionSearch implements SessionSearch {
       configPath: this.options.configPath,
       defaultRoots: this.options.defaultRoots,
     });
-    const expandedPatterns = expandPatterns(input.query, input.maxPatterns);
+    const searchConfig = await loadSearchConfig(this.options.configPath);
+    const expandedPatterns = rewriteQueryPatterns(input.query, {
+      maxPatterns: input.maxPatterns,
+      synonyms: searchConfig.synonyms,
+    });
     const searchedSources = resolvedRoots.sources.map((source) => ({ ...source }));
     const warnings = [...resolvedRoots.warnings];
     const results: SearchSessionsOutput["results"] = [];
@@ -142,11 +148,6 @@ async function createDefaultBackend(
     emptyResultRetryAttempts: options.emptyResultRetryAttempts,
     emptyResultRetryDelayMs: options.emptyResultRetryDelayMs,
   });
-}
-
-function expandPatterns(query: string, maxPatterns: number | undefined) {
-  const patterns = [query];
-  return maxPatterns === undefined ? patterns : patterns.slice(0, maxPatterns);
 }
 
 function errorMessage(error: unknown) {

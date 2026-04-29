@@ -32,6 +32,7 @@ export type ResolveSessionRootsOutput = {
 
 type ConfigFile = {
   roots?: SessionRootConfig[];
+  synonyms?: Record<string, string[]>;
 };
 
 export function defaultConfigPath(home = homedir()) {
@@ -51,7 +52,7 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
 export async function resolveSessionRoots(
   input: ResolveSessionRootsInput = {},
 ): Promise<ResolveSessionRootsOutput> {
-  const configuredRoots = await loadConfiguredRoots(input.configPath);
+  const configuredRoots = (await loadSearchConfig(input.configPath)).roots;
   const baseRoots = input.defaultRoots ?? defaultSessionRoots();
   const roots = configuredRoots ? mergeRootConfigs(baseRoots, configuredRoots) : baseRoots;
   const enabledRoots = roots.filter((root) => root.enabled !== false);
@@ -99,13 +100,12 @@ export function mergeRootConfigs(
   return merged;
 }
 
-async function loadConfiguredRoots(configPath = defaultConfigPath()): Promise<SessionRootConfig[] | undefined> {
+export async function loadSearchConfig(configPath = defaultConfigPath()): Promise<ConfigFile> {
   try {
-    const config = JSON.parse(await readFile(configPath, "utf8")) as ConfigFile;
-    return config.roots;
+    return JSON.parse(await readFile(configPath, "utf8")) as ConfigFile;
   } catch (error) {
     if (isMissingFileError(error)) {
-      return undefined;
+      return {};
     }
     throw error;
   }
