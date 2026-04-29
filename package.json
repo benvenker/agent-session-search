@@ -7,8 +7,13 @@
     "agent-session-search": "./dist/cli.js",
     "agent-session-search-mcp": "./dist/server.js"
   },
+  "files": [
+    "dist/*.js",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "smoke": "vitest run test/mcp-smoke.test.ts",

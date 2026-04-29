@@ -1,5 +1,8 @@
+#!/usr/bin/env node
 import { FastMCP } from "fastmcp";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createSessionSearch, type CreateSessionSearchOptions } from "./search.js";
 import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
 
@@ -57,9 +60,16 @@ function numberFromEnv(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
   });
+}
+
+function isEntrypoint(moduleUrl: string, argvPath: string | undefined) {
+  if (!argvPath) {
+    return false;
+  }
+  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
 }

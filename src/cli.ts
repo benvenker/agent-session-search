@@ -1,3 +1,6 @@
+#!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createSessionSearch } from "./search.js";
 
 function usage() {
@@ -68,10 +71,17 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
     console.error(usage());
     process.exitCode = 1;
   });
+}
+
+function isEntrypoint(moduleUrl: string, argvPath: string | undefined) {
+  if (!argvPath) {
+    return false;
+  }
+  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
 }
