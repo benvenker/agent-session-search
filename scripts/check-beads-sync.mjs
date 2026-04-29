@@ -13,6 +13,8 @@ Agent fix workflow:
   5. Commit again.
 
 Do not edit .beads/issues.jsonl by hand unless resolving a merge conflict.
+Never run bare \`bv\`; it opens the interactive TUI. Use robot-safe commands such
+as \`bv --robot-next\`, \`bv --robot-triage\`, or \`bv --robot-plan\`.
 `;
 
 function run(command, args) {
@@ -109,6 +111,8 @@ Agent fix workflow:
   4. Commit again.
 
 If this came from a merge conflict, resolve .beads/issues.jsonl first.
+Never run bare \`bv\`; it opens the interactive TUI. Use robot-safe commands such
+as \`bv --robot-next\`, \`bv --robot-triage\`, or \`bv --robot-plan\`.
 `
   );
 }
@@ -128,6 +132,9 @@ Agent fix workflow:
   3. Export state if needed: br sync --flush-only
   4. Stage tracked beads exports: git add -u .beads
   5. Commit again.
+
+Never run bare \`bv\`; it opens the interactive TUI. Use robot-safe commands such
+as \`bv --robot-next\`, \`bv --robot-triage\`, or \`bv --robot-plan\`.
 `
   );
 }
