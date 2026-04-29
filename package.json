@@ -2,6 +2,7 @@
   "name": "@benvenker/agent-session-search",
   "version": "0.1.1",
   "type": "module",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/benvenker/agent-session-search.git"
@@ -16,6 +17,7 @@
   },
   "files": [
     "dist/*.js",
+    "LICENSE",
     "scripts/postinstall.mjs",
     "README.md"
   ],
