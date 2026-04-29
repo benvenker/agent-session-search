@@ -4,7 +4,7 @@
   "type": "module",
   "repository": "https://github.com/benvenker/agent-session-search.git",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "bin": {
     "agent-session-search": "./dist/cli.js",

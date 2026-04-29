@@ -42,27 +42,15 @@ npx agent-session-search "auth token timeout" --json
 npx agent-session-search-mcp
 ```
 
-## GitHub Packages
+## npm Package
 
-This package is configured to publish to GitHub Packages as:
+This public package is configured to publish to the npm registry as:
 
 ```text
 @benvenker/agent-session-search
 ```
 
-The GitHub repository can be public or private. Before publishing or installing
-from GitHub Packages, authenticate npm with a GitHub personal access token in
-your user-level `~/.npmrc`:
-
-```ini
-@benvenker:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=YOUR_GITHUB_PAT
-```
-
-Use `read:packages` to install. Add `write:packages` to publish from this
-machine.
-
-Publish after the GitHub repository exists and the local git remote points at it:
+Publish after logging in to npm:
 
 ```bash
 npm publish
