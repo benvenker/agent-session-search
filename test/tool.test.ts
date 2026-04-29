@@ -20,6 +20,11 @@ describe("search_sessions tool boundary", () => {
 
     const result = await runSearchSessionsTool(search, {
       query: "auth token timeout",
+      queries: ["PR #227", "paper-cuts"],
+      operationalContext: {
+        cwd: "/Users/ben/code/poolside/poolside-studio",
+        branch: "paper-cuts",
+      },
       sources: ["codex", "claude"],
       maxPatterns: 3,
       maxResultsPerSource: 10,
@@ -30,6 +35,11 @@ describe("search_sessions tool boundary", () => {
     expect(calls).toEqual([
       {
         query: "auth token timeout",
+        queries: ["PR #227", "paper-cuts"],
+        operationalContext: {
+          cwd: "/Users/ben/code/poolside/poolside-studio",
+          branch: "paper-cuts",
+        },
         sources: ["codex", "claude"],
         maxPatterns: 3,
         maxResultsPerSource: 10,

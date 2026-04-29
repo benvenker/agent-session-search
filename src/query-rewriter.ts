@@ -13,8 +13,8 @@ export function rewriteQueryPatterns(
     ...extractErrorFragments(query),
     ...extractPackageNames(query),
     ...extractFilePaths(query),
-    ...extractIds(query),
     ...extractPullRequestIds(query),
+    ...extractIds(query),
     ...extractSymbolVariants(query),
     ...expandSynonyms(query, options.synonyms ?? {}),
   ];

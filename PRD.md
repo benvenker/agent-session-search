@@ -114,6 +114,8 @@ type SourceName = BuiltinSource | (string & {});
 
 type SearchSessionsInput = {
   query: string;
+  queries?: string[];
+  operationalContext?: unknown;
   sources?: SourceName[] | "all";
   maxPatterns?: number;
   maxResultsPerSource?: number;
@@ -146,6 +148,7 @@ type SearchSessionsOutput = {
     path: string;
     line?: number;
     content: string;
+    query?: string;
     pattern?: string;
     context?: string[];
   }>;
@@ -164,14 +167,31 @@ V1 should expose one MCP tool:
 search_sessions(input: SearchSessionsInput): Promise<SearchSessionsOutput>
 ```
 
-The common call should be boring:
+The common fallback call should be boring:
 
 ```json
 { "query": "where did we debug global search embedding timeout?" }
 ```
 
-Optional fields exist only for source filtering, result caps, context size, and
-diagnostics. Do not expose pipeline steps such as `resolveRoots`,
+The agent-native call should preserve the original user request while letting
+the calling LLM agent provide planned literal probes and lightweight operational
+context:
+
+```json
+{
+  "query": "use agent-session-search to find PR 227 and papercuts branch",
+  "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
+  "operationalContext": {
+    "cwd": "/Users/ben/code/poolside/poolside-studio",
+    "branch": "paper-cuts",
+    "reason": "Recover the prior session that worked on this PR."
+  }
+}
+```
+
+Optional fields exist only for agent-planned probes, operational context,
+source filtering, result caps, context size, and diagnostics. Do not expose
+pipeline steps such as `resolveRoots`,
 `rewriteQuery`, `searchRoot`, or `readExcerpt` as MCP tools in V1. Those are
 useful internal seams and possible future code-mode operations, but exposing
 them now would make agents assemble a brittle workflow manually.
@@ -198,8 +218,18 @@ for the public MCP API.
 
 ## Query Rewriting
 
-Start with a deterministic rules-based rewriter. It should emit literal search
-patterns, not abstract semantic queries.
+The primary caller is an LLM-powered agent. The tool should therefore accept
+agent-planned probes through `queries` and treat deterministic rewriting as a
+fallback and mechanical expander, not as a full natural-language understanding
+layer.
+
+When an agent has enough context, it should infer the operational recall task
+from the user request and environment, then provide short literal probes in
+`queries`. The tool preserves `query` as the original request for audit/debug,
+searches the planned probes, and records the probe that produced each hit.
+
+The deterministic rules-based rewriter should emit literal search patterns, not
+abstract semantic queries.
 
 Prefer:
 
@@ -264,9 +294,22 @@ Example:
     }
   ],
   "synonyms": {
-    "semantic search": ["semantic search", "vector search", "embeddings", "RAG", "retrieval"],
+    "semantic search": [
+      "semantic search",
+      "vector search",
+      "embeddings",
+      "RAG",
+      "retrieval"
+    ],
     "timeout": ["timeout", "deadline", "hang", "slow", "latency"],
-    "auth": ["auth", "authentication", "authorization", "login", "token", "session"]
+    "auth": [
+      "auth",
+      "authentication",
+      "authorization",
+      "login",
+      "token",
+      "session"
+    ]
   },
   "defaults": {
     "maxPatterns": 8,
@@ -308,7 +351,7 @@ await sessions.multiGrep({
   sources: ["codex", "claude", "cursor"],
   patterns: ["global search", "embedding timeout", "Elasticsearch"],
   context: 2,
-  maxResults: 50
+  maxResults: 50,
 });
 await sessions.readExcerpt({ path, line, before: 5, after: 10 });
 ```

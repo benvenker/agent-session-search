@@ -19,7 +19,7 @@ describe("createSessionSearch", () => {
           { name: "codex", path: codexRoot, include: ["*.jsonl"] },
           { name: "claude", path: claudeRoot, include: ["*.jsonl"] },
         ],
-      }),
+      })
     );
 
     const calls: unknown[] = [];
@@ -122,6 +122,84 @@ describe("createSessionSearch", () => {
     ]);
   });
 
+  it("uses agent-planned queries as the search probes while preserving the original request", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 4,
+                  content: "Done on paper-cuts / PR #227",
+                  pattern: "PR #227",
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "use agent-session-search to find PR 227 and papercuts branch",
+      queries: ["PR #227", "paper-cuts"],
+      debug: true,
+    });
+
+    expect(result.query).toBe(
+      "use agent-session-search to find PR 227 and papercuts branch"
+    );
+    expect(result.expandedPatterns).toEqual([
+      "PR #227",
+      "PR 227",
+      "pull/227",
+      "pull request 227",
+      "#227",
+      "227",
+      "paper-cuts",
+      "paper_cuts",
+      "paperCuts",
+    ]);
+    expect(calls).toEqual([
+      {
+        patterns: result.expandedPatterns,
+        maxResults: undefined,
+        context: undefined,
+      },
+    ]);
+    expect(result.results[0]).toMatchObject({
+      content: "Done on paper-cuts / PR #227",
+      pattern: "PR #227",
+      query: "PR #227",
+    });
+    expect(result.debug).toMatchObject({
+      input: {
+        query: "use agent-session-search to find PR 227 and papercuts branch",
+        queries: ["PR #227", "paper-cuts"],
+      },
+    });
+  });
+
   it("returns resolved source status and missing-root warnings", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -135,7 +213,7 @@ describe("createSessionSearch", () => {
           { name: "codex", path: codexRoot, include: ["*.jsonl"] },
           { name: "hermes", path: hermesRoot, include: ["*"] },
         ],
-      }),
+      })
     );
 
     const search = createSessionSearch({
@@ -196,7 +274,7 @@ describe("createSessionSearch", () => {
           { name: "codex", path: codexRoot },
           { name: "claude", path: claudeRoot },
         ],
-      }),
+      })
     );
 
     const search = createSessionSearch({
@@ -280,7 +358,7 @@ describe("createSessionSearch", () => {
           { name: "codex", path: codexRoot },
           { name: "claude", path: claudeRoot },
         ],
-      }),
+      })
     );
 
     const search = createSessionSearch({
@@ -347,7 +425,7 @@ describe("createSessionSearch", () => {
       configPath,
       JSON.stringify({
         roots: [{ name: "codex", path: codexRoot }],
-      }),
+      })
     );
 
     const calls: unknown[] = [];
@@ -412,7 +490,7 @@ describe("createSessionSearch", () => {
       configPath,
       JSON.stringify({
         roots: [{ name: "codex", path: codexRoot }],
-      }),
+      })
     );
 
     const calls: unknown[] = [];
@@ -430,11 +508,16 @@ describe("createSessionSearch", () => {
     });
 
     const result = await search.searchSessions({
-      query: 'Find the bug in "auth token timeout" around src/search.ts for bd-iwz code thing',
+      query:
+        'Find the bug in "auth token timeout" around src/search.ts for bd-iwz code thing',
       maxPatterns: 3,
     });
 
-    expect(result.expandedPatterns).toEqual(["auth token timeout", "src/search.ts", "bd-iwz"]);
+    expect(result.expandedPatterns).toEqual([
+      "auth token timeout",
+      "src/search.ts",
+      "bd-iwz",
+    ]);
     expect(calls).toEqual([
       {
         patterns: ["auth token timeout", "src/search.ts", "bd-iwz"],
@@ -457,7 +540,7 @@ describe("createSessionSearch", () => {
           auth: ["auth", "authentication", "login"],
           timeout: ["timeout", "deadline"],
         },
-      }),
+      })
     );
 
     const calls: unknown[] = [];
@@ -479,7 +562,12 @@ describe("createSessionSearch", () => {
       maxPatterns: 4,
     });
 
-    expect(result.expandedPatterns).toEqual(["auth", "authentication", "login", "timeout"]);
+    expect(result.expandedPatterns).toEqual([
+      "auth",
+      "authentication",
+      "login",
+      "timeout",
+    ]);
     expect(calls).toEqual([
       {
         patterns: ["auth", "authentication", "login", "timeout"],
@@ -498,7 +586,7 @@ describe("createSessionSearch", () => {
       configPath,
       JSON.stringify({
         roots: [{ name: "codex", path: codexRoot }],
-      }),
+      })
     );
 
     const calls: unknown[] = [];
@@ -516,7 +604,8 @@ describe("createSessionSearch", () => {
     });
 
     const result = await search.searchSessions({
-      query: "Run `npm test -- test/search.test.ts` near parseSearchSessionsInput",
+      query:
+        "Run `npm test -- test/search.test.ts` near parseSearchSessionsInput",
       maxPatterns: 5,
     });
 
@@ -551,7 +640,7 @@ describe("createSessionSearch", () => {
       configPath,
       JSON.stringify({
         roots: [{ name: "codex", path: codexRoot }],
-      }),
+      })
     );
 
     const search = createSessionSearch({

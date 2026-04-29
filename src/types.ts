@@ -3,6 +3,8 @@ export type SourceName = BuiltinSource | (string & {});
 
 export type SearchSessionsInput = {
   query: string;
+  queries?: string[];
+  operationalContext?: unknown;
   sources?: SourceName[] | "all";
   maxPatterns?: number;
   maxResultsPerSource?: number;
@@ -30,6 +32,7 @@ export type SearchResult = {
   path: string;
   line?: number;
   content: string;
+  query?: string;
   pattern?: string;
   context?: string[];
 };

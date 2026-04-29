@@ -3,7 +3,10 @@ import { FastMCP } from "fastmcp";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSessionSearch, type CreateSessionSearchOptions } from "./search.js";
+import {
+  createSessionSearch,
+  type CreateSessionSearchOptions,
+} from "./search.js";
 import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
 
 export function createServer(options: CreateSessionSearchOptions = {}) {
@@ -15,7 +18,12 @@ export function createServer(options: CreateSessionSearchOptions = {}) {
 
   server.addTool({
     name: "search_sessions",
-    description: "Search local coding-agent session history across configured sources.",
+    description: [
+      "Search local coding-agent session history across configured sources.",
+      "This is an agentic recall tool: when the user request is conversational or underspecified, infer the operational context from your environment and pass several short literal probes in `queries`.",
+      "Keep `query` as the original user request for audit/debug. Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, or why the user is searching.",
+      "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
+    ].join(" "),
     parameters: searchSessionsInputSchema,
     execute: async (input) => {
       const result = await runSearchSessionsTool(search, input);
@@ -33,7 +41,9 @@ export async function main() {
   });
 }
 
-export function searchOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): CreateSessionSearchOptions {
+export function searchOptionsFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): CreateSessionSearchOptions {
   return {
     configPath: env.AGENT_SESSION_SEARCH_CONFIG,
     fffMcp: env.AGENT_SESSION_SEARCH_FFF_DB_DIR
@@ -47,8 +57,12 @@ export function searchOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): Crea
           ],
         }
       : undefined,
-    fffEmptyResultRetryAttempts: numberFromEnv(env.AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS),
-    fffEmptyResultRetryDelayMs: numberFromEnv(env.AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS),
+    fffEmptyResultRetryAttempts: numberFromEnv(
+      env.AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS
+    ),
+    fffEmptyResultRetryDelayMs: numberFromEnv(
+      env.AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS
+    ),
   };
 }
 

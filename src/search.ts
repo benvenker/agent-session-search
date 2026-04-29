@@ -1,4 +1,8 @@
-import type { SearchSessionsInput, SearchSessionsOutput, SessionSearch } from "./types.js";
+import type {
+  SearchSessionsInput,
+  SearchSessionsOutput,
+  SessionSearch,
+} from "./types.js";
 import {
   createFffMcpClient,
   OneRootFffBackend,
@@ -26,24 +30,33 @@ export type SessionSearchBackend = {
 };
 
 export type CreateSessionSearchBackend = (
-  source: ResolvedSessionSource,
+  source: ResolvedSessionSource
 ) => SessionSearchBackend | Promise<SessionSearchBackend>;
 
 export class CoordinatedSessionSearch implements SessionSearch {
   constructor(private readonly options: CreateSessionSearchOptions = {}) {}
 
-  async searchSessions(input: SearchSessionsInput): Promise<SearchSessionsOutput> {
+  async searchSessions(
+    input: SearchSessionsInput
+  ): Promise<SearchSessionsOutput> {
     const resolvedRoots = await resolveSessionRoots({
       sources: input.sources,
       configPath: this.options.configPath,
       defaultRoots: this.options.defaultRoots,
     });
     const searchConfig = await loadSearchConfig(this.options.configPath);
-    const expandedPatterns = rewriteQueryPatterns(input.query, {
-      maxPatterns: input.maxPatterns,
-      synonyms: searchConfig.synonyms,
-    });
-    const searchedSources = resolvedRoots.sources.map((source) => ({ ...source }));
+    const patternPlans = expandPatternPlans(input, searchConfig.synonyms);
+    const expandedPatterns =
+      input.maxPatterns === undefined
+        ? patternPlans.map((plan) => plan.pattern)
+        : patternPlans.map((plan) => plan.pattern).slice(0, input.maxPatterns);
+    const queryByPattern = new Map(
+      patternPlans.map((plan) => [plan.pattern, plan.query])
+    );
+    const shouldAnnotateResultQuery = Boolean(input.queries?.length);
+    const searchedSources = resolvedRoots.sources.map((source) => ({
+      ...source,
+    }));
     const warnings = [...resolvedRoots.warnings];
     const results: SearchSessionsOutput["results"] = [];
     const createBackend =
@@ -72,7 +85,16 @@ export class CoordinatedSessionSearch implements SessionSearch {
           context: input.context,
         });
         warnings.push(...output.warnings);
-        const sourceResults = output.results.slice(0, input.maxResultsPerSource);
+        const sourceResults = output.results
+          .slice(0, input.maxResultsPerSource)
+          .map((result) =>
+            shouldAnnotateResultQuery && result.pattern
+              ? {
+                  ...result,
+                  query: queryByPattern.get(result.pattern),
+                }
+              : result
+          );
         results.push(...sourceResults);
         if (sourceResults.length === 0) {
           const backendFailure = output.warnings.find(isBackendFailureWarning);
@@ -98,10 +120,15 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
     }
 
-    if (attemptedSourceCount > 0 && failedSourceCount === attemptedSourceCount && results.length === 0) {
+    if (
+      attemptedSourceCount > 0 &&
+      failedSourceCount === attemptedSourceCount &&
+      results.length === 0
+    ) {
       warnings.push({
         code: "all_sources_failed",
-        message: "All searchable sources failed. Try rg directly against the configured source roots if FFF is unavailable.",
+        message:
+          "All searchable sources failed. Try rg directly against the configured source roots if FFF is unavailable.",
       });
     }
 
@@ -111,17 +138,47 @@ export class CoordinatedSessionSearch implements SessionSearch {
       searchedSources,
       warnings,
       results,
-      debug: input.debug
+      ...(input.debug
         ? {
-            input,
-            expandedPatterns,
+            debug: {
+              input,
+              expandedPatterns,
+            },
           }
-        : undefined,
+        : {}),
     };
   }
 }
 
-export type CreateSessionSearchOptions = Pick<ResolveSessionRootsInput, "configPath"> & {
+function expandPatternPlans(
+  input: SearchSessionsInput,
+  synonyms: Record<string, string[]> | undefined
+) {
+  const hasPlannedQueries = Boolean(input.queries?.length);
+  const queries = hasPlannedQueries ? input.queries! : [input.query];
+  const plans: Array<{ query: string; pattern: string }> = [];
+  const seen = new Set<string>();
+
+  for (const query of queries) {
+    const patterns = hasPlannedQueries
+      ? [query, ...rewriteQueryPatterns(query, { synonyms })]
+      : rewriteQueryPatterns(query, { synonyms });
+    for (const pattern of patterns) {
+      if (seen.has(pattern)) {
+        continue;
+      }
+      seen.add(pattern);
+      plans.push({ query, pattern });
+    }
+  }
+
+  return plans;
+}
+
+export type CreateSessionSearchOptions = Pick<
+  ResolveSessionRootsInput,
+  "configPath"
+> & {
   defaultRoots?: SessionRootConfig[];
   createBackend?: CreateSessionSearchBackend;
   fffMcp?: CreateFffMcpClientOptions;
@@ -129,7 +186,9 @@ export type CreateSessionSearchOptions = Pick<ResolveSessionRootsInput, "configP
   fffEmptyResultRetryDelayMs?: number;
 };
 
-export function createSessionSearch(options: CreateSessionSearchOptions = {}): SessionSearch {
+export function createSessionSearch(
+  options: CreateSessionSearchOptions = {}
+): SessionSearch {
   return new CoordinatedSessionSearch(options);
 }
 
@@ -139,7 +198,7 @@ async function createDefaultBackend(
     fffMcp?: CreateFffMcpClientOptions;
     emptyResultRetryAttempts?: number;
     emptyResultRetryDelayMs?: number;
-  } = {},
+  } = {}
 ): Promise<SessionSearchBackend> {
   return new OneRootFffBackend({
     source: source.name,
@@ -158,5 +217,8 @@ function errorMessage(error: unknown) {
 }
 
 function isBackendFailureWarning(warning: { code: string }) {
-  return warning.code === "fff_backend_error" || warning.code === "fff_backend_timeout";
+  return (
+    warning.code === "fff_backend_error" ||
+    warning.code === "fff_backend_timeout"
+  );
 }

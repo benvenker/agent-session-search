@@ -158,6 +158,25 @@ Example tool input:
 }
 ```
 
+For conversational recall requests, agents should keep `query` as the original
+request and provide short planned probes plus any useful operational context:
+
+```json
+{
+  "query": "use agent-session-search to find PR 227 and papercuts branch",
+  "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
+  "operationalContext": {
+    "cwd": "/Users/ben/code/poolside/poolside-studio",
+    "branch": "paper-cuts",
+    "reason": "Recover the prior session that worked on this PR."
+  },
+  "sources": "all"
+}
+```
+
+If `queries` is omitted, the tool falls back to deterministic rewriting of
+`query`.
+
 Omit `sources` or pass `sources: "all"` to search every enabled source. To search
 only specific sources, pass an array such as `"sources": ["codex", "claude"]`.
 
