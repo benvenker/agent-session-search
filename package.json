@@ -1,0 +1,27 @@
+{
+  "name": "agent-session-search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-session-search": "./dist/cli.js",
+    "agent-session-search-mcp": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev:mcp": "tsx src/server.ts",
+    "dev:cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "fastmcp": "^4.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

@@ -1,0 +1,7 @@
+# bv (beads viewer) local config and caches
+.bv/
+
+# Node / TypeScript
+node_modules/
+dist/
+coverage/
