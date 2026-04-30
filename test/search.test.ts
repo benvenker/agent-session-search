@@ -219,7 +219,7 @@ describe("createSessionSearch", () => {
         },
         input: {
           patterns: ["auth token timeout"],
-          maxResults: undefined,
+          maxResults: 20,
           context: undefined,
           include: ["*.jsonl"],
         },
@@ -233,7 +233,7 @@ describe("createSessionSearch", () => {
         },
         input: {
           patterns: ["auth token timeout"],
-          maxResults: undefined,
+          maxResults: 20,
           context: undefined,
           include: ["*.jsonl"],
         },
@@ -621,7 +621,7 @@ describe("createSessionSearch", () => {
     expect(calls).toEqual([
       {
         patterns: result.expandedPatterns,
-        maxResults: undefined,
+        maxResults: 20,
         context: undefined,
         include: ["*.jsonl"],
       },
@@ -961,6 +961,65 @@ describe("createSessionSearch", () => {
       },
       expandedPatterns: ["auth token timeout"],
     });
+  });
+
+  it("caps pathless evidence searches by default", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            return {
+              warnings: [],
+              results: Array.from({ length: 25 }, (_, index) => ({
+                source: source.name,
+                root: source.root,
+                path: join(source.root, "session.jsonl"),
+                line: index + 1,
+                content: `match ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+    });
+
+    expect(calls).toEqual([
+      {
+        patterns: ["auth token timeout"],
+        maxResults: 20,
+        context: undefined,
+      },
+    ]);
+    expect(result.resultsDisplayMode).toBe("evidence");
+    expect(result.results).toHaveLength(20);
+    expect(result.warnings).toEqual([
+      {
+        code: "broad_evidence_capped",
+        message:
+          "Pathless evidence searches are capped at 20 results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.",
+      },
+    ]);
   });
 
   it("uses validated config defaults when request options are omitted", async () => {

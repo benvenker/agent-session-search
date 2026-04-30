@@ -30,7 +30,7 @@ export const searchSessionsInputSchema = z.object({
     .enum(["candidates", "evidence", "debug"])
     .optional()
     .describe(
-      "Result detail level. Use candidates first, evidence with a candidate more.evidence follow-up, and debug only for diagnostics."
+      "Result detail level. Use candidates first, evidence with a candidate more.evidence follow-up, and debug only for diagnostics. Evidence without paths is capped by default."
     ),
   paths: z
     .array(z.string().min(1))
@@ -49,7 +49,9 @@ export const searchSessionsInputSchema = z.object({
     .int()
     .positive()
     .optional()
-    .describe("Maximum number of results to return for each searched source."),
+    .describe(
+      "Maximum number of results to return for each searched source. Useful for intentionally broad evidence searches."
+    ),
   context: z
     .number()
     .int()

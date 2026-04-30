@@ -54,10 +54,22 @@ export class CoordinatedSessionSearch implements SessionSearch {
       config: searchConfig,
       defaultRoots: this.options.defaultRoots,
     });
+    const resultsDisplayMode =
+      input.resultsDisplayMode ?? (input.debug ? "debug" : "candidates");
     const defaults = validatedDefaults(searchConfig.defaults);
     const maxPatterns = input.maxPatterns ?? defaults.maxPatterns;
+    const isBroadEvidenceRequest =
+      resultsDisplayMode === "evidence" && !input.paths?.length;
+    const isDefaultBroadEvidenceCapApplied =
+      isBroadEvidenceRequest &&
+      input.maxResultsPerSource === undefined &&
+      defaults.maxResultsPerSource === undefined;
     const maxResultsPerSource =
-      input.maxResultsPerSource ?? defaults.maxResultsPerSource;
+      input.maxResultsPerSource ??
+      defaults.maxResultsPerSource ??
+      (isBroadEvidenceRequest
+        ? DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE
+        : undefined);
     const context = input.context ?? defaults.context;
     const patternPlans = expandPatternPlans(input, searchConfig);
     const expandedPatterns =
@@ -83,6 +95,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         }));
     let attemptedSourceCount = 0;
     let failedSourceCount = 0;
+    let broadEvidenceCapReached = false;
 
     for (const source of searchedSources) {
       if (source.status !== "ok") {
@@ -118,6 +131,13 @@ export class CoordinatedSessionSearch implements SessionSearch {
                 }
               : result
           );
+        if (
+          isDefaultBroadEvidenceCapApplied &&
+          maxResultsPerSource !== undefined &&
+          sourceResults.length >= maxResultsPerSource
+        ) {
+          broadEvidenceCapReached = true;
+        }
         rawResults.push(...sourceResults);
         if (sourceResults.length === 0) {
           const backendFailure = output.warnings.find(isBackendFailureWarning);
@@ -143,6 +163,13 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
     }
 
+    if (broadEvidenceCapReached) {
+      warnings.push({
+        code: "broad_evidence_capped",
+        message: `Pathless evidence searches are capped at ${DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE} results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.`,
+      });
+    }
+
     if (
       attemptedSourceCount > 0 &&
       failedSourceCount === attemptedSourceCount &&
@@ -154,8 +181,6 @@ export class CoordinatedSessionSearch implements SessionSearch {
       });
     }
 
-    const resultsDisplayMode =
-      input.resultsDisplayMode ?? (input.debug ? "debug" : "candidates");
     const filteredResults = input.paths?.length
       ? rawResults.filter((result) => input.paths?.includes(result.path))
       : rawResults;
@@ -319,6 +344,7 @@ function isBackendFailureWarning(warning: { code: string }) {
 }
 
 const DEFAULT_FFF_TIMEOUT_MS = 15_000;
+const DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE = 20;
 const EVIDENCE_CONTENT_MAX_BYTES = 8_192;
 const PREVIEW_MAX_BYTES = 500;
 

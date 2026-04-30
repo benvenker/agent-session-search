@@ -16,6 +16,8 @@ type ParsedArgs = {
   sources: string[];
   resultsDisplayMode?: ResultsDisplayMode;
   paths: string[];
+  maxPatterns?: number;
+  maxResultsPerSource?: number;
   debug: boolean;
 };
 
@@ -25,6 +27,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const queryParts: string[] = [];
   let json = false;
   let resultsDisplayMode: ResultsDisplayMode | undefined;
+  let maxPatterns: number | undefined;
+  let maxResultsPerSource: number | undefined;
   let debug = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -69,6 +73,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--max-patterns") {
+      maxPatterns = parsePositiveInteger(argv[index + 1], arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--max-results" || arg === "--max-results-per-source") {
+      maxResultsPerSource = parsePositiveInteger(argv[index + 1], arg);
+      index += 1;
+      continue;
+    }
     if (arg.startsWith("--")) {
       throw new Error(`unknown option: ${arg}`);
     }
@@ -80,7 +94,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
     throw new Error("query is required");
   }
 
-  return { query, json, sources, resultsDisplayMode, paths, debug };
+  return {
+    query,
+    json,
+    sources,
+    resultsDisplayMode,
+    paths,
+    maxPatterns,
+    maxResultsPerSource,
+    debug,
+  };
 }
 
 export function searchInputFromParsedArgs(
@@ -91,6 +114,8 @@ export function searchInputFromParsedArgs(
     sources: args.sources.length > 0 ? args.sources : undefined,
     resultsDisplayMode: args.resultsDisplayMode,
     paths: args.paths.length > 0 ? args.paths : undefined,
+    maxPatterns: args.maxPatterns,
+    maxResultsPerSource: args.maxResultsPerSource,
     debug: args.debug || undefined,
   };
 }
@@ -136,6 +161,17 @@ function parseResultsDisplayMode(
     return value;
   }
   throw new Error(`${option} must be one of: candidates, evidence, debug`);
+}
+
+function parsePositiveInteger(value: string | undefined, option: string) {
+  if (!value) {
+    throw new Error(`${option} requires a value`);
+  }
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  throw new Error(`${option} must be a positive integer`);
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {

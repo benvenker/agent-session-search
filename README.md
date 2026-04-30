@@ -260,6 +260,8 @@ Supported options:
 - `--mode <candidates|evidence|debug>`: choose compact leads, matching snippets, or diagnostics.
 - `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes.
 - `--path <path>`: restrict evidence to a canonical session path; repeat for multiple paths.
+- `--max-patterns <n>`: limit expanded literal search patterns.
+- `--max-results <n>`: limit results per source; `--max-results-per-source` is also accepted.
 - `-h`, `--help`, `help`: print CLI help without running a search.
 
 JSON output includes:

@@ -18,6 +18,7 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("--mode <candidates|evidence|debug>");
       expect(output).toContain("--evidence");
       expect(output).toContain("--path <path>");
+      expect(output).toContain("--max-results <n>");
       expect(output).toContain("agent-session-search-doctor");
       expect(output).toContain("search_sessions");
       expect(output).not.toContain("query: help");
@@ -58,6 +59,8 @@ describe("CLI argument parsing", () => {
       sources: ["codex"],
       resultsDisplayMode: "evidence",
       paths: ["/Users/ben/.codex/sessions/session.jsonl"],
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
       debug: false,
     });
     expect(searchInputFromParsedArgs(args)).toEqual({
@@ -65,6 +68,8 @@ describe("CLI argument parsing", () => {
       sources: ["codex"],
       resultsDisplayMode: "evidence",
       paths: ["/Users/ben/.codex/sessions/session.jsonl"],
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
       debug: undefined,
     });
   });
@@ -85,7 +90,31 @@ describe("CLI argument parsing", () => {
       sources: undefined,
       resultsDisplayMode: "debug",
       paths: undefined,
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
       debug: true,
+    });
+  });
+
+  it("maps explicit caps to search input", () => {
+    expect(
+      searchInputFromParsedArgs(
+        parseArgs([
+          "auth token timeout",
+          "--max-patterns",
+          "3",
+          "--max-results",
+          "7",
+        ])
+      )
+    ).toEqual({
+      query: "auth token timeout",
+      sources: undefined,
+      resultsDisplayMode: undefined,
+      paths: undefined,
+      maxPatterns: 3,
+      maxResultsPerSource: 7,
+      debug: undefined,
     });
   });
 
@@ -93,6 +122,9 @@ describe("CLI argument parsing", () => {
     expect(() => parseArgs(["auth token timeout", "--unknown"])).toThrow(
       "unknown option: --unknown"
     );
+    expect(() =>
+      parseArgs(["auth token timeout", "--max-results", "0"])
+    ).toThrow("--max-results must be a positive integer");
   });
 
   it("honors environment config when running a search", async () => {
