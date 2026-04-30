@@ -2,18 +2,12 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { searchOptionsFromEnv } from "./env.js";
+import { cliHelpText } from "./help.js";
 import { createSessionSearch } from "./search.js";
 import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
 
 function usage() {
-  return [
-    "Usage: agent-session-search <query> [--json] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...]",
-    "",
-    "Examples:",
-    '  agent-session-search "auth token timeout" --json',
-    '  agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl',
-    '  agent-session-search "global search" --source codex --source claude',
-  ].join("\n");
+  return cliHelpText();
 }
 
 type ParsedArgs = {
@@ -105,6 +99,11 @@ export async function main(
   argv = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env
 ) {
+  if (isHelpRequest(argv)) {
+    console.log(cliHelpText());
+    return;
+  }
+
   const args = parseArgs(argv);
   const search = createSessionSearch(searchOptionsFromEnv(env));
   const result = await search.searchSessions(searchInputFromParsedArgs(args));
@@ -120,6 +119,10 @@ export async function main(
   for (const warning of result.warnings) {
     console.warn(`warning: ${warning.code}: ${warning.message}`);
   }
+}
+
+function isHelpRequest(argv: string[]) {
+  return argv.length === 1 && ["help", "--help", "-h"].includes(argv[0]);
 }
 
 function parseResultsDisplayMode(

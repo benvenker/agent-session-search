@@ -7,6 +7,7 @@ import {
   type CreateSessionSearchOptions,
 } from "./search.js";
 import { searchOptionsFromEnv } from "./env.js";
+import { mcpSearchSessionsDescription } from "./help.js";
 import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
 
 export function createServer(options: CreateSessionSearchOptions = {}) {
@@ -18,14 +19,7 @@ export function createServer(options: CreateSessionSearchOptions = {}) {
 
   server.addTool({
     name: "search_sessions",
-    description: [
-      "Search local coding-agent session history across configured sources.",
-      "This is an agentic recall tool: when the user request is conversational or underspecified, infer the operational context from your environment and pass several short literal probes in `queries`.",
-      "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
-      "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
-      "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
-      "The default `resultsDisplayMode` is `candidates`: compact session-level leads grouped by source/path. Use a candidate `more.evidence` object as the next tool input when you need matching snippets from a selected session. Use `debug` only when inspecting query expansion or backend behavior.",
-    ].join(" "),
+    description: mcpSearchSessionsDescription(),
     parameters: searchSessionsInputSchema,
     execute: async (input) => {
       const result = await runSearchSessionsTool(search, input);

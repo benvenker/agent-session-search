@@ -6,6 +6,54 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { describe, expect, it } from "vitest";
 
 describe("MCP search_sessions smoke path", () => {
+  it("describes the search_sessions workflow through tool introspection", async () => {
+    const transport = new StdioClientTransport({
+      command: join(process.cwd(), "node_modules", ".bin", "tsx"),
+      args: ["src/server.ts"],
+      cwd: process.cwd(),
+      env: stringEnv(process.env),
+      stderr: "pipe",
+    });
+    const client = new Client({
+      name: "agent-session-search-introspection",
+      version: "0.1.0",
+    });
+
+    try {
+      await client.connect(transport);
+      const tools = await client.listTools();
+      const tool = tools.tools.find((candidate) => {
+        return candidate.name === "search_sessions";
+      });
+
+      expect(tool?.description).toContain("concise recall task");
+      expect(tool?.description).toContain("operationalContext");
+      expect(tool?.description).toContain("more.evidence");
+
+      const properties = tool?.inputSchema.properties as
+        | Record<string, { description?: string }>
+        | undefined;
+      expect(properties?.query.description).toContain(
+        "Concise human-readable recall task"
+      );
+      expect(properties?.queries.description).toContain(
+        "Short literal search probes"
+      );
+      expect(properties?.operationalContext.description).toContain(
+        "cwd, repo, branch"
+      );
+      expect(properties?.sources.description).toContain(
+        "Source names to search"
+      );
+      expect(properties?.resultsDisplayMode.description).toContain(
+        "candidates"
+      );
+      expect(properties?.paths.description).toContain("Restrict evidence");
+    } finally {
+      await client.close();
+    }
+  });
+
   it("launches the stdio server and searches a deterministic fixture root", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-mcp-"));
     const root = join(tmp, "sessions");

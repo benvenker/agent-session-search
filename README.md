@@ -240,15 +240,27 @@ The server exposes one tool, `search_sessions`. Minimal input:
 
 Omit `sources` (or pass `sources: "all"`) to search every enabled root. To restrict, pass an array such as `["codex", "claude"]`. The input schema accepts `context` for forward compatibility; the FFF backend currently returns bounded matching lines, not surrounding context lines.
 
+Tool introspection includes field-level docs for `query`, `queries`, `operationalContext`, `sources`, `resultsDisplayMode`, and `paths`, so MCP clients can explain the call shape without a separate docs tool.
+
 ## CLI
 
 The CLI shares the same library and result shape, so a fallback agent doesn't have to learn a second workflow:
 
 ```bash
+agent-session-search help
 agent-session-search "auth token timeout" --json
 agent-session-search "auth token timeout" --source codex --source claude --json
 agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
+
+Supported options:
+
+- `--json`: print the full result object.
+- `--source <source>`: restrict to a source; repeat for multiple sources.
+- `--mode <candidates|evidence|debug>`: choose compact leads, matching snippets, or diagnostics.
+- `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes.
+- `--path <path>`: restrict evidence to a canonical session path; repeat for multiple paths.
+- `-h`, `--help`, `help`: print CLI help without running a search.
 
 JSON output includes:
 
