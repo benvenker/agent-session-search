@@ -463,6 +463,101 @@ describe("createSessionSearch", () => {
     ]);
   });
 
+  it("searches Pool history across its shared root", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const poolRoot = join(tmp, "poolside");
+    const configPath = join(tmp, "config.json");
+    await mkdir(poolRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          {
+            name: "pool",
+            path: poolRoot,
+            include: [
+              "trajectories/*.ndjson",
+              "logs/*.log",
+              "sessions/*.json",
+              "acp/**/*.json",
+            ],
+          },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            const content = `pool hit ${input.patterns[0]}`;
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "trajectories/session.ndjson"),
+                  line: 1,
+                  content,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "logs/pool.log"),
+                  line: 2,
+                  content,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "sessions/session.json"),
+                  line: 3,
+                  content,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "acp/workspace/session.json"),
+                  line: 4,
+                  content,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "cache/session.json"),
+                  line: 5,
+                  content: `filtered ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    const canonicalPoolRoot = await realpath(poolRoot);
+
+    const result = await search.searchSessions({
+      query: "pool smoke",
+      sources: ["pool"],
+      resultsDisplayMode: "evidence",
+    });
+
+    expect(result.results.map((hit) => hit.path)).toEqual([
+      join(canonicalPoolRoot, "trajectories/session.ndjson"),
+      join(canonicalPoolRoot, "logs/pool.log"),
+      join(canonicalPoolRoot, "sessions/session.json"),
+      join(canonicalPoolRoot, "acp/workspace/session.json"),
+    ]);
+  });
+
   it("uses agent-planned queries as the search probes while preserving the original request", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
