@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { searchOptionsFromEnv } from "./env.js";
 import { createSessionSearch } from "./search.js";
 import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
 
@@ -100,9 +101,12 @@ export function searchInputFromParsedArgs(
   };
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(
+  argv = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env
+) {
   const args = parseArgs(argv);
-  const search = createSessionSearch();
+  const search = createSessionSearch(searchOptionsFromEnv(env));
   const result = await search.searchSessions(searchInputFromParsedArgs(args));
 
   if (args.json) {

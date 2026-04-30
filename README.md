@@ -1,104 +1,124 @@
 # Agent Session Search
 
-Local MCP server and CLI for searching coding-agent session history through FFF.
-The public MCP surface is intentionally small: one `search_sessions` tool backed
-by configured session roots.
+Local MCP server (and CLI) that lets coding agents search their own past sessions across Codex, Claude Code, Cursor, Pi, Hermes, and anything else you point it at. One tool, one query, real session paths.
 
-## Prerequisites
+## Why
 
-- Node.js 20 or newer.
-- npm.
-- The external `fff-mcp` binary on `PATH`.
+Agents forget. Five minutes after a session ends, the only place that thread of context still exists is the JSONL transcript on disk. So they keep asking the same questions:
 
-`npm install` installs this package's Node dependencies. It does not install
-`fff-mcp`.
+- Have we debugged this before?
+- Which prior session discussed this error?
+- Did a previous agent touch this file, branch, PR, or feature?
+- What did Codex, Claude, Cursor, Pi, or Hermes try last time?
+- Where is the session that mentioned this stack trace or failing spec?
 
-## Install And Verify
+Those transcripts are already on your machine. They just need to be searchable.
 
-For local development:
+## Why this exists
 
-```bash
-npm install
-npm run check:fff
-npm run check
-npm test
-npm run build
-npm run smoke
-```
+Agent transcripts are JSONL files in well-known directories. [FFF][fff] is a fast lexical search engine that takes a single directory as its input. The smallest useful thing is one MCP tool that fans `fff-mcp` out across the per-tool session roots and returns canonical absolute paths.
 
-Before handing off a local package build, inspect the tarball contents and test
-the installed bin shims from a clean temporary app:
+That's the whole tool. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me. This is the smallest thing that worked.
+
+[fff]: https://dmtrkovalenko.dev/blog/just-build-fast-tools
+
+## Quickstart
 
 ```bash
-npm pack --dry-run --json
-tmpdir="$(mktemp -d)"
-npm pack --pack-destination "$tmpdir"
-mkdir "$tmpdir/app"
-cd "$tmpdir/app"
-npm init -y
-npm install --foreground-scripts --no-audit --no-fund "$tmpdir"/agent-session-search-*.tgz
-npx agent-session-search-doctor
-npx agent-session-search "auth token timeout" --json
-npx agent-session-search-mcp
-```
-
-## npm Package
-
-This public package is configured to publish to the npm registry as:
-
-```text
-@benvenker/agent-session-search
-```
-
-Publish after logging in to npm:
-
-```bash
-npm publish
-```
-
-Install globally on this machine with:
-
-```bash
-npm install -g @benvenker/agent-session-search
-```
-
-`npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is available,
-it prints the resolved path, version, live grep smoke result, and `PATH` used
-for the check. The smoke check searches a temporary file with isolated FFF
-database files, matching the runtime path used by `agent-session-search`. In an
-installed package, run the same preflight with:
-
-```bash
-agent-session-search-doctor
-```
-
-If `fff-mcp` is missing, install it with the official FFF MCP installer:
-
-```bash
+# 1. Install the FFF backend (one-time)
 curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
+
+# 2. Install this package
+npm install -g @benvenker/agent-session-search
+
+# 3. Verify FFF is wired up
+agent-session-search-doctor
+
+# 4. Try it from the CLI against your real session roots
+agent-session-search "auth token timeout" --json
 ```
 
-Review the installer before running it:
+Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
+
+The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, and `hermes`. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
+
+Or skip the manual setup entirely: once the package is installed, point a coding agent at this README and ask it to configure things for you. The config file and the MCP client registration are both plain JSON, the schema below is small, and the agent already knows which session directories live under your home dir. A prompt like "Set up agent-session-search on this machine: detect which default session roots actually exist, write `~/.config/agent-session-search/config.json` with only the ones that do, and add the MCP server entry to my client config" is usually enough.
+
+## What an agent call looks like
+
+The simple call is boring on purpose:
+
+```json
+{ "query": "where did we debug global search embedding timeout?" }
+```
+
+The agent-native call is where this tool earns its keep. `query` stays a concise recall task (so it reads cleanly in audit logs), `queries` carries short literal probes the calling LLM has already planned, and `operationalContext` carries the cwd / branch / reason the agent already knows from its environment:
+
+```json
+{
+  "query": "Find the prior session about PR 227 and the papercuts branch.",
+  "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
+  "operationalContext": {
+    "cwd": "/Users/ben/code/poolside/poolside-studio",
+    "branch": "paper-cuts",
+    "reason": "Recover the prior session that worked on this PR."
+  },
+  "sources": "all"
+}
+```
+
+Strip tool-use directions, output-format instructions, and examples out of `query`. They become noise in future searches. If `queries` is omitted, the tool falls back to deterministic literal-pattern rewriting of `query`.
+
+### Candidates first, evidence on demand
+
+By default `search_sessions` returns compact session-level **candidates** grouped by `source` and `path`: a short `preview`, `hitCount`, the matched patterns, and a complete `more.evidence` follow-up request. The agent can then call the same tool again with that `more.evidence` object as input to get matching snippets from one selected session. No second pipeline, no new flags. Path-restricted evidence requests bypass the per-source cap so a selected session is never lost behind unrelated hits.
+
+This keeps the default response small enough to skim and lets the agent pull detail only where it actually needs it.
+
+## How it works
 
 ```text
-https://dmtrkovalenko.dev/install-fff-mcp.sh
+agent query
+  -> agent-session-search MCP
+    -> deterministic query rewrite (or agent-planned `queries`)
+    -> fanout to one fff-mcp child per source root
+        codex   -> ~/.codex/sessions
+        claude  -> ~/.claude/projects
+        pi      -> ~/.pi/agent/sessions
+        cursor  -> ~/.cursor/projects
+        hermes  -> ~/.hermes/sessions
+    -> normalize results to canonical absolute paths
+    -> return compact candidates (or evidence hits) grouped by source/path
 ```
 
-Set `AGENT_SESSION_SEARCH_FFF_DB_DIR` only when FFF should use a non-default
-database directory. That directory should contain the FFF `frecency.mdb` and
-`history.mdb` files.
+Design choices worth knowing:
+
+- **One MCP tool, not many.** Internal seams (root resolution, query rewriting, FFF backend, fanout, path normalization) stay testable modules but never leak into the agent-facing API.
+- **FFF is the engine.** No custom index, no embeddings, no SQLite. Raw session files are the source of truth.
+- **Canonical absolute paths in results**, with `source` and `root` attribution preserved, so agents can read the file directly.
+- **Partial success over hard failure.** A missing or unreadable root emits a warning; search continues across the rest.
+
+### What this doesn't do
+
+No semantic recall. Ask for "the session where we discussed retry logic" without using the word "retry," and this won't find it. No schema-aware filtering of message roles or tool calls; it greps raw JSONL lines, not parsed conversations. No cross-agent normalization, so a Codex tool call and a Claude Code tool call look different to it. If you need any of those, you want a different tool.
+
+### Why MCP (and what about the CLI?)
+
+`fff-mcp` is FFF's MCP server. This package spawns one `fff-mcp` child per source root and re-exposes a single `search_sessions` tool over MCP to agents.
+
+The CLI is not a different code path. `agent-session-search "..."` runs the same fanout, talks to the same `fff-mcp` children, and returns the same result shape. It just skips the agent layer on top, so you can use it directly from a shell or as a fallback when an agent's MCP client isn't available.
 
 ## Configuration
 
-By default, the server looks for configuration at:
+By default, the server reads:
 
 ```text
 ~/.config/agent-session-search/config.json
 ```
 
-Override that path with `AGENT_SESSION_SEARCH_CONFIG`.
+Override with `AGENT_SESSION_SEARCH_CONFIG`.
 
-Example configuration:
+Example:
 
 ```json
 {
@@ -141,44 +161,48 @@ Example configuration:
 }
 ```
 
-The built-in defaults cover the same five source names: `codex`, `claude`, `pi`,
-`cursor`, and `hermes`. A configured root with the same name replaces the
-built-in default. Set `"enabled": false` on a root to disable it. `include`
-patterns are enforced against returned paths; slashless patterns such as
-`*.jsonl` match basenames anywhere under the root, while patterns containing `/`
-match root-relative paths.
+Built-in defaults already cover the five source names above. A configured root with the same name replaces the built-in default. Set `"enabled": false` to disable a root without deleting it. `include` patterns are enforced against returned paths: slashless patterns like `*.jsonl` match basenames anywhere under the root; patterns containing `/` match root-relative paths. `defaults` are optional, request fields override them, invalid values are ignored.
 
-`defaults` are optional. Request fields override configured defaults. Invalid
-default values are ignored.
+### Adding another agent
 
-## MCP Server
+The five built-in source names are defaults, not a closed list. If an agent writes its transcripts to a directory in a text format (JSONL, plain text, Markdown), you can add it in config with no parser, converter, or code change:
 
-Run the development MCP server over stdio:
-
-```bash
-npm run dev:mcp
+```json
+{
+  "roots": [
+    {
+      "name": "goose",
+      "path": "/Users/ben/.goose/sessions",
+      "include": ["*.jsonl"]
+    }
+  ]
+}
 ```
 
-After building, run the server entrypoint directly:
+- `name` is any stable label you'll filter on with `--source` or the `sources` field. It does not have to match a built-in.
+- `path` is the directory `fff-mcp` should index.
+- `include` is optional but useful for skipping noise (cache files, lockfiles, and so on).
+- Results come back with canonical absolute paths and `source`/`root` attribution, the same shape as the built-ins.
 
-```bash
-node dist/server.js
+You don't need to re-declare the five built-ins to add a new one. They stay enabled unless you override them by name or set `"enabled": false`. This won't work for agents that store sessions as sqlite databases or binary blobs; `fff-mcp` is a text grep, not a format parser.
+
+## Register with an MCP client
+
+Once installed globally, the server runs as `agent-session-search-mcp` over stdio. Add it to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "agent-session-search": {
+      "command": "agent-session-search-mcp"
+    }
+  }
+}
 ```
 
-When this package is installed, register the package bin command with your MCP
-client:
+If your client doesn't put the npm global bin on `PATH`, point `command` at the absolute path printed by `which agent-session-search-mcp`.
 
-```bash
-agent-session-search-mcp
-```
-
-The server exposes one tool:
-
-```text
-search_sessions
-```
-
-Example tool input:
+The server exposes one tool, `search_sessions`. Minimal input:
 
 ```json
 {
@@ -189,58 +213,11 @@ Example tool input:
 }
 ```
 
-For conversational recall requests, agents should set `query` to a concise
-recall task, not the full prompt. Strip tool-use directions, output-format
-requests, and examples from `query`; put useful environment details in
-`operationalContext` and short planned probes in `queries`:
+Omit `sources` (or pass `sources: "all"`) to search every enabled root. To restrict, pass an array such as `["codex", "claude"]`. The input schema accepts `context` for forward compatibility; the FFF backend currently returns bounded matching lines, not surrounding context lines.
 
-```json
-{
-  "query": "Find the prior session about PR 227 and the papercuts branch.",
-  "queries": ["PR #227", "paper-cuts", "poolside-studio pull 227"],
-  "operationalContext": {
-    "cwd": "/Users/ben/code/poolside/poolside-studio",
-    "branch": "paper-cuts",
-    "reason": "Recover the prior session that worked on this PR."
-  },
-  "sources": "all"
-}
-```
+## CLI
 
-If `queries` is omitted, the tool falls back to deterministic rewriting of
-`query`.
-
-The default `resultsDisplayMode` is `"candidates"`. It returns compact
-session-level leads grouped by `source` and `path`, with a short `preview`,
-`hitCount`, matched patterns, and a complete `more.evidence` follow-up request.
-If the agent needs matching snippets from a selected session, it can call the
-same tool again with the candidate's `more.evidence` object as input.
-Path-restricted evidence requests are searched without the normal per-source cap
-first, then filtered and capped, so a selected session is not lost behind other
-hits from the same source.
-
-The input schema accepts `context` for forward compatibility. The current FFF
-backend returns bounded matching lines, not surrounding context lines.
-
-Omit `sources` or pass `sources: "all"` to search every enabled source. To search
-only specific sources, pass an array such as `"sources": ["codex", "claude"]`.
-
-## CLI Usage
-
-Run the automated smoke path through the real stdio MCP entrypoint with a
-deterministic fixture root:
-
-```bash
-npm run smoke
-```
-
-For manual local checks against configured session roots:
-
-```bash
-npm run dev:cli -- "auth token timeout" --json
-```
-
-After installation, use the packaged CLI:
+The CLI shares the same library and result shape, so a fallback agent doesn't have to learn a second workflow:
 
 ```bash
 agent-session-search "auth token timeout" --json
@@ -248,47 +225,66 @@ agent-session-search "auth token timeout" --source codex --source claude --json
 agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
 
-The JSON output includes:
+JSON output includes:
 
 - `query`: the original query.
 - `resultsDisplayMode`: `candidates`, `evidence`, or `debug`.
 - `expandedPatterns`: deterministic FFF-friendly literal patterns searched.
-- `searchedSources`: source names, canonical roots, status, and any source-level
-  warning.
-- `warnings`: missing roots, unreadable roots, backend failures, and
-  partial-success notices.
-- `results`: compact candidates by default, or FFF-backed evidence hits with
-  `source`, `root`, canonical absolute `path`, `line`, bounded `content`,
-  optional `query`, and optional `pattern`.
+- `searchedSources`: source names, canonical roots, status, source-level warnings.
+- `warnings`: missing roots, unreadable roots, backend failures, partial-success notices.
+- `results`: compact candidates by default, or FFF-backed evidence hits with `source`, `root`, canonical absolute `path`, `line`, bounded `content`, and optional `query` / `pattern`.
 
-## Warnings And Partial Success
+## Warnings and partial success
 
-Missing and unreadable roots do not fail the whole search. A missing root emits a
-`missing_root` warning; an unreadable root emits an `unreadable_root` warning.
-Search continues across the remaining readable roots and may return partial
-results.
-When at least one source can be searched, partial results are expected instead of
-failing the whole request.
+Missing and unreadable roots do not fail the whole search. A missing root emits a `missing_root` warning; an unreadable root emits an `unreadable_root` warning. As long as one source is searchable, you get partial results.
 
-Unknown or disabled requested sources emit `unknown_source`; if no enabled roots
-match a source filter, the response also includes `no_sources_selected`.
+Unknown or disabled requested sources emit `unknown_source`; if no enabled roots match a source filter, the response also includes `no_sources_selected`.
 
-If every attempted source fails and there are no results, the response includes
-an `all_sources_failed` warning with a concrete `rg` fallback command.
+If every attempted source fails and there are no results, the response includes an `all_sources_failed` warning with a concrete `rg` fallback command. Use that for exhaustive proof-style search.
 
-## Environment Variables
+## Environment variables
 
-- `AGENT_SESSION_SEARCH_CONFIG`: path to the JSON source-root configuration file.
-- `AGENT_SESSION_SEARCH_FFF_DB_DIR`: directory containing `frecency.mdb` and
-  `history.mdb` for FFF MCP.
-- `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`: per-pattern FFF timeout in
-  milliseconds. Runtime searches default to 15000.
-- `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS`: retry count for empty FFF
-  results.
-- `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS`: delay between empty-result
-  retries in milliseconds.
+All optional, and respected by both the CLI and the MCP server. The defaults work for most setups. Reach for these only when you need to override the config location, point FFF at a non-default database directory, or tune timeouts. When you do set them, the natural place is the `env` block of the MCP server entry in your client config (or an export in your shell rc for the CLI).
 
-## CASS
+- `AGENT_SESSION_SEARCH_CONFIG`: path to the JSON source-root config file.
+- `AGENT_SESSION_SEARCH_FFF_DB_DIR`: directory containing FFF's `frecency.mdb` and `history.mdb`. Set this only when FFF should use a non-default database directory.
+- `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`: per-pattern FFF timeout in milliseconds. Runtime searches default to 15000.
+- `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS`: retry count for empty FFF results.
+- `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS`: delay between empty-result retries in milliseconds.
 
-CASS is not part of this tool. Do not run cass, `cass search`, `cass context`,
-`cass timeline`, `cass index`, or any CASS watcher to use Agent Session Search.
+## Development
+
+```bash
+npm install
+npm run check:fff   # FFF preflight
+npm run check       # typecheck
+npm test
+npm run build
+npm run smoke       # stdio MCP smoke test against a fixture root
+npm run dev:mcp     # run the MCP server from source
+npm run dev:cli -- "auth token timeout" --json
+```
+
+`npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is on `PATH`, it prints the resolved path, version, a live grep smoke result, and the `PATH` used for the check, with isolated FFF database files matching the runtime path. In an installed package, run the same preflight as `agent-session-search-doctor`.
+
+### Verifying a local package build
+
+Before handing off a local build, inspect the tarball and exercise the bin shims from a clean temp app:
+
+```bash
+npm pack --dry-run --json
+tmpdir="$(mktemp -d)"
+npm pack --pack-destination "$tmpdir"
+mkdir "$tmpdir/app"
+cd "$tmpdir/app"
+npm init -y
+npm install --foreground-scripts --no-audit --no-fund "$tmpdir"/agent-session-search-*.tgz
+npx agent-session-search-doctor
+npx agent-session-search "auth token timeout" --json
+npx agent-session-search-mcp
+```
+
+## Notes
+
+- This package is published to npm as `@benvenker/agent-session-search`.
+- License: MIT (see `LICENSE`).

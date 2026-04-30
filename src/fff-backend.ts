@@ -99,6 +99,7 @@ export class OneRootFffBackend {
     pattern: string,
     maxResults: number | undefined
   ): Promise<OneRootFffSearchOutput> {
+    // fff-mcp can briefly return empty results while its first index warms up.
     const attempts = this.hasCompletedSearch
       ? 0
       : (this.options.emptyResultRetryAttempts ??

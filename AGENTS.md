@@ -27,6 +27,5 @@ Repo-local guidance for coding agents working in this project.
 
 ## Guardrails
 
-- Do not run or re-enable the old `cass` indexer/search flow from this repo.
 - Avoid broad refactors when changing behavior; update focused tests for the module touched.
 - Before finishing code changes, run `npm run check` and the relevant tests, or explain why they were not run.

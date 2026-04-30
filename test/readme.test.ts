@@ -42,8 +42,8 @@ describe("README setup documentation", () => {
       "missing_root",
       "unreadable_root",
       "partial results",
-      "CASS is not part of this tool",
-      "Do not run cass",
+      "Adding another agent",
+      "not a closed list",
     ]) {
       expect(readme).toContain(requiredText);
     }
