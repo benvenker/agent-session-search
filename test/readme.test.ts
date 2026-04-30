@@ -20,7 +20,7 @@ describe("README setup documentation", () => {
       "npm pack --dry-run --json",
       "npm pack --pack-destination",
       "npm install --foreground-scripts --no-audit --no-fund",
-      "NPM_TOKEN",
+      "npm trusted publishing",
       "npm version patch",
       "git push origin main --follow-tags",
       "npm run dev:mcp",

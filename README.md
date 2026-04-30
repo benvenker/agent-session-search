@@ -286,7 +286,9 @@ npx agent-session-search-mcp
 
 ### Publishing to npm
 
-Publishing is tag-driven through GitHub Actions. The workflow publishes with the repository `NPM_TOKEN` secret.
+Publishing is tag-driven through GitHub Actions and npm trusted publishing. There is no npm token in this repo.
+
+One-time npm setup: on npmjs.com, add a trusted publisher for `@benvenker/agent-session-search` using GitHub Actions, repository `benvenker/agent-session-search`, and workflow `.github/workflows/publish.yml`.
 
 To publish a release:
 
