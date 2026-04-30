@@ -30,11 +30,11 @@ This is the smallest thing that worked.
 ## Quickstart
 
 ```bash
-# 1. Install the FFF backend (one-time)
-curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
-
-# 2. Install this package
+# 1. Install this package
 npm install -g @benvenker/agent-session-search
+
+# 2. If the postinstall flagged a missing fff-mcp, install the FFF backend
+curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
 
 # 3. Verify FFF is wired up
 agent-session-search-doctor
@@ -43,7 +43,7 @@ agent-session-search-doctor
 agent-session-search "auth token timeout" --json
 ```
 
-Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
+The npm postinstall step checks for `fff-mcp` on `PATH` and prints a notice if it's missing; it never runs the installer for you. So step 2 is a follow-up only when you don't already have it. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
 The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, and `hermes`. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
