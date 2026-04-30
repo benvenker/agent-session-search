@@ -27,7 +27,8 @@ Repo-local guidance for coding agents working in this project.
 
 ## Built-In Source Notes
 
-- Pool is intentionally modeled as one `pool` source rooted at `~/Library/Application Support/poolside`. That shared root covers Pool CLI history (`trajectories/`, `logs/`, `sessions/`) and Poolside Studio agent records (`acp/`). Do not split it into separate Pool CLI and Poolside Studio built-ins unless the on-disk storage changes.
+- Pool is intentionally modeled as one `pool` source rooted at `~/Library/Application Support/poolside` on macOS. That shared root covers Pool CLI history (`trajectories/`, `logs/`, `sessions/`) and Poolside Studio agent records (`acp/`). Do not split it into separate Pool CLI and Poolside Studio built-ins unless the on-disk storage changes.
+- Pool's binary install path is not the session-history path. Use `pool config` to verify the log and trajectory directories, especially on non-macOS installs or machines with custom Pool configuration.
 
 ## Guardrails
 

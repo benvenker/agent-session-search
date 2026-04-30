@@ -45,7 +45,7 @@ agent-session-search "auth token timeout" --json
 
 The npm postinstall step checks for `fff-mcp` on `PATH` and prints a notice if it's missing; it never runs the installer for you. So step 2 is a follow-up only when you don't already have it. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
-The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
+The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. `which pool` only tells you where the binary was installed; if `pool config` prints different log or trajectory directories on your machine, override the `pool` root in config. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
 Or skip the manual setup entirely: once the package is installed, point a coding agent at this README and ask it to configure things for you. The config file and the MCP client registration are both plain JSON, the schema below is small, and the agent already knows which session directories live under your home dir. A prompt like "Set up agent-session-search on this machine: detect which default session roots actually exist, write `~/.config/agent-session-search/config.json` with only the ones that do, and add the MCP server entry to my client config" is usually enough.
 
@@ -217,6 +217,15 @@ Once installed globally, the server runs as `agent-session-search-mcp` over stdi
 ```
 
 If your client doesn't put the npm global bin on `PATH`, point `command` at the absolute path printed by `which agent-session-search-mcp`.
+
+For Pool, use its MCP manager:
+
+```bash
+pool mcp add agent-session-search -- agent-session-search-mcp
+pool mcp list
+```
+
+Pool stores personal MCP server settings in `~/.config/poolside/settings.yaml` and can also read project-scoped settings from `.poolside/settings.yaml`. Command-based MCP servers inherit the environment of the `pool` process, so `AGENT_SESSION_SEARCH_*` variables work there too.
 
 The server exposes one tool, `search_sessions`. Minimal input:
 
