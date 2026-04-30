@@ -19,7 +19,11 @@ Typical questions it answers:
 
 [FFF][fff] is what made this small. It's a fast in-memory lexical search engine with frecency built in, and it ships an MCP server (`fff-mcp`) that indexes one directory at a time. FFF itself is a general code-search tool (not specifically built for cross-agent session recall), but it turns out "really fast grep over a directory tree" is most of what session recall needs. This project just multiplexes `fff-mcp` across the per-tool session roots and re-exposes the result as a single MCP tool.
 
-That's the whole thing. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me. This is the smallest thing that worked.
+That's the whole thing. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me.
+
+The one design call beyond pure wrapping is small but worth flagging: each search candidate carries a complete `more.evidence` follow-up payload, server-prepared. The agent doesn't construct the next call, it echoes one back. It's an ergonomic touch most agent-facing tools skip, and it noticeably tightens the recall loop. See [Candidates first, evidence on demand](#candidates-first-evidence-on-demand).
+
+This is the smallest thing that worked.
 
 [fff]: https://dmtrkovalenko.dev/blog/just-build-fast-tools
 
