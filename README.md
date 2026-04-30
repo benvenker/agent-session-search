@@ -284,6 +284,21 @@ npx agent-session-search "auth token timeout" --json
 npx agent-session-search-mcp
 ```
 
+### Publishing to npm
+
+Publishing is tag-driven through GitHub Actions and npm trusted publishing. There is no npm token in this repo.
+
+One-time npm setup: on npmjs.com, add a trusted publisher for `@benvenker/agent-session-search` using GitHub Actions, repository `benvenker/agent-session-search`, and workflow `.github/workflows/publish.yml`.
+
+To publish a release:
+
+```bash
+npm version patch   # or minor / major
+git push origin main --follow-tags
+```
+
+The pushed `vX.Y.Z` tag runs CI, checks that the tag matches `package.json`, and publishes that version to npm.
+
 ## Notes
 
 - This package is published to npm as `@benvenker/agent-session-search`.
