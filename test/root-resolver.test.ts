@@ -27,7 +27,12 @@ describe("resolveSessionRoots", () => {
       {
         name: "pool",
         path: "/Users/ben/Library/Application Support/poolside",
-        include: ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"],
+        include: [
+          "trajectories/*.ndjson",
+          "logs/*.log",
+          "sessions/*.json",
+          "acp/**/*.json",
+        ],
       },
     ]);
   });

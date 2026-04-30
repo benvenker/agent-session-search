@@ -78,6 +78,8 @@ pool   -> /Users/ben/Library/Application Support/poolside
 ```
 
 Paths must be configurable. Missing roots should be skipped with warnings.
+The `pool` default is the shared Pool history root reported by `pool config`,
+including CLI trajectories/logs/sessions and Poolside Studio ACP records.
 
 Cursor session transcripts are stored under project-specific directories, for
 example:
@@ -330,7 +332,12 @@ Example:
     {
       "name": "pool",
       "path": "/Users/ben/Library/Application Support/poolside",
-      "include": ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"]
+      "include": [
+        "trajectories/*.ndjson",
+        "logs/*.log",
+        "sessions/*.json",
+        "acp/**/*.json"
+      ]
     }
   ],
   "synonyms": {

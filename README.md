@@ -45,7 +45,7 @@ agent-session-search "auth token timeout" --json
 
 The npm postinstall step checks for `fff-mcp` on `PATH` and prints a notice if it's missing; it never runs the installer for you. So step 2 is a follow-up only when you don't already have it. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
-The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
+The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
 Or skip the manual setup entirely: once the package is installed, point a coding agent at this README and ask it to configure things for you. The config file and the MCP client registration are both plain JSON, the schema below is small, and the agent already knows which session directories live under your home dir. A prompt like "Set up agent-session-search on this machine: detect which default session roots actually exist, write `~/.config/agent-session-search/config.json` with only the ones that do, and add the MCP server entry to my client config" is usually enough.
 
@@ -157,7 +157,12 @@ Example:
     {
       "name": "pool",
       "path": "/Users/ben/Library/Application Support/poolside",
-      "include": ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"]
+      "include": [
+        "trajectories/*.ndjson",
+        "logs/*.log",
+        "sessions/*.json",
+        "acp/**/*.json"
+      ]
     }
   ],
   "synonyms": {

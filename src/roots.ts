@@ -74,7 +74,12 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
     {
       name: "pool",
       path: join(home, "Library", "Application Support", "poolside"),
-      include: ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"],
+      include: [
+        "trajectories/*.ndjson",
+        "logs/*.log",
+        "sessions/*.json",
+        "acp/**/*.json",
+      ],
     },
   ];
 }
