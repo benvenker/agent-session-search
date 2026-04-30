@@ -1,6 +1,6 @@
 # Agent Session Search
 
-Local MCP server (and CLI) that lets coding agents search their own past sessions across Codex, Claude Code, Cursor, Pi, Hermes, and anything else you point it at. One tool, one query, real session paths.
+Local MCP server (and CLI) that lets coding agents search their own past sessions across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and anything else you point it at. One tool, one query, real session paths.
 
 ## Why
 
@@ -13,7 +13,7 @@ Typical questions it answers:
 - Where did I work on this before, and with which agent?
 - Which prior session discussed this error or stack trace?
 - Did a previous agent touch this file, branch, PR, or feature?
-- What did Codex, Claude, Cursor, Pi, or Hermes try last time?
+- What did Codex, Claude, Cursor, Pi, Hermes, or Pool try last time?
 
 ## Why this exists
 
@@ -45,7 +45,7 @@ agent-session-search "auth token timeout" --json
 
 The npm postinstall step checks for `fff-mcp` on `PATH` and prints a notice if it's missing; it never runs the installer for you. So step 2 is a follow-up only when you don't already have it. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
-The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, and `hermes`. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
+The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
 Or skip the manual setup entirely: once the package is installed, point a coding agent at this README and ask it to configure things for you. The config file and the MCP client registration are both plain JSON, the schema below is small, and the agent already knows which session directories live under your home dir. A prompt like "Set up agent-session-search on this machine: detect which default session roots actually exist, write `~/.config/agent-session-search/config.json` with only the ones that do, and add the MCP server entry to my client config" is usually enough.
 
@@ -92,6 +92,7 @@ agent query
         pi      -> ~/.pi/agent/sessions
         cursor  -> ~/.cursor/projects
         hermes  -> ~/.hermes/sessions
+        pool    -> ~/Library/Application Support/poolside
     -> normalize results to canonical absolute paths
     -> return compact candidates (or evidence hits) grouped by source/path
 ```
@@ -152,6 +153,11 @@ Example:
       "name": "hermes",
       "path": "/Users/ben/.hermes/sessions",
       "include": ["*"]
+    },
+    {
+      "name": "pool",
+      "path": "/Users/ben/Library/Application Support/poolside",
+      "include": ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"]
     }
   ],
   "synonyms": {
@@ -166,11 +172,11 @@ Example:
 }
 ```
 
-Built-in defaults already cover the five source names above. A configured root with the same name replaces the built-in default. Set `"enabled": false` to disable a root without deleting it. `include` patterns are enforced against returned paths: slashless patterns like `*.jsonl` match basenames anywhere under the root; patterns containing `/` match root-relative paths. `defaults` are optional, request fields override them, invalid values are ignored.
+Built-in defaults already cover the source names above. A configured root with the same name replaces the built-in default. Set `"enabled": false` to disable a root without deleting it. `include` patterns are enforced against returned paths: slashless patterns like `*.jsonl` match basenames anywhere under the root; patterns containing `/` match root-relative paths. `defaults` are optional, request fields override them, invalid values are ignored.
 
 ### Adding another agent
 
-The five built-in source names are defaults, not a closed list. If an agent writes its transcripts to a directory in a text format (JSONL, plain text, Markdown), you can add it in config with no parser, converter, or code change:
+The built-in source names are defaults, not a closed list. If an agent writes its transcripts to a directory in a text format (JSONL, plain text, Markdown), you can add it in config with no parser, converter, or code change:
 
 ```json
 {
@@ -189,7 +195,7 @@ The five built-in source names are defaults, not a closed list. If an agent writ
 - `include` is optional but useful for skipping noise (cache files, lockfiles, and so on).
 - Results come back with canonical absolute paths and `source`/`root` attribution, the same shape as the built-ins.
 
-You don't need to re-declare the five built-ins to add a new one. They stay enabled unless you override them by name or set `"enabled": false`. This won't work for agents that store sessions as sqlite databases or binary blobs; `fff-mcp` is a text grep, not a format parser.
+You don't need to re-declare the built-ins to add a new one. They stay enabled unless you override them by name or set `"enabled": false`. This won't work for agents that store sessions as sqlite databases or binary blobs; `fff-mcp` is a text grep, not a format parser.
 
 ## Register with an MCP client
 

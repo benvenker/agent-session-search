@@ -74,6 +74,7 @@ claude -> /Users/ben/.claude/projects
 pi     -> /Users/ben/.pi/agent/sessions
 cursor -> /Users/ben/.cursor/projects
 hermes -> /Users/ben/.hermes/sessions
+pool   -> /Users/ben/Library/Application Support/poolside
 ```
 
 Paths must be configurable. Missing roots should be skipped with warnings.
@@ -97,6 +98,7 @@ Agent query
       -> fff-mcp /Users/ben/.pi/agent/sessions
       -> fff-mcp /Users/ben/.cursor/projects
       -> fff-mcp /Users/ben/.hermes/sessions
+      -> fff-mcp /Users/ben/Library/Application Support/poolside
     -> normalize results to canonical absolute paths
     -> return compact candidates or evidence hits grouped by source/path
 ```
@@ -109,7 +111,7 @@ or maintain a separate index.
 Proposed input:
 
 ```ts
-type BuiltinSource = "codex" | "claude" | "pi" | "cursor" | "hermes";
+type BuiltinSource = "codex" | "claude" | "pi" | "cursor" | "hermes" | "pool";
 type SourceName = BuiltinSource | (string & {});
 
 type SearchSessionsInput = {
@@ -324,6 +326,11 @@ Example:
       "name": "hermes",
       "path": "/Users/ben/.hermes/sessions",
       "include": ["*"]
+    },
+    {
+      "name": "pool",
+      "path": "/Users/ben/Library/Application Support/poolside",
+      "include": ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"]
     }
   ],
   "synonyms": {
@@ -534,10 +541,11 @@ V1 is acceptable when:
 12. It can search Pi sessions under `/Users/ben/.pi/agent/sessions`.
 13. It can search Cursor transcripts under `/Users/ben/.cursor/projects`.
 14. It can search Hermes sessions under `/Users/ben/.hermes/sessions`.
-15. It has focused tests for query rewriting, root resolution, FFF backend
+15. It can search Pool sessions under `/Users/ben/Library/Application Support/poolside`.
+16. It has focused tests for query rewriting, root resolution, FFF backend
     normalization, fanout failure handling, path normalization, and MCP response
     shape.
-16. It does not implement custom indexing, embeddings, markdown export, or
+17. It does not implement custom indexing, embeddings, markdown export, or
     durable session aggregation beyond per-response candidate grouping.
 
 ## Open Questions

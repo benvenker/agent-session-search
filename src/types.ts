@@ -1,4 +1,10 @@
-export type BuiltinSource = "codex" | "claude" | "pi" | "cursor" | "hermes";
+export type BuiltinSource =
+  | "codex"
+  | "claude"
+  | "pi"
+  | "cursor"
+  | "hermes"
+  | "pool";
 export type SourceName = BuiltinSource | (string & {});
 
 export type SearchSessionsInput = {

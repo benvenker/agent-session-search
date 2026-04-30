@@ -73,6 +73,7 @@ describe("CLI argument parsing", () => {
           { name: "pi", path: join(tmp, "pi"), enabled: false },
           { name: "cursor", path: join(tmp, "cursor"), enabled: false },
           { name: "hermes", path: join(tmp, "hermes"), enabled: false },
+          { name: "pool", path: join(tmp, "pool"), enabled: false },
           { name: "custom-agent", path: missingRoot, include: ["*.jsonl"] },
         ],
       })

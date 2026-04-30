@@ -71,6 +71,11 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
       include: ["*/agent-transcripts/*"],
     },
     { name: "hermes", path: join(home, ".hermes", "sessions"), include: ["*"] },
+    {
+      name: "pool",
+      path: join(home, "Library", "Application Support", "poolside"),
+      include: ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"],
+    },
   ];
 }
 

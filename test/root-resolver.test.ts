@@ -7,11 +7,28 @@ import { defaultSessionRoots, resolveSessionRoots } from "../src/roots.js";
 describe("resolveSessionRoots", () => {
   it("defines built-in defaults for supported session sources", () => {
     expect(defaultSessionRoots("/Users/ben")).toEqual([
-      { name: "codex", path: "/Users/ben/.codex/sessions", include: ["*.jsonl"] },
-      { name: "claude", path: "/Users/ben/.claude/projects", include: ["*.jsonl"] },
+      {
+        name: "codex",
+        path: "/Users/ben/.codex/sessions",
+        include: ["*.jsonl"],
+      },
+      {
+        name: "claude",
+        path: "/Users/ben/.claude/projects",
+        include: ["*.jsonl"],
+      },
       { name: "pi", path: "/Users/ben/.pi/agent/sessions", include: ["*"] },
-      { name: "cursor", path: "/Users/ben/.cursor/projects", include: ["*/agent-transcripts/*"] },
+      {
+        name: "cursor",
+        path: "/Users/ben/.cursor/projects",
+        include: ["*/agent-transcripts/*"],
+      },
       { name: "hermes", path: "/Users/ben/.hermes/sessions", include: ["*"] },
+      {
+        name: "pool",
+        path: "/Users/ben/Library/Application Support/poolside",
+        include: ["trajectories/*.ndjson", "sessions/*.json", "acp/**/*.json"],
+      },
     ]);
   });
 
@@ -29,10 +46,13 @@ describe("resolveSessionRoots", () => {
           { name: "codex", path: existingRoot, include: ["*.jsonl"] },
           { name: "claude", path: missingRoot, include: ["*.jsonl"] },
         ],
-      }),
+      })
     );
 
-    const resolved = await resolveSessionRoots({ configPath, defaultRoots: [] });
+    const resolved = await resolveSessionRoots({
+      configPath,
+      defaultRoots: [],
+    });
     const canonicalExistingRoot = await realpath(existingRoot);
 
     expect(resolved.sources).toEqual([
@@ -72,7 +92,12 @@ describe("resolveSessionRoots", () => {
       sources: ["custom-agent"],
       defaultRoots: [
         { name: "codex", path: codexRoot, include: ["*.jsonl"] },
-        { name: "custom-agent", path: customRoot, include: ["*.log"], enabled: true },
+        {
+          name: "custom-agent",
+          path: customRoot,
+          include: ["*.log"],
+          enabled: true,
+        },
         { name: "disabled-agent", path: join(tmp, "disabled"), enabled: false },
       ],
     });
@@ -103,10 +128,14 @@ describe("resolveSessionRoots", () => {
       configPath,
       JSON.stringify({
         roots: [
-          { name: "codex", path: configuredCodexRoot, include: ["configured/*.jsonl"] },
+          {
+            name: "codex",
+            path: configuredCodexRoot,
+            include: ["configured/*.jsonl"],
+          },
           { name: "custom-agent", path: customRoot, include: ["*.txt"] },
         ],
-      }),
+      })
     );
 
     const resolved = await resolveSessionRoots({
