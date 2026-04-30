@@ -75,6 +75,7 @@ describe("createSessionSearch", () => {
     const canonicalOtherPath = join(canonicalCodexRoot, "other.jsonl");
 
     expect(result.resultsDisplayMode).toBe("candidates");
+    expect(result.resultsShape).toBe("candidates");
     expect(result.results).toEqual([
       {
         source: "codex",
@@ -118,7 +119,7 @@ describe("createSessionSearch", () => {
     ]);
   });
 
-  it("fans out one query across multiple selected roots and returns raw hits", async () => {
+  it("fans out one query across multiple selected roots and returns grouped evidence", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
     const claudeRoot = join(tmp, "claude");
@@ -172,6 +173,7 @@ describe("createSessionSearch", () => {
     expect(result).toEqual({
       query: "auth token timeout",
       resultsDisplayMode: "evidence",
+      resultsShape: "evidence_groups",
       expandedPatterns: ["auth token timeout"],
       searchedSources: [
         {
@@ -193,19 +195,49 @@ describe("createSessionSearch", () => {
           source: "codex",
           root: canonicalCodexRoot,
           path: join(canonicalCodexRoot, "codex.jsonl"),
-          line: 7,
-          content: "codex saw auth token timeout",
-          pattern: "auth token timeout",
-          query: "auth token timeout",
+          hitCount: 1,
+          matchedQueries: ["auth token timeout"],
+          matchedPatterns: ["auth token timeout"],
+          snippets: [
+            {
+              line: 7,
+              content: "codex saw auth token timeout",
+              pattern: "auth token timeout",
+              query: "auth token timeout",
+            },
+          ],
+          more: {
+            evidence: {
+              query: "auth token timeout",
+              sources: ["codex"],
+              resultsDisplayMode: "evidence",
+              paths: [join(canonicalCodexRoot, "codex.jsonl")],
+            },
+          },
         },
         {
           source: "claude",
           root: canonicalClaudeRoot,
           path: join(canonicalClaudeRoot, "claude.jsonl"),
-          line: 7,
-          content: "claude saw auth token timeout",
-          pattern: "auth token timeout",
-          query: "auth token timeout",
+          hitCount: 1,
+          matchedQueries: ["auth token timeout"],
+          matchedPatterns: ["auth token timeout"],
+          snippets: [
+            {
+              line: 7,
+              content: "claude saw auth token timeout",
+              pattern: "auth token timeout",
+              query: "auth token timeout",
+            },
+          ],
+          more: {
+            evidence: {
+              query: "auth token timeout",
+              sources: ["claude"],
+              resultsDisplayMode: "evidence",
+              paths: [join(canonicalClaudeRoot, "claude.jsonl")],
+            },
+          },
         },
       ],
     });
@@ -239,6 +271,132 @@ describe("createSessionSearch", () => {
         },
       },
     ]);
+  });
+
+  it("groups unscoped evidence by session path with scoped follow-ups", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            const sessionPath = join(source.root, "session-a.jsonl");
+            const otherPath = join(source.root, "session-b.jsonl");
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 12,
+                  content: "Discussed PR #205 as the Linear reference",
+                  pattern: "PR #205",
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 44,
+                  content: "Use pull/205 for the canonical branch",
+                  pattern: "pull/205",
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: otherPath,
+                  line: 3,
+                  content: "Mentioned PR #205 while triaging another issue",
+                  pattern: "PR #205",
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "PR #205 Linear",
+      queries: ["PR #205", "Linear"],
+      sources: ["codex"],
+      resultsDisplayMode: "evidence",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalSessionPath = join(canonicalCodexRoot, "session-a.jsonl");
+    const canonicalOtherPath = join(canonicalCodexRoot, "session-b.jsonl");
+
+    expect(result.resultsShape).toBe("evidence_groups");
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: canonicalSessionPath,
+        hitCount: 2,
+        matchedQueries: ["PR #205"],
+        matchedPatterns: ["PR #205", "pull/205"],
+        snippets: [
+          {
+            line: 12,
+            content: "Discussed PR #205 as the Linear reference",
+            pattern: "PR #205",
+            query: "PR #205",
+          },
+          {
+            line: 44,
+            content: "Use pull/205 for the canonical branch",
+            pattern: "pull/205",
+            query: "PR #205",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "PR #205 Linear",
+            queries: ["PR #205", "Linear"],
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalSessionPath],
+          },
+        },
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: canonicalOtherPath,
+        hitCount: 1,
+        matchedQueries: ["PR #205"],
+        matchedPatterns: ["PR #205"],
+        snippets: [
+          {
+            line: 3,
+            content: "Mentioned PR #205 while triaging another issue",
+            pattern: "PR #205",
+            query: "PR #205",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "PR #205 Linear",
+            queries: ["PR #205", "Linear"],
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalOtherPath],
+          },
+        },
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("restricts evidence results to selected session paths", async () => {
@@ -293,6 +451,7 @@ describe("createSessionSearch", () => {
       paths: [selectedPath],
     });
 
+    expect(result.resultsShape).toBe("evidence_hits");
     expect(result.results).toEqual([
       {
         source: "codex",
@@ -304,6 +463,7 @@ describe("createSessionSearch", () => {
         query: "auth token timeout",
       },
     ]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("does not lose path-restricted evidence behind the normal result cap", async () => {
@@ -315,6 +475,7 @@ describe("createSessionSearch", () => {
       configPath,
       JSON.stringify({
         roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+        defaults: { maxResultsPerSource: 1 },
       })
     );
 
@@ -335,14 +496,14 @@ describe("createSessionSearch", () => {
                 content: "other auth token timeout",
                 pattern: input.patterns[0],
               },
-              {
+              ...[2, 3, 4].map((line) => ({
                 source: source.name,
                 root: source.root,
                 path: join(source.root, "selected.jsonl"),
-                line: 2,
-                content: "selected auth token timeout",
+                line,
+                content: `selected ${line} auth token timeout`,
                 pattern: input.patterns[0],
-              },
+              })),
             ];
             return {
               warnings: [],
@@ -361,7 +522,6 @@ describe("createSessionSearch", () => {
     const result = await search.searchSessions({
       query: "auth token timeout",
       resultsDisplayMode: "evidence",
-      maxResultsPerSource: 1,
       paths: [selectedPath],
     });
 
@@ -374,17 +534,119 @@ describe("createSessionSearch", () => {
         include: ["*.jsonl"],
       },
     ]);
+    expect(result.resultsShape).toBe("evidence_hits");
     expect(result.results).toEqual([
       {
         source: "codex",
         root: canonicalCodexRoot,
         path: selectedPath,
         line: 2,
-        content: "selected auth token timeout",
+        content: "selected 2 auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 3,
+        content: "selected 3 auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 4,
+        content: "selected 4 auth token timeout",
         pattern: "auth token timeout",
         query: "auth token timeout",
       },
     ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("honors explicit result caps for path-restricted evidence", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            const results = [1, 2, 3].map((line) => ({
+              source: source.name,
+              root: source.root,
+              path: join(source.root, "selected.jsonl"),
+              line,
+              content: `selected ${line} auth token timeout`,
+              pattern: input.patterns[0],
+            }));
+            return {
+              warnings: [],
+              results:
+                input.maxResults === undefined
+                  ? results
+                  : results.slice(0, input.maxResults),
+            };
+          },
+        };
+      },
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const selectedPath = join(canonicalCodexRoot, "selected.jsonl");
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      maxResultsPerSource: 2,
+      paths: [selectedPath],
+    });
+
+    expect(calls).toEqual([
+      {
+        patterns: ["auth token timeout"],
+        maxResults: 2,
+        context: undefined,
+        paths: [selectedPath],
+        include: ["*.jsonl"],
+      },
+    ]);
+    expect(result.resultsShape).toBe("evidence_hits");
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 1,
+        content: "selected 1 auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: selectedPath,
+        line: 2,
+        content: "selected 2 auth token timeout",
+        pattern: "auth token timeout",
+        query: "auth token timeout",
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("filters results through configured include patterns", async () => {
@@ -455,10 +717,30 @@ describe("createSessionSearch", () => {
           canonicalCursorRoot,
           "project/agent-transcripts/session.txt"
         ),
-        line: 2,
-        content: "allowed auth token timeout",
-        pattern: "auth token timeout",
-        query: "auth token timeout",
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 2,
+            content: "allowed auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["cursor"],
+            resultsDisplayMode: "evidence",
+            paths: [
+              join(
+                canonicalCursorRoot,
+                "project/agent-transcripts/session.txt"
+              ),
+            ],
+          },
+        },
       },
     ]);
   });
@@ -627,9 +909,21 @@ describe("createSessionSearch", () => {
       },
     ]);
     expect(result.results[0]).toMatchObject({
-      content: "Done on paper-cuts / PR #227",
-      pattern: "PR #227",
-      query: "PR #227",
+      hitCount: 1,
+      matchedQueries: ["PR #227"],
+      matchedPatterns: ["PR #227"],
+      snippets: [
+        {
+          content: "Done on paper-cuts / PR #227",
+          pattern: "PR #227",
+          query: "PR #227",
+        },
+      ],
+      more: {
+        evidence: {
+          queries: ["PR #227", "paper-cuts"],
+        },
+      },
     });
     expect(result.debug).toMatchObject({
       input: {
@@ -818,10 +1112,25 @@ describe("createSessionSearch", () => {
         source: "codex",
         root: canonicalCodexRoot,
         path: join(canonicalCodexRoot, "session.jsonl"),
-        line: 3,
-        content: "matched auth token timeout",
-        pattern: "auth token timeout",
-        query: "auth token timeout",
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 3,
+            content: "matched auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [join(canonicalCodexRoot, "session.jsonl")],
+          },
+        },
       },
     ]);
   });
@@ -950,7 +1259,8 @@ describe("createSessionSearch", () => {
     ]);
     expect(result.expandedPatterns).toEqual(["auth token timeout"]);
     expect(result.resultsDisplayMode).toBe("debug");
-    expect(result.results.map((hit) => hit.line)).toEqual([1, 2]);
+    expect(result.resultsShape).toBe("evidence_hits");
+    expect(result.results).toMatchObject([{ line: 1 }, { line: 2 }]);
     expect(result.debug).toEqual({
       input: {
         query: "auth token timeout",
@@ -963,7 +1273,7 @@ describe("createSessionSearch", () => {
     });
   });
 
-  it("caps pathless evidence searches by default", async () => {
+  it("caps unscoped evidence searches by default", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
     const configPath = join(tmp, "config.json");
@@ -1012,12 +1322,21 @@ describe("createSessionSearch", () => {
       },
     ]);
     expect(result.resultsDisplayMode).toBe("evidence");
-    expect(result.results).toHaveLength(20);
+    expect(result.resultsShape).toBe("evidence_groups");
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({
+      hitCount: 20,
+      snippets: [
+        { line: 1, content: "match 1" },
+        { line: 2, content: "match 2" },
+        { line: 3, content: "match 3" },
+      ],
+    });
     expect(result.warnings).toEqual([
       {
         code: "broad_evidence_capped",
         message:
-          "Pathless evidence searches are capped at 20 results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.",
+          "Unscoped evidence searches are capped at 20 results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.",
       },
     ]);
   });
@@ -1118,10 +1437,12 @@ describe("createSessionSearch", () => {
         };
       },
     });
+    const canonicalCodexRoot = await realpath(codexRoot);
 
     const evidence = await search.searchSessions({
       query: "auth token timeout",
       resultsDisplayMode: "evidence",
+      paths: [join(canonicalCodexRoot, "session.jsonl")],
     });
     const candidates = await search.searchSessions({
       query: "auth token timeout",

@@ -76,7 +76,9 @@ Strip tool-use directions, output-format instructions, and examples out of `quer
 
 ### Candidates first, evidence on demand
 
-By default `search_sessions` returns compact session-level **candidates** grouped by `source` and `path`: a short `preview`, `hitCount`, the matched patterns, and a complete `more.evidence` follow-up request. The agent can then call the same tool again with that `more.evidence` object as input to get matching snippets from one selected session. No second pipeline, no new flags. Path-restricted evidence requests bypass the per-source cap so a selected session is never lost behind unrelated hits.
+By default `search_sessions` returns compact session-level **candidates** grouped by `source` and `path`: a short `preview`, `hitCount`, the matched patterns, and a complete `more.evidence` follow-up request. The agent can then call the same tool again with that `more.evidence` object as input to get matching snippets from one selected session. No second pipeline, no new flags.
+
+An unscoped `evidence` request is still grouped by `source` and `path`, but includes a few representative `snippets` per session so the agent can choose which path to inspect next. Path-restricted evidence requests return raw hits and bypass default/configured per-source caps, so a selected session is never lost behind unrelated matches. An explicit `maxResultsPerSource` on the request still caps focused evidence per source, not per path.
 
 This keeps the default response small enough to skim and lets the agent pull detail only where it actually needs it.
 
@@ -94,7 +96,7 @@ agent query
         hermes  -> ~/.hermes/sessions
         pool    -> ~/Library/Application Support/poolside
     -> normalize results to canonical absolute paths
-    -> return compact candidates (or evidence hits) grouped by source/path
+    -> return compact candidates or grouped unscoped evidence
 ```
 
 Design choices worth knowing:
@@ -261,17 +263,18 @@ Supported options:
 - `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes.
 - `--path <path>`: restrict evidence to a canonical session path; repeat for multiple paths.
 - `--max-patterns <n>`: limit expanded literal search patterns.
-- `--max-results <n>`: limit results per source; `--max-results-per-source` is also accepted.
+- `--max-results <n>`: limit results per source, including focused `--path` evidence; `--max-results-per-source` is also accepted.
 - `-h`, `--help`, `help`: print CLI help without running a search.
 
 JSON output includes:
 
 - `query`: the original query.
 - `resultsDisplayMode`: `candidates`, `evidence`, or `debug`.
+- `resultsShape`: `candidates`, `evidence_groups`, or `evidence_hits`, so callers do not need to infer result shape from the request.
 - `expandedPatterns`: deterministic FFF-friendly literal patterns searched.
 - `searchedSources`: source names, canonical roots, status, source-level warnings.
 - `warnings`: missing roots, unreadable roots, backend failures, partial-success notices.
-- `results`: compact candidates by default, or FFF-backed evidence hits with `source`, `root`, canonical absolute `path`, `line`, bounded `content`, and optional `query` / `pattern`.
+- `results`: compact candidates by default. Unscoped evidence returns grouped session results with `snippets` and `more.evidence`; path-restricted evidence returns raw hits with `source`, `root`, canonical absolute `path`, `line`, bounded `content`, and optional `query` / `pattern`.
 
 ## Warnings and partial success
 

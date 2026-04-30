@@ -8,9 +8,18 @@ describe("search_sessions tool boundary", () => {
     const search: SessionSearch = {
       async searchSessions(input) {
         calls.push(input);
+        const resultsDisplayMode = input.resultsDisplayMode ?? "candidates";
         return {
           query: input.query,
-          resultsDisplayMode: input.resultsDisplayMode ?? "candidates",
+          resultsDisplayMode,
+          resultsShape:
+            resultsDisplayMode === "evidence"
+              ? input.paths?.length
+                ? "evidence_hits"
+                : "evidence_groups"
+              : resultsDisplayMode === "debug"
+                ? "evidence_hits"
+                : "candidates",
           expandedPatterns: [input.query],
           searchedSources: [],
           warnings: [],
@@ -55,6 +64,7 @@ describe("search_sessions tool boundary", () => {
     expect(result).toEqual({
       query: "auth token timeout",
       resultsDisplayMode: "evidence",
+      resultsShape: "evidence_hits",
       expandedPatterns: ["auth token timeout"],
       searchedSources: [],
       warnings: [],

@@ -102,7 +102,7 @@ Agent query
       -> fff-mcp /Users/ben/.hermes/sessions
       -> fff-mcp /Users/ben/Library/Application Support/poolside
     -> normalize results to canonical absolute paths
-    -> return compact candidates or evidence hits grouped by source/path
+    -> return compact candidates or grouped unscoped evidence
 ```
 
 The wrapper should treat FFF as the search engine. It should not parse sessions
@@ -136,6 +136,7 @@ Proposed output:
 type SearchSessionsOutput = {
   query: string;
   resultsDisplayMode: "candidates" | "evidence" | "debug";
+  resultsShape: "candidates" | "evidence_groups" | "evidence_hits";
   expandedPatterns: string[];
   searchedSources: Array<{
     name: SourceName;
@@ -149,7 +150,7 @@ type SearchSessionsOutput = {
     code: string;
     message: string;
   }>;
-  results: Array<SearchCandidate | SearchEvidenceHit>;
+  results: Array<SearchCandidate | SearchEvidenceGroup | SearchEvidenceHit>;
   debug?: unknown;
 };
 
@@ -184,13 +185,34 @@ type SearchEvidenceHit = {
   pattern?: string;
   context?: string[];
 };
+
+type SearchEvidenceGroup = {
+  source: SourceName;
+  root: string;
+  path: string;
+  sessionId?: string;
+  hitCount: number;
+  matchedQueries: string[];
+  matchedPatterns: string[];
+  snippets: Array<{
+    line?: number;
+    content: string;
+    query?: string;
+    pattern?: string;
+  }>;
+  more: SearchCandidate["more"];
+};
 ```
 
 The default output should be compact session candidates, not a dump of every
 matching line. Candidates preserve source/root/path attribution and include a
 `more.evidence` follow-up request so the calling agent can ask for background
-context only when it needs it. Evidence and debug modes stay close to FFF's raw
-hit shape.
+context only when it needs it. Unscoped evidence returns grouped session-level
+results with representative snippets and a focused follow-up request.
+Path-restricted evidence and debug modes stay close to FFF's raw hit shape.
+Path-restricted evidence bypasses default/configured caps, while an explicit
+request `maxResultsPerSource` still caps focused output per source, not per
+path.
 
 ## Interface Design Decision
 

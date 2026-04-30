@@ -18,7 +18,7 @@ export function cliHelpText() {
     "  --debug                    Return query expansion and backend diagnostics.",
     "  --path <path>              Restrict evidence to a canonical session path. Repeatable.",
     "  --max-patterns <n>         Limit expanded literal search patterns.",
-    "  --max-results <n>          Limit results per source. Alias: --max-results-per-source.",
+    "  --max-results <n>          Limit results per source, including focused --path evidence. Alias: --max-results-per-source.",
     "  -h, --help                 Show this help.",
     "",
     "Examples:",
@@ -43,6 +43,6 @@ export function mcpSearchSessionsDescription() {
     "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
     "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
     "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
-    "The default `resultsDisplayMode` is `candidates`: compact session-level leads grouped by source/path. Use a candidate `more.evidence` object as the next tool input when you need matching snippets from a selected session. Pathless evidence searches are capped by default; pass `paths` for focused evidence. Use `debug` only when inspecting query expansion or backend behavior.",
+    "The default `resultsDisplayMode` is `candidates`: compact session-level leads grouped by source/path. Use `resultsShape` to distinguish candidates, grouped evidence, and raw evidence hits. Use a candidate `more.evidence` object as the next tool input when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior.",
   ].join(" ");
 }

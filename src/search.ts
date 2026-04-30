@@ -1,8 +1,10 @@
 import type {
   SearchCandidate,
+  SearchEvidenceGroup,
   SearchResult,
   SearchSessionsInput,
   SearchSessionsOutput,
+  ResultsShape,
   SessionSearch,
 } from "./types.js";
 import {
@@ -58,18 +60,21 @@ export class CoordinatedSessionSearch implements SessionSearch {
       input.resultsDisplayMode ?? (input.debug ? "debug" : "candidates");
     const defaults = validatedDefaults(searchConfig.defaults);
     const maxPatterns = input.maxPatterns ?? defaults.maxPatterns;
-    const isBroadEvidenceRequest =
+    const isUnscopedEvidenceRequest =
       resultsDisplayMode === "evidence" && !input.paths?.length;
-    const isDefaultBroadEvidenceCapApplied =
-      isBroadEvidenceRequest &&
+    const isDefaultUnscopedEvidenceCapApplied =
+      isUnscopedEvidenceRequest &&
       input.maxResultsPerSource === undefined &&
       defaults.maxResultsPerSource === undefined;
     const maxResultsPerSource =
       input.maxResultsPerSource ??
       defaults.maxResultsPerSource ??
-      (isBroadEvidenceRequest
-        ? DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE
+      (isUnscopedEvidenceRequest
+        ? DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE
         : undefined);
+    const requestMaxResultsPerSource = input.paths?.length
+      ? input.maxResultsPerSource
+      : maxResultsPerSource;
     const context = input.context ?? defaults.context;
     const patternPlans = expandPatternPlans(input, searchConfig);
     const expandedPatterns =
@@ -95,7 +100,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         }));
     let attemptedSourceCount = 0;
     let failedSourceCount = 0;
-    let broadEvidenceCapReached = false;
+    let unscopedEvidenceCapReached = false;
 
     for (const source of searchedSources) {
       if (source.status !== "ok") {
@@ -108,7 +113,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         backend = await createBackend(source);
         const backendInput: SessionSearchBackendInput = {
           patterns: expandedPatterns,
-          maxResults: input.paths?.length ? undefined : maxResultsPerSource,
+          maxResults: requestMaxResultsPerSource,
           context,
         };
         if (input.paths?.length) {
@@ -119,9 +124,12 @@ export class CoordinatedSessionSearch implements SessionSearch {
         }
         const output = await backend.search(backendInput);
         warnings.push(...output.warnings);
-        const sourceResults = output.results
-          .filter((result) => resultMatchesSourceFilters(result, source, input))
-          .slice(0, maxResultsPerSource)
+        const sourceResults = maybeCapResults(
+          output.results.filter((result) =>
+            resultMatchesSourceFilters(result, source, input)
+          ),
+          requestMaxResultsPerSource
+        )
           .map(truncateEvidenceResult)
           .map((result) =>
             result.pattern
@@ -132,11 +140,11 @@ export class CoordinatedSessionSearch implements SessionSearch {
               : result
           );
         if (
-          isDefaultBroadEvidenceCapApplied &&
+          isDefaultUnscopedEvidenceCapApplied &&
           maxResultsPerSource !== undefined &&
           sourceResults.length >= maxResultsPerSource
         ) {
-          broadEvidenceCapReached = true;
+          unscopedEvidenceCapReached = true;
         }
         rawResults.push(...sourceResults);
         if (sourceResults.length === 0) {
@@ -163,10 +171,10 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
     }
 
-    if (broadEvidenceCapReached) {
+    if (unscopedEvidenceCapReached) {
       warnings.push({
         code: "broad_evidence_capped",
-        message: `Pathless evidence searches are capped at ${DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE} results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.`,
+        message: `Unscoped evidence searches are capped at ${DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE} results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.`,
       });
     }
 
@@ -184,15 +192,17 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const filteredResults = input.paths?.length
       ? rawResults.filter((result) => input.paths?.includes(result.path))
       : rawResults;
-    const results =
-      resultsDisplayMode === "candidates"
-        ? toCandidates(filteredResults, input)
-        : filteredResults;
+    const { results, resultsShape } = shapeResults(
+      filteredResults,
+      input,
+      resultsDisplayMode
+    );
     const shouldIncludeDebug = input.debug || resultsDisplayMode === "debug";
 
     return {
       query: input.query,
       resultsDisplayMode,
+      resultsShape,
       expandedPatterns,
       searchedSources,
       warnings,
@@ -207,6 +217,34 @@ export class CoordinatedSessionSearch implements SessionSearch {
         : {}),
     };
   }
+}
+
+function shapeResults(
+  results: SearchResult[],
+  input: SearchSessionsInput,
+  resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"]
+): {
+  results: SearchSessionsOutput["results"];
+  resultsShape: ResultsShape;
+} {
+  if (resultsDisplayMode === "candidates") {
+    return {
+      results: toCandidates(results, input),
+      resultsShape: "candidates",
+    };
+  }
+
+  if (resultsDisplayMode === "evidence" && !input.paths?.length) {
+    return {
+      results: toEvidenceGroups(results, input),
+      resultsShape: "evidence_groups",
+    };
+  }
+
+  return {
+    results,
+    resultsShape: "evidence_hits",
+  };
 }
 
 function toCandidates(
@@ -243,19 +281,75 @@ function toCandidates(
       hitCount: 1,
       matchedQueries: result.query ? [result.query] : [],
       matchedPatterns: result.pattern ? [result.pattern] : [],
-      more: {
-        evidence: {
-          query: input.query,
-          ...(input.queries ? { queries: input.queries } : {}),
-          sources: [result.source],
-          resultsDisplayMode: "evidence",
-          paths: [result.path],
-        },
-      },
+      more: evidenceFollowup(input, result.source, result.path),
     });
   }
 
   return Array.from(candidates.values());
+}
+
+function toEvidenceGroups(
+  results: SearchResult[],
+  input: SearchSessionsInput
+): SearchEvidenceGroup[] {
+  const groups = new Map<string, SearchEvidenceGroup>();
+
+  for (const result of results) {
+    const key = `${result.source}\0${result.path}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.hitCount += 1;
+      addUnique(existing.matchedPatterns, result.pattern);
+      addUnique(existing.matchedQueries, result.query);
+      addEvidenceSnippet(existing, result);
+      continue;
+    }
+
+    const sessionId = sessionIdFromPath(result.path);
+    const group: SearchEvidenceGroup = {
+      source: result.source,
+      root: result.root,
+      path: result.path,
+      ...(sessionId ? { sessionId } : {}),
+      hitCount: 1,
+      matchedQueries: result.query ? [result.query] : [],
+      matchedPatterns: result.pattern ? [result.pattern] : [],
+      snippets: [],
+      more: evidenceFollowup(input, result.source, result.path),
+    };
+    addEvidenceSnippet(group, result);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values());
+}
+
+function evidenceFollowup(
+  input: SearchSessionsInput,
+  source: SearchResult["source"],
+  path: string
+): SearchCandidate["more"] {
+  return {
+    evidence: {
+      query: input.query,
+      ...(input.queries ? { queries: input.queries } : {}),
+      sources: [source],
+      resultsDisplayMode: "evidence",
+      paths: [path],
+    },
+  };
+}
+
+function addEvidenceSnippet(group: SearchEvidenceGroup, result: SearchResult) {
+  if (group.snippets.length >= EVIDENCE_GROUP_SNIPPET_LIMIT) {
+    return;
+  }
+  group.snippets.push({
+    content: truncateUtf8(result.content, PREVIEW_MAX_BYTES),
+    ...(result.line !== undefined ? { line: result.line } : {}),
+    ...(result.pattern ? { pattern: result.pattern } : {}),
+    ...(result.query ? { query: result.query } : {}),
+  });
 }
 
 function addUnique(values: string[], value: string | undefined) {
@@ -343,9 +437,17 @@ function isBackendFailureWarning(warning: { code: string }) {
   );
 }
 
+function maybeCapResults(
+  results: SearchResult[],
+  maxResults: number | undefined
+) {
+  return maxResults === undefined ? results : results.slice(0, maxResults);
+}
+
 const DEFAULT_FFF_TIMEOUT_MS = 15_000;
-const DEFAULT_BROAD_EVIDENCE_MAX_RESULTS_PER_SOURCE = 20;
+const DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE = 20;
 const EVIDENCE_CONTENT_MAX_BYTES = 8_192;
+const EVIDENCE_GROUP_SNIPPET_LIMIT = 3;
 const PREVIEW_MAX_BYTES = 500;
 
 function resultMatchesSourceFilters(

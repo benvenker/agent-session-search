@@ -21,6 +21,7 @@ export type SearchSessionsInput = {
 };
 
 export type ResultsDisplayMode = "candidates" | "evidence" | "debug";
+export type ResultsShape = "candidates" | "evidence_groups" | "evidence_hits";
 
 export type SearchedSource = {
   name: SourceName;
@@ -68,13 +69,33 @@ export type SearchCandidate = {
   };
 };
 
+export type SearchEvidenceSnippet = {
+  line?: number;
+  content: string;
+  query?: string;
+  pattern?: string;
+};
+
+export type SearchEvidenceGroup = {
+  source: SourceName;
+  root: string;
+  path: string;
+  sessionId?: string;
+  hitCount: number;
+  matchedQueries: string[];
+  matchedPatterns: string[];
+  snippets: SearchEvidenceSnippet[];
+  more: SearchCandidate["more"];
+};
+
 export type SearchSessionsOutput = {
   query: string;
   resultsDisplayMode: ResultsDisplayMode;
+  resultsShape: ResultsShape;
   expandedPatterns: string[];
   searchedSources: SearchedSource[];
   warnings: SearchWarning[];
-  results: Array<SearchResult | SearchCandidate>;
+  results: Array<SearchResult | SearchCandidate | SearchEvidenceGroup>;
   debug?: unknown;
 };
 
