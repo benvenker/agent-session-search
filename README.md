@@ -299,6 +299,8 @@ git push origin main --follow-tags
 
 The pushed `vX.Y.Z` tag runs CI, checks that the tag matches `package.json`, and publishes that version to npm.
 
+The publish workflow runs the tests that do not require a locally installed `fff-mcp`; run `npm run smoke` locally when changing the stdio MCP path.
+
 ## Notes
 
 - This package is published to npm as `@benvenker/agent-session-search`.
