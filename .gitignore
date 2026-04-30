@@ -1,6 +1,16 @@
 # bv (beads viewer) local config and caches
 .bv/
 
+# Local agent/session artifacts
+.agents/
+.beads/.br_history/
+.claude/
+.factory/
+.goose/
+.pi/
+skills/
+skills-lock.json
+
 # Node / TypeScript
 node_modules/
 dist/

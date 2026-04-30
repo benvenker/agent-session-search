@@ -4,21 +4,22 @@ Local MCP server (and CLI) that lets coding agents search their own past session
 
 ## Why
 
-Agents forget. Five minutes after a session ends, the only place that thread of context still exists is the JSONL transcript on disk. So they keep asking the same questions:
+If you run a lot of coding-agent sessions, this is for you. A single workstream usually spans many sessions: context windows fill up, you start a new one, you switch from Codex to Claude Code to Pi for the next pass, you come back to the same problem two weeks later. After a while you genuinely cannot remember where you talked to which agent about what. Was the bug we hit last Thursday in a Codex session or a Claude one? Which project? Which branch?
 
-- Have we debugged this before?
-- Which prior session discussed this error?
+The transcripts are already on disk in `~/.codex/sessions`, `~/.claude/projects`, `~/.pi/agent/sessions`, and the rest. They are searchable; they are just scattered across many directories and many session formats. This tool gives you, and any agent you point at it, one query that fans across all of them.
+
+Typical questions it answers:
+
+- Where did I work on this before, and with which agent?
+- Which prior session discussed this error or stack trace?
 - Did a previous agent touch this file, branch, PR, or feature?
 - What did Codex, Claude, Cursor, Pi, or Hermes try last time?
-- Where is the session that mentioned this stack trace or failing spec?
-
-Those transcripts are already on your machine. They just need to be searchable.
 
 ## Why this exists
 
-Agent transcripts are JSONL files in well-known directories. [FFF][fff] is a fast lexical search engine that takes a single directory as its input. The smallest useful thing is one MCP tool that fans `fff-mcp` out across the per-tool session roots and returns canonical absolute paths.
+[FFF][fff] is what made this small. It's a fast in-memory lexical search engine with frecency built in, and it ships an MCP server (`fff-mcp`) that indexes one directory at a time. FFF itself is a general code-search tool (not specifically built for cross-agent session recall), but it turns out "really fast grep over a directory tree" is most of what session recall needs. This project just multiplexes `fff-mcp` across the per-tool session roots and re-exposes the result as a single MCP tool.
 
-That's the whole tool. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me. This is the smallest thing that worked.
+That's the whole thing. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me. This is the smallest thing that worked.
 
 [fff]: https://dmtrkovalenko.dev/blog/just-build-fast-tools
 
