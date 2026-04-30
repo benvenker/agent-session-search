@@ -25,6 +25,10 @@ Repo-local guidance for coding agents working in this project.
 - Query rewriting should be deterministic by default and emit a small set of literal FFF-friendly patterns.
 - Keep output close to the FFF result shape; avoid inventing ranking or summarization in v1.
 
+## Built-In Source Notes
+
+- Pool is intentionally modeled as one `pool` source rooted at `~/Library/Application Support/poolside`. That shared root covers Pool CLI history (`trajectories/`, `logs/`, `sessions/`) and Poolside Studio agent records (`acp/`). Do not split it into separate Pool CLI and Poolside Studio built-ins unless the on-disk storage changes.
+
 ## Guardrails
 
 - Avoid broad refactors when changing behavior; update focused tests for the module touched.
