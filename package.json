@@ -1,6 +1,6 @@
 {
   "name": "@benvenker/agent-session-search",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,7 @@
   },
   "files": [
     "dist/*.js",
+    "AGENTS.md",
     "LICENSE",
     "scripts/postinstall.mjs",
     "README.md"
