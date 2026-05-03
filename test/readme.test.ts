@@ -23,6 +23,7 @@ describe("README setup documentation", () => {
       "npm trusted publishing",
       "npm version patch",
       "git push origin main --follow-tags",
+      "creates the GitHub Release marked as latest",
       "npm run dev:mcp",
       'npm run dev:cli -- "auth token timeout" --json',
       "agent-session-search-mcp",
