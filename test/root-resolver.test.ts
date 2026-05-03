@@ -21,7 +21,10 @@ describe("resolveSessionRoots", () => {
       {
         name: "cursor",
         path: "/Users/ben/.cursor/projects",
-        include: ["*/agent-transcripts/*"],
+        include: [
+          "*/agent-transcripts/**/*.jsonl",
+          "*/agent-transcripts/**/*.json",
+        ],
       },
       { name: "hermes", path: "/Users/ben/.hermes/sessions", include: ["*"] },
       {

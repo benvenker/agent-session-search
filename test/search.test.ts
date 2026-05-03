@@ -661,7 +661,10 @@ describe("createSessionSearch", () => {
           {
             name: "cursor",
             path: cursorRoot,
-            include: ["*/agent-transcripts/*"],
+            include: [
+              "*/agent-transcripts/**/*.jsonl",
+              "*/agent-transcripts/**/*.json",
+            ],
           },
         ],
       })
@@ -681,10 +684,32 @@ describe("createSessionSearch", () => {
                   root: source.root,
                   path: join(
                     source.root,
-                    "project/agent-transcripts/session.txt"
+                    "SomeProject/agent-transcripts/session-123/session-123.jsonl"
                   ),
                   line: 2,
-                  content: `allowed ${input.patterns[0]}`,
+                  content: `allowed session ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(
+                    source.root,
+                    "SomeProject/agent-transcripts/session-123/subagents/child.jsonl"
+                  ),
+                  line: 4,
+                  content: `allowed child ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(
+                    source.root,
+                    "SomeProject/agent-transcripts/session-123/metadata.json"
+                  ),
+                  line: 6,
+                  content: `allowed json ${input.patterns[0]}`,
                   pattern: input.patterns[0],
                 },
                 {
@@ -715,7 +740,7 @@ describe("createSessionSearch", () => {
         root: canonicalCursorRoot,
         path: join(
           canonicalCursorRoot,
-          "project/agent-transcripts/session.txt"
+          "SomeProject/agent-transcripts/session-123/session-123.jsonl"
         ),
         hitCount: 1,
         matchedQueries: ["auth token timeout"],
@@ -723,7 +748,7 @@ describe("createSessionSearch", () => {
         snippets: [
           {
             line: 2,
-            content: "allowed auth token timeout",
+            content: "allowed session auth token timeout",
             pattern: "auth token timeout",
             query: "auth token timeout",
           },
@@ -736,7 +761,71 @@ describe("createSessionSearch", () => {
             paths: [
               join(
                 canonicalCursorRoot,
-                "project/agent-transcripts/session.txt"
+                "SomeProject/agent-transcripts/session-123/session-123.jsonl"
+              ),
+            ],
+          },
+        },
+      },
+      {
+        source: "cursor",
+        root: canonicalCursorRoot,
+        path: join(
+          canonicalCursorRoot,
+          "SomeProject/agent-transcripts/session-123/subagents/child.jsonl"
+        ),
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 4,
+            content: "allowed child auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["cursor"],
+            resultsDisplayMode: "evidence",
+            paths: [
+              join(
+                canonicalCursorRoot,
+                "SomeProject/agent-transcripts/session-123/subagents/child.jsonl"
+              ),
+            ],
+          },
+        },
+      },
+      {
+        source: "cursor",
+        root: canonicalCursorRoot,
+        path: join(
+          canonicalCursorRoot,
+          "SomeProject/agent-transcripts/session-123/metadata.json"
+        ),
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 6,
+            content: "allowed json auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["cursor"],
+            resultsDisplayMode: "evidence",
+            paths: [
+              join(
+                canonicalCursorRoot,
+                "SomeProject/agent-transcripts/session-123/metadata.json"
               ),
             ],
           },
