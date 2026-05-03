@@ -68,7 +68,10 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
     {
       name: "cursor",
       path: join(home, ".cursor", "projects"),
-      include: ["*/agent-transcripts/*"],
+      include: [
+        "*/agent-transcripts/**/*.jsonl",
+        "*/agent-transcripts/**/*.json",
+      ],
     },
     { name: "hermes", path: join(home, ".hermes", "sessions"), include: ["*"] },
     {

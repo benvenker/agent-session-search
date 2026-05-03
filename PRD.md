@@ -344,7 +344,10 @@ Example:
     {
       "name": "cursor",
       "path": "/Users/ben/.cursor/projects",
-      "include": ["*/agent-transcripts/*"]
+      "include": [
+        "*/agent-transcripts/**/*.jsonl",
+        "*/agent-transcripts/**/*.json"
+      ]
     },
     {
       "name": "hermes",
@@ -535,7 +538,7 @@ discarded.
 
 Test root resolution with configured roots, default roots, missing roots,
 unreadable roots, source filtering, custom source names, and include patterns
-such as Cursor's `*/agent-transcripts/*`.
+such as Cursor's `*/agent-transcripts/**/*.jsonl`.
 
 Test the FFF backend behind a fake child process or fake MCP client. The tests
 should assert request shape, result normalization, warning conversion, timeout
@@ -588,6 +591,6 @@ V1 is acceptable when:
   filesystem tools directly after `search_sessions` returns a path?
 - How should the wrapper cap large JSONL result lines without hiding the match?
 - Which Claude and Pi session paths are actually present on this machine?
-- Do Cursor transcripts always live under `*/agent-transcripts/*` without file
-  extensions?
+- Do Cursor transcripts always live under `*/agent-transcripts/**/*.jsonl` or
+  `*/agent-transcripts/**/*.json`?
 - What file extension and line shape do Hermes sessions use?
