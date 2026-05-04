@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +9,7 @@ import {
   OneRootFffBackend,
   type FffClient,
 } from "../src/fff-backend.js";
+import { getTrackedChildProcessPids } from "../src/child-process-cleanup.js";
 
 describe("OneRootFffBackend", () => {
   it("normalizes one-root FFF grep output into session search results", async () => {
@@ -324,6 +325,40 @@ describe("OneRootFffBackend", () => {
 
   const liveFffMcp =
     spawnSync("fff-mcp", ["--version"], { stdio: "ignore" }).status === 0;
+
+  (liveFffMcp ? it : it.skip)(
+    "tracks and untracks a live fff-mcp child process",
+    async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
+      const root = join(tmp, "root");
+      const db = join(tmp, "db");
+      await mkdir(root);
+      await mkdir(db);
+
+      const before = new Set(getTrackedChildProcessPids());
+      const client = await createFffMcpClient(root, {
+        args: [
+          "--no-update-check",
+          "--frecency-db",
+          join(db, "frecency.mdb"),
+          "--history-db",
+          join(db, "history.mdb"),
+        ],
+      });
+      const trackedAfterCreate = getTrackedChildProcessPids().filter(
+        (pid) => !before.has(pid)
+      );
+
+      try {
+        expect(trackedAfterCreate).toHaveLength(1);
+      } finally {
+        await client.close();
+        await rm(tmp, { recursive: true, force: true });
+      }
+
+      expect(getTrackedChildProcessPids()).not.toContain(trackedAfterCreate[0]);
+    }
+  );
 
   (liveFffMcp ? it : it.skip)(
     "searches a temporary root through a live fff-mcp child process",

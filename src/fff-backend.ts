@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { SearchResult, SearchWarning, SourceName } from "./types.js";
+import { trackChildProcessPid } from "./child-process-cleanup.js";
 import { pathMatchesInclude } from "./roots.js";
 
 export type FffGrepInput = {
@@ -217,7 +218,8 @@ function resultMatchesSearchInput(
 export class FffMcpClient implements FffClient {
   constructor(
     private readonly client: McpToolClient,
-    private readonly cleanupDir?: string
+    private readonly cleanupDir?: string,
+    private readonly untrackChildProcess?: () => void
   ) {}
 
   async grep(input: FffGrepInput): Promise<FffToolResult> {
@@ -234,6 +236,7 @@ export class FffMcpClient implements FffClient {
     try {
       await this.client.close();
     } finally {
+      this.untrackChildProcess?.();
       if (this.cleanupDir) {
         await rm(this.cleanupDir, { recursive: true, force: true });
       }
@@ -266,8 +269,18 @@ export async function createFffMcpClient(
   });
   const client = new Client({ name: "agent-session-search", version: "0.1.0" });
 
+  let untrackChildProcess: (() => void) | undefined;
+  transport.onclose = () => {
+    untrackChildProcess?.();
+    untrackChildProcess = undefined;
+  };
+
   try {
     await client.connect(transport);
+    const pid = transport.pid;
+    if (pid !== null) {
+      untrackChildProcess = trackChildProcessPid(pid);
+    }
   } catch (error) {
     if (defaultDbDir) {
       await rm(defaultDbDir, { recursive: true, force: true });
@@ -275,7 +288,7 @@ export async function createFffMcpClient(
     throw error;
   }
 
-  return new FffMcpClient(client, defaultDbDir);
+  return new FffMcpClient(client, defaultDbDir, untrackChildProcess);
 }
 
 function normalizePath(root: string, path: string) {

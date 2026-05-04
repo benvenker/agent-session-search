@@ -9,6 +9,7 @@ import {
 import { searchOptionsFromEnv } from "./env.js";
 import { mcpSearchSessionsDescription } from "./help.js";
 import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
+import { killTrackedChildProcesses } from "./child-process-cleanup.js";
 
 export function createServer(options: CreateSessionSearchOptions = {}) {
   const server = new FastMCP({
@@ -31,10 +32,40 @@ export function createServer(options: CreateSessionSearchOptions = {}) {
 }
 
 export async function main() {
+  installProcessCleanupHandlers();
   const server = createServer(searchOptionsFromEnv());
   await server.start({
     transportType: "stdio",
   });
+}
+
+export function installProcessCleanupHandlers() {
+  const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+  let exiting = false;
+
+  const shutdown = (exitCode: number) => {
+    if (exiting) {
+      return;
+    }
+    exiting = true;
+    killTrackedChildProcesses("SIGKILL");
+    process.exit(exitCode);
+  };
+
+  for (const signal of signals) {
+    process.once(signal, () => shutdown(signal === "SIGINT" ? 130 : 143));
+  }
+
+  process.once("exit", () => {
+    killTrackedChildProcesses("SIGKILL");
+  });
+
+  process.stdin.once("readable", () => {
+    // Keep stdin in paused mode for FastMCP, but make Node observe EOF so an
+    // MCP client closing its stdio pipe terminates this server promptly.
+  });
+  process.stdin.once("end", () => shutdown(0));
+  process.stdin.once("close", () => shutdown(0));
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {
