@@ -113,12 +113,20 @@ describe("package build and tarball", () => {
         cwd: appRoot,
         env: {
           ...process.env,
+          CI: "1",
           PATH: `${emptyBin}${delimiter}${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`,
         },
       }
     );
-    expect(`${install.stdout}\n${install.stderr}`).toContain(
-      "agent-session-search: fff-mcp was not found on PATH."
+    const installOutput = `${install.stdout}\n${install.stderr}`;
+    expect(installOutput).toContain(
+      "agent-session-search uses fff-mcp for fast file searching, but it's not installed."
+    );
+    expect(installOutput).toContain(
+      "Install FFF with: curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash"
+    );
+    expect(installOutput).toContain(
+      "Then verify with: agent-session-search-doctor"
     );
 
     const installedCli = join(

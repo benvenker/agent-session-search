@@ -33,7 +33,7 @@ This is the smallest thing that worked.
 # 1. Install this package
 npm install -g @benvenker/agent-session-search
 
-# 2. If the postinstall flagged a missing fff-mcp, install the FFF backend
+# 2. If the postinstall prompts for FFF, press Enter to install it
 curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
 
 # 3. Verify FFF is wired up
@@ -43,7 +43,7 @@ agent-session-search-doctor
 agent-session-search "auth token timeout" --json
 ```
 
-The npm postinstall step checks for `fff-mcp` on `PATH` and prints a notice if it's missing; it never runs the installer for you. So step 2 is a follow-up only when you don't already have it. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
+The npm postinstall step checks for `fff-mcp` on `PATH`. If it's missing and npm is running in an interactive terminal, it asks you to press Enter and then runs the FFF installer. In non-interactive installs, it prints the command instead. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
 The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. `which pool` only tells you where the binary was installed; if `pool config` prints different log or trajectory directories on your machine, override the `pool` root in config. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
