@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { searchOptionsFromEnv } from "./env.js";
 import { cliHelpText } from "./help.js";
@@ -128,6 +129,10 @@ export async function main(
     console.log(cliHelpText());
     return;
   }
+  if (isVersionRequest(argv)) {
+    console.log(packageVersion());
+    return;
+  }
 
   const args = parseArgs(argv);
   const search = createSessionSearch(searchOptionsFromEnv(env));
@@ -148,6 +153,24 @@ export async function main(
 
 function isHelpRequest(argv: string[]) {
   return argv.length === 1 && ["help", "--help", "-h"].includes(argv[0]);
+}
+
+function isVersionRequest(argv: string[]) {
+  return argv.length === 1 && ["version", "--version", "-v"].includes(argv[0]);
+}
+
+function packageVersion() {
+  const packageJsonPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "package.json"
+  );
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+    version?: unknown;
+  };
+  return typeof packageJson.version === "string"
+    ? packageJson.version
+    : "unknown";
 }
 
 function parseResultsDisplayMode(

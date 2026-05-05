@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,12 +14,14 @@ describe("CLI argument parsing", () => {
       const output = log.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(output).toContain("Usage: agent-session-search <query>");
       expect(output).toContain("agent-session-search help");
+      expect(output).toContain("agent-session-search --version");
       expect(output).toContain("--json");
       expect(output).toContain("--source <source>");
       expect(output).toContain("--mode <candidates|evidence|debug>");
       expect(output).toContain("--evidence");
       expect(output).toContain("--path <path>");
       expect(output).toContain("--max-results <n>");
+      expect(output).toContain("--version");
       expect(output).toContain("agent-session-search-doctor");
       expect(output).toContain("search_sessions");
       expect(output).not.toContain("query: help");
@@ -37,6 +40,20 @@ describe("CLI argument parsing", () => {
       expect(outputs).toHaveLength(2);
       expect(outputs[0]).toContain("Usage: agent-session-search <query>");
       expect(outputs[1]).toContain("Usage: agent-session-search <query>");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("prints the package version without running a search", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["--version"]);
+      await main(["-v"]);
+      await main(["version"]);
+
+      const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+      expect(log.mock.calls).toEqual([[version], [version], [version]]);
     } finally {
       log.mockRestore();
     }
