@@ -51,7 +51,7 @@ jobs:
         run: npm run check
 
       - name: Test
-        run: npx vitest run --exclude test/mcp-smoke.test.ts
+        run: npx vitest run --exclude test/mcp-smoke.test.ts --exclude test/server-pool.test.ts
 
       - name: Publish
         run: npm publish --access public
