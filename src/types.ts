@@ -101,4 +101,5 @@ export type SearchSessionsOutput = {
 
 export type SessionSearch = {
   searchSessions(input: SearchSessionsInput): Promise<SearchSessionsOutput>;
+  close?(): Promise<void>;
 };

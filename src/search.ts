@@ -8,11 +8,11 @@ import type {
   SessionSearch,
 } from "./types.js";
 import {
-  createFffMcpClient,
   OneRootFffBackend,
   type CreateFffMcpClientOptions,
   type OneRootFffSearchOutput,
 } from "./fff-backend.js";
+import { createFffBackendPool } from "./client-pool.js";
 import {
   loadSearchConfig,
   pathMatchesInclude,
@@ -44,7 +44,18 @@ export type CreateSessionSearchBackend = (
 ) => SessionSearchBackend | Promise<SessionSearchBackend>;
 
 export class CoordinatedSessionSearch implements SessionSearch {
-  constructor(private readonly options: CreateSessionSearchOptions = {}) {}
+  private readonly defaultBackendPool;
+
+  constructor(private readonly options: CreateSessionSearchOptions = {}) {
+    this.defaultBackendPool = options.createBackend
+      ? undefined
+      : createFffBackendPool({
+          fffMcp: options.fffMcp,
+          timeoutMs: options.fffTimeoutMs ?? DEFAULT_FFF_TIMEOUT_MS,
+          emptyResultRetryAttempts: options.fffEmptyResultRetryAttempts,
+          emptyResultRetryDelayMs: options.fffEmptyResultRetryDelayMs,
+        });
+  }
 
   async searchSessions(
     input: SearchSessionsInput
@@ -90,14 +101,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const warnings = [...resolvedRoots.warnings];
     const rawResults: SearchResult[] = [];
     const createBackend =
-      this.options.createBackend ??
-      ((source) =>
-        createDefaultBackend(source, {
-          fffMcp: this.options.fffMcp,
-          timeoutMs: this.options.fffTimeoutMs,
-          emptyResultRetryAttempts: this.options.fffEmptyResultRetryAttempts,
-          emptyResultRetryDelayMs: this.options.fffEmptyResultRetryDelayMs,
-        }));
+      this.options.createBackend ?? this.defaultBackendPool!.createBackend;
     let attemptedSourceCount = 0;
     let failedSourceCount = 0;
     let unscopedEvidenceCapReached = false;
@@ -216,6 +220,10 @@ export class CoordinatedSessionSearch implements SessionSearch {
           }
         : {}),
     };
+  }
+
+  async close(): Promise<void> {
+    await this.defaultBackendPool?.close();
   }
 }
 
@@ -402,25 +410,6 @@ export function createSessionSearch(
   options: CreateSessionSearchOptions = {}
 ): SessionSearch {
   return new CoordinatedSessionSearch(options);
-}
-
-async function createDefaultBackend(
-  source: ResolvedSessionSource,
-  options: {
-    fffMcp?: CreateFffMcpClientOptions;
-    timeoutMs?: number;
-    emptyResultRetryAttempts?: number;
-    emptyResultRetryDelayMs?: number;
-  } = {}
-): Promise<SessionSearchBackend> {
-  return new OneRootFffBackend({
-    source: source.name,
-    root: source.root,
-    client: await createFffMcpClient(source.root, options.fffMcp),
-    timeoutMs: options.timeoutMs ?? DEFAULT_FFF_TIMEOUT_MS,
-    emptyResultRetryAttempts: options.emptyResultRetryAttempts,
-    emptyResultRetryDelayMs: options.emptyResultRetryDelayMs,
-  });
 }
 
 function errorMessage(error: unknown) {

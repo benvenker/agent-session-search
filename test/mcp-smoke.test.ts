@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 describe("MCP search_sessions smoke path", () => {
   it("describes the search_sessions workflow through tool introspection", async () => {
     const transport = new StdioClientTransport({
-      command: join(process.cwd(), "node_modules", ".bin", "tsx"),
-      args: ["src/server.ts"],
+      command: process.execPath,
+      args: ["--import", "tsx", "src/server.ts"],
       cwd: process.cwd(),
       env: stringEnv(process.env),
       stderr: "pipe",
@@ -74,8 +74,8 @@ describe("MCP search_sessions smoke path", () => {
     const canonicalRoot = await realpath(root);
 
     const transport = new StdioClientTransport({
-      command: join(process.cwd(), "node_modules", ".bin", "tsx"),
-      args: ["src/server.ts"],
+      command: process.execPath,
+      args: ["--import", "tsx", "src/server.ts"],
       cwd: process.cwd(),
       env: stringEnv({
         ...process.env,
