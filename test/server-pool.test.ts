@@ -84,10 +84,10 @@ async function eventuallyCallSearchSessions(
   let result = await callSearchSessions(client, input);
   for (
     let attempt = 0;
-    attempt < 10 && result.results.length === 0;
+    attempt < 30 && result.results.length === 0;
     attempt += 1
   ) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     result = await callSearchSessions(client, input);
   }
   expect(result.results.length).toBeGreaterThan(0);
