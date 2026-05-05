@@ -8,6 +8,35 @@ import {
 } from "../src/child-process-cleanup.js";
 
 describe("child process cleanup", () => {
+  it("kills tracked process groups, including same-group descendants", async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        [
+          'const { spawn } = require("node:child_process");',
+          'const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+          "console.log(grandchild.pid);",
+          "setInterval(() => {}, 1000);",
+        ].join("\n"),
+      ],
+      {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    expect(child.pid).toBeTypeOf("number");
+    const childPid = child.pid!;
+    const grandchildPid = await readFirstStdoutLineAsNumber(child);
+
+    trackChildProcessPid(childPid, { processGroup: true });
+    killTrackedChildProcesses("SIGKILL");
+
+    await waitForProcessToExit(childPid);
+    await waitForProcessToExit(grandchildPid);
+    expect(getTrackedChildProcessPids()).not.toContain(childPid);
+  });
+
   it("tracks child pids, untracks them, and force-kills remaining tracked children", async () => {
     const child = spawn(
       process.execPath,

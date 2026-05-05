@@ -2,9 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { SearchResult, SearchWarning, SourceName } from "./types.js";
 import { trackChildProcessPid } from "./child-process-cleanup.js";
+import { DetachedStdioClientTransport } from "./detached-stdio-transport.js";
 import { pathMatchesInclude } from "./roots.js";
 
 export type FffGrepInput = {
@@ -263,7 +263,7 @@ export async function createFffMcpClient(
     "--history-db",
     join(defaultDbDir!, "history.mdb"),
   ];
-  const transport = new StdioClientTransport({
+  const transport = new DetachedStdioClientTransport({
     command: options.command ?? "fff-mcp",
     args: [...args, root],
   });
@@ -279,7 +279,9 @@ export async function createFffMcpClient(
     await client.connect(transport);
     const pid = transport.pid;
     if (pid !== null) {
-      untrackChildProcess = trackChildProcessPid(pid);
+      untrackChildProcess = trackChildProcessPid(pid, {
+        processGroup: process.platform !== "win32",
+      });
     }
   } catch (error) {
     if (defaultDbDir) {

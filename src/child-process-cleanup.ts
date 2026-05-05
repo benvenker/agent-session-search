@@ -1,11 +1,26 @@
-const trackedChildProcessPids = new Set<number>();
+type TrackedChildProcess = {
+  pid: number;
+  processGroup: boolean;
+};
 
-export function trackChildProcessPid(pid: number): () => void {
+const trackedChildProcesses = new Map<number, TrackedChildProcess>();
+
+export type TrackChildProcessOptions = {
+  processGroup?: boolean;
+};
+
+export function trackChildProcessPid(
+  pid: number,
+  options: TrackChildProcessOptions = {}
+): () => void {
   if (!Number.isInteger(pid) || pid <= 0) {
     throw new Error(`Invalid child process pid: ${pid}`);
   }
 
-  trackedChildProcessPids.add(pid);
+  trackedChildProcesses.set(pid, {
+    pid,
+    processGroup: options.processGroup ?? false,
+  });
   let tracked = true;
 
   return () => {
@@ -13,29 +28,29 @@ export function trackChildProcessPid(pid: number): () => void {
       return;
     }
     tracked = false;
-    trackedChildProcessPids.delete(pid);
+    trackedChildProcesses.delete(pid);
   };
 }
 
 export function killTrackedChildProcesses(
   signal: NodeJS.Signals = "SIGKILL"
 ): void {
-  for (const pid of Array.from(trackedChildProcessPids)) {
+  for (const child of Array.from(trackedChildProcesses.values())) {
     try {
-      process.kill(pid, signal);
+      process.kill(child.processGroup ? -child.pid : child.pid, signal);
     } catch (error) {
       if (!isNoSuchProcessError(error)) {
         // Shutdown cleanup must be best-effort. A child that cannot be signaled
         // should not prevent the MCP server itself from exiting.
       }
     } finally {
-      trackedChildProcessPids.delete(pid);
+      trackedChildProcesses.delete(child.pid);
     }
   }
 }
 
 export function getTrackedChildProcessPids(): number[] {
-  return Array.from(trackedChildProcessPids);
+  return Array.from(trackedChildProcesses.keys());
 }
 
 function isNoSuchProcessError(error: unknown) {
