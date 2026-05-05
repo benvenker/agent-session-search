@@ -15,9 +15,10 @@ describe("MCP server FFF client pooling", () => {
     const fffTmp = join(tmp, "fff-tmp");
     await mkdir(root);
     await mkdir(fffTmp);
+    const token = `server-pool-token-${process.pid}`;
     await writeFile(
       join(root, "session.jsonl"),
-      "first result\nsecond result\n"
+      `${token} first\n${token} second\n`
     );
     await writeFile(
       configPath,
@@ -58,11 +59,11 @@ describe("MCP server FFF client pooling", () => {
         );
       }
       await eventuallyCallSearchSessions(client, {
-        query: "first",
+        query: `${token} first`,
         sources: ["smoke"],
       });
       await eventuallyCallSearchSessions(client, {
-        query: "second",
+        query: `${token} second`,
         sources: ["smoke"],
       });
 
