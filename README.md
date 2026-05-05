@@ -39,6 +39,10 @@ curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
 # 3. Verify FFF is wired up
 agent-session-search-doctor
 
+# Optional: inspect or reap orphaned fff-mcp processes from old crashed sessions
+agent-session-search-doctor --list-orphans
+agent-session-search-doctor --reap-orphans
+
 # 4. Try it from the CLI against your real session roots
 agent-session-search "auth token timeout" --json
 ```
@@ -310,7 +314,7 @@ npm run dev:mcp     # run the MCP server from source
 npm run dev:cli -- "auth token timeout" --json
 ```
 
-`npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is on `PATH`, it prints the resolved path, version, a live grep smoke result, and the `PATH` used for the check, with isolated FFF database files matching the runtime path. In an installed package, run the same preflight as `agent-session-search-doctor`.
+`npm run check:fff` runs the FFF dependency preflight. If `fff-mcp` is on `PATH`, it prints the resolved path, version, a live grep smoke result, and the `PATH` used for the check, with isolated FFF database files matching the runtime path. In an installed package, run the same preflight as `agent-session-search-doctor`. Use `agent-session-search-doctor --list-orphans` to inspect orphaned `fff-mcp` processes whose parent PID is 1, or `agent-session-search-doctor --reap-orphans` to kill them.
 
 ### Verifying a local package build
 

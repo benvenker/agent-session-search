@@ -19,6 +19,8 @@ type CheckFffMcpOptions = {
   env?: NodeJS.ProcessEnv;
   skipSmoke?: boolean;
   smoke?: (input: FffSmokeInput) => Promise<FffSmokeResult>;
+  listOrphans?: boolean;
+  reapOrphans?: boolean;
 };
 
 type CheckFffMcpResult =
@@ -49,6 +51,27 @@ type FffSmokeResult =
       ok: false;
       reason: string;
     };
+
+export type ProcessInfo = {
+  pid: number;
+  ppid: number;
+  command: string;
+};
+
+export type FindOrphanFffMcpProcessesOptions = {
+  listProcesses?: () => Promise<ProcessInfo[]>;
+};
+
+export type ReapOrphanFffMcpProcessesOptions = {
+  findOrphans?: () => Promise<ProcessInfo[]>;
+  killProcess?: (pid: number, signal: NodeJS.Signals) => Promise<void> | void;
+};
+
+export type ReapOrphanFffMcpProcessesResult = {
+  found: ProcessInfo[];
+  reaped: number[];
+  failed: Array<{ pid: number; message: string }>;
+};
 
 export async function checkFffMcp(
   options: CheckFffMcpOptions = {}
@@ -94,8 +117,47 @@ export async function checkFffMcp(
   }
 }
 
+export async function findOrphanFffMcpProcesses(
+  options: FindOrphanFffMcpProcessesOptions = {}
+): Promise<ProcessInfo[]> {
+  const processes = await (options.listProcesses ?? listProcesses)();
+  return processes.filter(
+    (processInfo) =>
+      processInfo.ppid === 1 &&
+      /(^|[/\s])fff-mcp(\s|$)/.test(processInfo.command)
+  );
+}
+
+export async function reapOrphanFffMcpProcesses(
+  options: ReapOrphanFffMcpProcessesOptions = {}
+): Promise<ReapOrphanFffMcpProcessesResult> {
+  const found = await (options.findOrphans ?? findOrphanFffMcpProcesses)();
+  const killProcess =
+    options.killProcess ??
+    ((pid: number, signal: NodeJS.Signals) => {
+      process.kill(pid, signal);
+    });
+  const reaped: number[] = [];
+  const failed: Array<{ pid: number; message: string }> = [];
+
+  for (const orphan of found) {
+    try {
+      await killProcess(orphan.pid, "SIGKILL");
+      reaped.push(orphan.pid);
+    } catch (error) {
+      failed.push({
+        pid: orphan.pid,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { found, reaped, failed };
+}
+
 export async function main(argv = process.argv.slice(2)) {
-  const result = await checkFffMcp(parseArgs(argv));
+  const options = parseArgs(argv);
+  const result = await checkFffMcp(options);
 
   if (result.ok) {
     console.log("FFF MCP preflight passed.");
@@ -108,6 +170,11 @@ export async function main(argv = process.argv.slice(2)) {
       `smoke: ${result.smoke === "passed" ? "live grep passed" : "skipped"}`
     );
     console.log(`PATH: ${result.path}`);
+    if (options.reapOrphans) {
+      printReapOrphansResult(await reapOrphanFffMcpProcesses());
+    } else if (options.listOrphans) {
+      printOrphans(await findOrphanFffMcpProcesses());
+    }
     return;
   }
 
@@ -136,6 +203,14 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
     }
     if (arg === "--skip-smoke") {
       options.skipSmoke = true;
+      continue;
+    }
+    if (arg === "--list-orphans") {
+      options.listOrphans = true;
+      continue;
+    }
+    if (arg === "--reap-orphans") {
+      options.reapOrphans = true;
       continue;
     }
     throw new Error(`Unknown option: ${arg}`);
@@ -180,6 +255,53 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
     await backend?.close();
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+function printOrphans(orphans: ProcessInfo[]) {
+  console.log("");
+  console.log("Orphan fff-mcp cleanup:");
+  console.log(`found: ${orphans.length}`);
+  for (const orphan of orphans) {
+    console.log(`pid ${orphan.pid}: ${orphan.command}`);
+  }
+}
+
+function printReapOrphansResult(result: ReapOrphanFffMcpProcessesResult) {
+  printOrphans(result.found);
+  console.log(
+    `reaped: ${result.reaped.length ? result.reaped.join(", ") : "none"}`
+  );
+  if (result.failed.length) {
+    console.log(
+      `failed: ${result.failed.map((failure) => `${failure.pid} (${failure.message})`).join(", ")}`
+    );
+  }
+}
+
+async function listProcesses(): Promise<ProcessInfo[]> {
+  const stdout = process.env.AGENT_SESSION_SEARCH_DOCTOR_PS_FIXTURE;
+  const output =
+    stdout ??
+    (await execFileAsync("ps", ["-axo", "pid=,ppid=,command="])).stdout;
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap(parseProcessLine);
+}
+
+function parseProcessLine(line: string): ProcessInfo[] {
+  const match = /^(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+  if (!match) {
+    return [];
+  }
+  return [
+    {
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      command: match[3],
+    },
+  ];
 }
 
 async function findOnPath(command: string, path: string) {

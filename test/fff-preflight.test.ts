@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { checkFffMcp } from "../src/fff-preflight.js";
+import {
+  checkFffMcp,
+  findOrphanFffMcpProcesses,
+  reapOrphanFffMcpProcesses,
+} from "../src/fff-preflight.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -95,6 +99,90 @@ describe("FFF preflight command", () => {
     expect(result.stdout).toContain("version: fff-mcp 9.9.9-test");
     expect(result.stdout).toContain("smoke: skipped");
     expect(result.stdout).toContain(`PATH: ${fakeBin}`);
+  }, 60_000);
+
+  it("finds only orphan fff-mcp processes from ps output", async () => {
+    const orphans = await findOrphanFffMcpProcesses({
+      listProcesses: async () => [
+        { pid: 101, ppid: 1, command: "fff-mcp --no-update-check /tmp/a" },
+        { pid: 102, ppid: 999, command: "fff-mcp --no-update-check /tmp/b" },
+        { pid: 103, ppid: 1, command: "node dist/server.js" },
+      ],
+    });
+
+    expect(orphans).toEqual([
+      { pid: 101, ppid: 1, command: "fff-mcp --no-update-check /tmp/a" },
+    ]);
+  });
+
+  it("reaps only orphan fff-mcp processes on demand", async () => {
+    const killed: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+    const result = await reapOrphanFffMcpProcesses({
+      findOrphans: async () => [
+        { pid: 101, ppid: 1, command: "fff-mcp --no-update-check /tmp/a" },
+        { pid: 102, ppid: 1, command: "fff-mcp --no-update-check /tmp/b" },
+      ],
+      killProcess: async (pid, signal) => {
+        killed.push({ pid, signal });
+      },
+    });
+
+    expect(killed).toEqual([
+      { pid: 101, signal: "SIGKILL" },
+      { pid: 102, signal: "SIGKILL" },
+    ]);
+    expect(result).toEqual({
+      found: [
+        { pid: 101, ppid: 1, command: "fff-mcp --no-update-check /tmp/a" },
+        { pid: 102, ppid: 1, command: "fff-mcp --no-update-check /tmp/b" },
+      ],
+      reaped: [101, 102],
+      failed: [],
+    });
+  });
+
+  it("prints orphan cleanup output only when requested", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-path-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const withoutCleanup = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: fakeBin,
+          AGENT_SESSION_SEARCH_DOCTOR_PS_FIXTURE:
+            "101 1 fff-mcp --no-update-check /tmp/a\\n",
+        },
+      }
+    );
+    expect(withoutCleanup.stdout).not.toContain("Orphan fff-mcp cleanup");
+
+    const withCleanup = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--skip-smoke", "--list-orphans"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: fakeBin,
+          AGENT_SESSION_SEARCH_DOCTOR_PS_FIXTURE:
+            "101 1 fff-mcp --no-update-check /tmp/a\\n",
+        },
+      }
+    );
+    expect(withCleanup.stdout).toContain("Orphan fff-mcp cleanup:");
+    expect(withCleanup.stdout).toContain("found: 1");
+    expect(withCleanup.stdout).toContain("pid 101");
   }, 60_000);
 
   it("fails when the live grep smoke test fails", async () => {
