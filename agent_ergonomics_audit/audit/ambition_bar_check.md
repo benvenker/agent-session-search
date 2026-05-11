@@ -1,6 +1,6 @@
 # Ambition Bar Check
 
-Substantive applied changes: 6
+Substantive applied changes: 7
 
 Dimensions touched:
 
@@ -20,6 +20,9 @@ Required surface types:
 - JSON/robot output on read-side: yes, capabilities/triage JSON and existing search JSON
 - Error rewrite: yes, JSON parse failure envelope and unknown-source recovery hints
 - Intent-inference handler: yes, `--json --help` and planned-probe/context CLI flags
+- Pass 2 source/config inspection: yes, `agent-session-search sources --json`
+- Pass 2 version alignment: yes, MCP server info now follows `package.json`
+- Pass 2 structured-output decision: yes, FastMCP 4.0.1 text-content behavior is pinned and `outputSchema` is intentionally not advertised
 
 Self-prompt:
 

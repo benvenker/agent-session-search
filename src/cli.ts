@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { searchOptionsFromEnv } from "./env.js";
 import {
@@ -9,6 +8,8 @@ import {
   robotDocsGuide,
   robotTriage,
 } from "./help.js";
+import { packageVersion } from "./package-info.js";
+import { inspectSessionSources } from "./roots.js";
 import { createSessionSearch } from "./search.js";
 import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
 
@@ -193,6 +194,16 @@ export async function main(
     console.log(packageVersion());
     return;
   }
+  if (isSourcesRequest(argv)) {
+    console.log(
+      JSON.stringify(
+        await inspectSessionSources(searchOptionsFromEnv(env)),
+        null,
+        2
+      )
+    );
+    return;
+  }
   if (isCapabilitiesRequest(argv)) {
     console.log(JSON.stringify(cliCapabilities(packageVersion()), null, 2));
     return;
@@ -249,6 +260,12 @@ function isCapabilitiesRequest(argv: string[]) {
   );
 }
 
+function isSourcesRequest(argv: string[]) {
+  return (
+    argv[0] === "sources" && argv.slice(1).every((arg) => arg === "--json")
+  );
+}
+
 function isRobotDocsRequest(argv: string[]) {
   return (
     argv[0] === "robot-docs" &&
@@ -258,20 +275,6 @@ function isRobotDocsRequest(argv: string[]) {
 
 function isRobotTriageRequest(argv: string[]) {
   return argv.length === 1 && argv[0] === "--robot-triage";
-}
-
-function packageVersion() {
-  const packageJsonPath = join(
-    dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "package.json"
-  );
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
-    version?: unknown;
-  };
-  return typeof packageJson.version === "string"
-    ? packageJson.version
-    : "unknown";
 }
 
 function parseResultsDisplayMode(

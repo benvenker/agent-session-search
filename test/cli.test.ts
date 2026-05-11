@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -81,6 +81,7 @@ describe("CLI argument parsing", () => {
       expect(output.commands.map((command) => command.name)).toEqual(
         expect.arrayContaining([
           "search",
+          "sources",
           "capabilities",
           "robot-docs guide",
           "--robot-triage",
@@ -90,6 +91,84 @@ describe("CLI argument parsing", () => {
       expect(output.exitCodes).toContainEqual({
         code: 1,
         meaning: "user-input-error",
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("prints configured source roots without running a search", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-sources-"));
+    const root = join(tmp, "sessions");
+    const missingRoot = join(tmp, "missing");
+    const disabledRoot = join(tmp, "disabled");
+    const configPath = join(tmp, "config.json");
+    await mkdir(root);
+    const canonicalRoot = await realpath(root);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: root, include: ["*.jsonl"] },
+          { name: "custom-missing", path: missingRoot, include: ["*.log"] },
+          { name: "custom-disabled", path: disabledRoot, enabled: false },
+        ],
+      })
+    );
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["sources", "--json"], {
+        ...process.env,
+        AGENT_SESSION_SEARCH_CONFIG: configPath,
+      });
+
+      const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
+        command: string;
+        configPath: string;
+        sources: Array<{
+          name: string;
+          root: string;
+          include?: string[];
+          enabled: boolean;
+          status: string;
+          warning?: string;
+        }>;
+        warnings: Array<{ source?: string; code: string; message: string }>;
+      };
+
+      expect(output.command).toBe("sources");
+      expect(output.configPath).toBe(configPath);
+      expect(output.sources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "codex",
+            root: canonicalRoot,
+            include: ["*.jsonl"],
+            enabled: true,
+            status: "ok",
+          }),
+          expect.objectContaining({
+            name: "custom-missing",
+            root: missingRoot,
+            include: ["*.log"],
+            enabled: true,
+            status: "missing",
+            warning: `Configured root does not exist: ${missingRoot}`,
+          }),
+          expect.objectContaining({
+            name: "custom-disabled",
+            root: disabledRoot,
+            enabled: false,
+            status: "disabled",
+          }),
+        ])
+      );
+      expect(output.warnings).toContainEqual({
+        source: "custom-missing",
+        root: missingRoot,
+        code: "missing_root",
+        message: `Configured root does not exist: ${missingRoot}`,
       });
     } finally {
       log.mockRestore();

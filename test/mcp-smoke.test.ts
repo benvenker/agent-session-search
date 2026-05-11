@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { describe, expect, it } from "vitest";
+import packageJson from "../package.json" with { type: "json" };
 
 describe("MCP search_sessions smoke path", () => {
   it("describes the search_sessions workflow through tool introspection", async () => {
@@ -21,11 +22,16 @@ describe("MCP search_sessions smoke path", () => {
 
     try {
       await client.connect(transport);
+      expect(client.getServerVersion()).toMatchObject({
+        name: "agent-session-search",
+        version: packageJson.version,
+      });
       const tools = await client.listTools();
       const tool = tools.tools.find((candidate) => {
         return candidate.name === "search_sessions";
       });
 
+      expect(tool?.outputSchema).toBeUndefined();
       expect(tool?.description).toContain("concise recall task");
       expect(tool?.description).toContain("operationalContext");
       expect(tool?.description).toContain("more.evidence");

@@ -3,6 +3,7 @@ export function cliHelpText() {
     "Usage: agent-session-search <query> [--json] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...] [--max-results <n>]",
     "       agent-session-search help",
     "       agent-session-search --version",
+    "       agent-session-search sources --json",
     "       agent-session-search capabilities --json",
     "       agent-session-search robot-docs guide",
     "       agent-session-search --robot-triage",
@@ -12,6 +13,7 @@ export function cliHelpText() {
     "Commands:",
     "  help                       Show this help.",
     "  version                    Print the package version.",
+    "  sources --json             Inspect configured source roots without running a search.",
     "  capabilities --json        Print the agent-readable CLI and MCP contract.",
     "  robot-docs guide           Print the in-tool guide for coding agents.",
     "",
@@ -37,6 +39,7 @@ export function cliHelpText() {
     "Examples:",
     '  agent-session-search "auth token timeout" --json',
     "  agent-session-search capabilities --json",
+    "  agent-session-search sources --json",
     "  agent-session-search robot-docs guide",
     "  agent-session-search --robot-triage",
     '  agent-session-search "global search" --source codex --source claude',
@@ -71,6 +74,12 @@ export function cliCapabilities(version: string) {
           'agent-session-search "<query>" [--json] [--probe <query>...] [--cwd <path>] [--branch <name>] [--reason <text>] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...]',
         output:
           "--json prints the same result envelope as the MCP search_sessions tool.",
+      },
+      {
+        name: "sources",
+        usage: "agent-session-search sources --json",
+        output:
+          "Machine-readable source-root inspection with enabled, status, include, and warning fields.",
       },
       {
         name: "capabilities",
@@ -170,6 +179,7 @@ export function robotTriage(version: string) {
       'agent-session-search "PR 227 paper-cuts" --json --source codex',
       'agent-session-search "auth token timeout" --json --evidence --path /absolute/session/path.jsonl',
       "agent-session-search capabilities --json",
+      "agent-session-search sources --json",
     ],
     healthChecks: [
       "agent-session-search-doctor",

@@ -42,9 +42,38 @@
         "simulations_pre": "audit/agent_simulations/pre_pass_N/",
         "simulations_post": "audit/agent_simulations/post_pass_N/"
       }
+    },
+    {
+      "pass": 2,
+      "started_at": "2026-05-11T02:20:00Z",
+      "completed_at": "2026-05-11T02:26:56Z",
+      "mode": "full",
+      "target_sha": "b2dc3ff7554460b0fee859df92d056bdc4fd1800",
+      "target_branch": "main",
+      "feature_branch": null,
+      "summary": {
+        "surfaces_inventoried": 3,
+        "surfaces_scored": 3,
+        "recommendations_total": 1,
+        "recommendations_applied": 1,
+        "substantive_commits": 1,
+        "dimensions_touched": 4,
+        "ambition_bar_met": true,
+        "ambition_bar_self_prompt_run": false,
+        "median_uplift_pts": 180,
+        "regressions_count": 0,
+        "fresh_eyes_rounds": 1
+      },
+      "artifacts": {
+        "recommendations": "audit/recommendations.jsonl",
+        "applied_changes": "audit/applied_changes.jsonl",
+        "scorecard": "audit/scorecard.md",
+        "regression_alerts": "audit/regression_alerts.md",
+        "handoff": "audit/HANDOFF.md"
+      }
     }
   ],
-  "current_pass": 1,
+  "current_pass": 2,
   "pass_N+1_ready": true,
-  "next_pass_focus": "Investigate structured MCP output and package-version alignment."
+  "next_pass_focus": "No Pass 2 deferrals remain; preserve the single search_sessions MCP tool and FFF-backed design."
 }

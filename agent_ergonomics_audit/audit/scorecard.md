@@ -19,7 +19,17 @@ Validation:
 
 - `npm run check`: pass
 - `npm run build`: pass
-- `npm test`: pass, 14 files / 73 tests
+- `npm test`: pass, 14 files / 74 tests
 - `npm run smoke`: pass
 - `npm run check:beads`: pass
 - `npm run check:fff -- --skip-smoke`: pass
+
+## Pass 2 Addendum
+
+| Surface                   | Before | After | Result                                                                |
+| ------------------------- | -----: | ----: | --------------------------------------------------------------------- |
+| MCP server version        |    620 |   900 | server info follows `package.json`                                    |
+| FastMCP structured output |    520 |   780 | text-JSON behavior and lack of `outputSchema` are verified and pinned |
+| Source/config inspection  |    500 |   850 | `agent-session-search sources --json` added as CLI-only inspection    |
+
+Pass 2 preserved the single `search_sessions` MCP tool and added no FFF replacement, custom index, or session aggregation path.

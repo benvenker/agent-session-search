@@ -9,6 +9,7 @@ import {
 import type { SessionSearch } from "./types.js";
 import { searchOptionsFromEnv } from "./env.js";
 import { mcpSearchSessionsDescription } from "./help.js";
+import { packageVersion } from "./package-info.js";
 import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
 import { killTrackedChildProcesses } from "./child-process-cleanup.js";
 
@@ -18,7 +19,7 @@ export function createServer(
 ) {
   const server = new FastMCP({
     name: "agent-session-search",
-    version: "0.1.0",
+    version: packageVersion(),
   });
 
   server.addTool({

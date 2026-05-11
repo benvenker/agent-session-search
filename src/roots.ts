@@ -20,6 +20,15 @@ export type ResolvedSessionSource = {
   warning?: string;
 };
 
+export type InspectedSessionSource = {
+  name: SourceName;
+  root: string;
+  include?: string[];
+  enabled: boolean;
+  status: "ok" | "missing" | "failed" | "disabled";
+  warning?: string;
+};
+
 export type ResolveSessionRootsInput = {
   sources?: SourceName[] | "all";
   configPath?: string;
@@ -29,6 +38,13 @@ export type ResolveSessionRootsInput = {
 
 export type ResolveSessionRootsOutput = {
   sources: ResolvedSessionSource[];
+  warnings: SearchWarning[];
+};
+
+export type InspectSessionSourcesOutput = {
+  command: "sources";
+  configPath: string;
+  sources: InspectedSessionSource[];
   warnings: SearchWarning[];
 };
 
@@ -140,6 +156,60 @@ export async function resolveSessionRoots(
   }
 
   return { sources, warnings };
+}
+
+export async function inspectSessionSources(
+  input: Omit<ResolveSessionRootsInput, "sources"> = {}
+): Promise<InspectSessionSourcesOutput> {
+  const configPath = input.configPath ?? defaultConfigPath();
+  const configuredRoots = (input.config ?? (await loadSearchConfig(configPath)))
+    .roots;
+  const baseRoots = input.defaultRoots ?? defaultSessionRoots();
+  const roots = configuredRoots
+    ? mergeRootConfigs(baseRoots, configuredRoots)
+    : baseRoots;
+  const warnings: SearchWarning[] = [];
+  const sources: InspectedSessionSource[] = [];
+
+  for (const root of roots) {
+    const enabled = root.enabled !== false;
+    if (!enabled) {
+      sources.push({
+        name: root.name,
+        root: root.path,
+        include: root.include,
+        enabled,
+        status: "disabled",
+      });
+      continue;
+    }
+
+    const resolved = await resolveOneRoot(root);
+    sources.push({
+      name: resolved.name,
+      root: resolved.root,
+      include: resolved.include,
+      enabled,
+      status: resolved.status,
+      warning: resolved.warning,
+    });
+    if (resolved.warning) {
+      warnings.push({
+        source: root.name,
+        root: root.path,
+        code:
+          resolved.status === "missing" ? "missing_root" : "unreadable_root",
+        message: resolved.warning,
+      });
+    }
+  }
+
+  return {
+    command: "sources",
+    configPath,
+    sources,
+    warnings,
+  };
 }
 
 export function mergeRootConfigs(

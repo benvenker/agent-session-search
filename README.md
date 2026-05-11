@@ -258,6 +258,7 @@ The CLI shares the same library and result shape, so a fallback agent doesn't ha
 ```bash
 agent-session-search help
 agent-session-search capabilities --json
+agent-session-search sources --json
 agent-session-search robot-docs guide
 agent-session-search --robot-triage
 agent-session-search "auth token timeout" --json
@@ -283,6 +284,7 @@ Supported options:
 Discovery commands:
 
 - `capabilities --json`: print the machine-readable CLI and MCP contract, including commands, result modes, env vars, and exit codes.
+- `sources --json`: inspect configured source roots without running a search. The payload includes each source's enabled, status, include, and warning fields, plus the config path used.
 - `robot-docs guide`: print the in-tool guide for coding agents.
 - `--json --help`: alias for the capabilities payload, so JSON-first agents get a parseable contract instead of text help.
 
