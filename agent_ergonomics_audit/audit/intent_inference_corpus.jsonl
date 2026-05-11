@@ -1,0 +1,6 @@
+{"id":"I-001","argv":["--json","--help"],"pre_outcome":"useless_error","post_outcome":"inferred_and_acted","evidence":"now returns capabilities JSON"}
+{"id":"I-002","argv":["agent-session-search-doctor","--help"],"pre_outcome":"useless_error","post_outcome":"inferred_and_acted","evidence":"doctor help now exits 0"}
+{"id":"I-003","argv":["--json"],"pre_outcome":"plain_text_error","post_outcome":"useful_hint","evidence":"JSON stderr envelope includes suggestedCommand"}
+{"id":"I-004","argv":["--source","codx"],"pre_outcome":"weak_hint","post_outcome":"useful_hint","evidence":"warning lists enabled sources and recovery"}
+{"id":"I-005","argv":["--probe","PR #227","--cwd","/repo","--branch","paper-cuts"],"pre_outcome":"unknown_option","post_outcome":"inferred_and_acted","evidence":"maps to queries and operationalContext"}
+

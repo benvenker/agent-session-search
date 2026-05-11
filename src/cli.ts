@@ -3,7 +3,12 @@ import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { searchOptionsFromEnv } from "./env.js";
-import { cliHelpText } from "./help.js";
+import {
+  cliCapabilities,
+  cliHelpText,
+  robotDocsGuide,
+  robotTriage,
+} from "./help.js";
 import { createSessionSearch } from "./search.js";
 import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
 
@@ -13,6 +18,12 @@ function usage() {
 
 type ParsedArgs = {
   query: string;
+  queries: string[];
+  operationalContext: {
+    cwd?: string;
+    branch?: string;
+    reason?: string;
+  };
   json: boolean;
   sources: string[];
   resultsDisplayMode?: ResultsDisplayMode;
@@ -25,6 +36,8 @@ type ParsedArgs = {
 export function parseArgs(argv: string[]): ParsedArgs {
   const sources: string[] = [];
   const paths: string[] = [];
+  const queries: string[] = [];
+  const operationalContext: ParsedArgs["operationalContext"] = {};
   const queryParts: string[] = [];
   let json = false;
   let resultsDisplayMode: ResultsDisplayMode | undefined;
@@ -44,6 +57,42 @@ export function parseArgs(argv: string[]): ParsedArgs {
         throw new Error("--source requires a value");
       }
       sources.push(source);
+      index += 1;
+      continue;
+    }
+    if (arg === "--probe" || arg === "--query") {
+      const query = argv[index + 1];
+      if (!query) {
+        throw new Error(`${arg} requires a value`);
+      }
+      queries.push(query);
+      index += 1;
+      continue;
+    }
+    if (arg === "--cwd") {
+      const cwd = argv[index + 1];
+      if (!cwd) {
+        throw new Error("--cwd requires a value");
+      }
+      operationalContext.cwd = cwd;
+      index += 1;
+      continue;
+    }
+    if (arg === "--branch") {
+      const branch = argv[index + 1];
+      if (!branch) {
+        throw new Error("--branch requires a value");
+      }
+      operationalContext.branch = branch;
+      index += 1;
+      continue;
+    }
+    if (arg === "--reason") {
+      const reason = argv[index + 1];
+      if (!reason) {
+        throw new Error("--reason requires a value");
+      }
+      operationalContext.reason = reason;
       index += 1;
       continue;
     }
@@ -97,6 +146,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   return {
     query,
+    queries,
+    operationalContext,
     json,
     sources,
     resultsDisplayMode,
@@ -112,6 +163,11 @@ export function searchInputFromParsedArgs(
 ): SearchSessionsInput {
   return {
     query: args.query,
+    queries: args.queries.length > 0 ? args.queries : undefined,
+    operationalContext:
+      Object.keys(args.operationalContext).length > 0
+        ? args.operationalContext
+        : undefined,
     sources: args.sources.length > 0 ? args.sources : undefined,
     resultsDisplayMode: args.resultsDisplayMode,
     paths: args.paths.length > 0 ? args.paths : undefined,
@@ -125,6 +181,10 @@ export async function main(
   argv = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env
 ) {
+  if (isJsonHelpRequest(argv)) {
+    console.log(JSON.stringify(cliCapabilities(packageVersion()), null, 2));
+    return;
+  }
   if (isHelpRequest(argv)) {
     console.log(cliHelpText());
     return;
@@ -133,21 +193,37 @@ export async function main(
     console.log(packageVersion());
     return;
   }
-
-  const args = parseArgs(argv);
-  const search = createSessionSearch(searchOptionsFromEnv(env));
-  const result = await search.searchSessions(searchInputFromParsedArgs(args));
-
-  if (args.json) {
-    console.log(JSON.stringify(result, null, 2));
+  if (isCapabilitiesRequest(argv)) {
+    console.log(JSON.stringify(cliCapabilities(packageVersion()), null, 2));
+    return;
+  }
+  if (isRobotDocsRequest(argv)) {
+    console.log(robotDocsGuide());
+    return;
+  }
+  if (isRobotTriageRequest(argv)) {
+    console.log(JSON.stringify(robotTriage(packageVersion()), null, 2));
     return;
   }
 
-  console.log(`query: ${result.query}`);
-  console.log(`patterns: ${result.expandedPatterns.join(", ")}`);
-  console.log(`results: ${result.results.length}`);
-  for (const warning of result.warnings) {
-    console.warn(`warning: ${warning.code}: ${warning.message}`);
+  const args = parseArgs(argv);
+  const search = createSessionSearch(searchOptionsFromEnv(env));
+  try {
+    const result = await search.searchSessions(searchInputFromParsedArgs(args));
+
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`query: ${result.query}`);
+    console.log(`patterns: ${result.expandedPatterns.join(", ")}`);
+    console.log(`results: ${result.results.length}`);
+    for (const warning of result.warnings) {
+      console.warn(`warning: ${warning.code}: ${warning.message}`);
+    }
+  } finally {
+    await search.close?.();
   }
 }
 
@@ -155,8 +231,33 @@ function isHelpRequest(argv: string[]) {
   return argv.length === 1 && ["help", "--help", "-h"].includes(argv[0]);
 }
 
+function isJsonHelpRequest(argv: string[]) {
+  return (
+    argv.length === 2 &&
+    argv.includes("--json") &&
+    (argv.includes("--help") || argv.includes("-h") || argv.includes("help"))
+  );
+}
+
 function isVersionRequest(argv: string[]) {
   return argv.length === 1 && ["version", "--version", "-v"].includes(argv[0]);
+}
+
+function isCapabilitiesRequest(argv: string[]) {
+  return (
+    argv[0] === "capabilities" && argv.slice(1).every((arg) => arg === "--json")
+  );
+}
+
+function isRobotDocsRequest(argv: string[]) {
+  return (
+    argv[0] === "robot-docs" &&
+    (argv.length === 1 || (argv.length === 2 && argv[1] === "guide"))
+  );
+}
+
+function isRobotTriageRequest(argv: string[]) {
+  return argv.length === 1 && argv[0] === "--robot-triage";
 }
 
 function packageVersion() {
@@ -199,8 +300,25 @@ function parsePositiveInteger(value: string | undefined, option: string) {
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
-    console.error(usage());
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.argv.slice(2).includes("--json")) {
+      console.error(
+        JSON.stringify(
+          {
+            error: {
+              code: "user_input_error",
+              message,
+              suggestedCommand: "agent-session-search help",
+            },
+          },
+          null,
+          2
+        )
+      );
+    } else {
+      console.error(message);
+      console.error(usage());
+    }
     process.exitCode = 1;
   });
 }

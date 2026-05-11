@@ -7,6 +7,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
+import { doctorHelpText } from "./help.js";
 import type { SourceName } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -156,6 +157,11 @@ export async function reapOrphanFffMcpProcesses(
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  if (isHelpRequest(argv)) {
+    console.log(doctorHelpText());
+    return;
+  }
+
   const options = parseArgs(argv);
   const result = await checkFffMcp(options);
 
@@ -216,6 +222,10 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
     throw new Error(`Unknown option: ${arg}`);
   }
   return options;
+}
+
+function isHelpRequest(argv: string[]) {
+  return argv.length === 1 && ["help", "--help", "-h"].includes(argv[0]);
 }
 
 async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {

@@ -107,20 +107,20 @@ export async function resolveSessionRoots(
   const warnings: SearchWarning[] = [];
 
   if (input.sources && input.sources !== "all") {
+    const enabledSourceList = enabledRoots.map((root) => root.name).join(", ");
     for (const sourceName of input.sources) {
       if (!enabledRoots.some((root) => root.name === sourceName)) {
         warnings.push({
           source: sourceName,
           code: "unknown_source",
-          message: `Requested source is not configured or is disabled: ${sourceName}`,
+          message: `Requested source is not configured or is disabled: ${sourceName}. Enabled sources: ${enabledSourceList || "none"}. Run \`agent-session-search capabilities --json\` to inspect the CLI contract, or omit --source to search all enabled sources.`,
         });
       }
     }
     if (selectedRoots.length === 0) {
       warnings.push({
         code: "no_sources_selected",
-        message:
-          "No enabled configured sources matched the requested source filter.",
+        message: `No enabled configured sources matched the requested source filter. Enabled sources: ${enabledSourceList || "none"}. Omit --source or choose one of the enabled sources.`,
       });
     }
   }

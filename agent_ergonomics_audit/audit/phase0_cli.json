@@ -1,0 +1,17 @@
+{
+  "target_path": "/Users/ben/code/agent-session-search",
+  "discovered_at": "2026-05-11T01:34:48Z",
+  "languages": ["typescript_or_javascript"],
+  "binaries": [
+    "agent-session-search",
+    "agent-session-search-doctor",
+    "agent-session-search-mcp"
+  ],
+  "env_var_prefix": "AGENT_SESSION_SEARCH",
+  "existing_surfaces": {
+    "robot_mode": false,
+    "capabilities": false,
+    "robot_docs": false
+  },
+  "recommended_mode": "full"
+}

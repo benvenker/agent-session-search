@@ -1,0 +1,6 @@
+{"recommendation_id":"R-001","files":["src/help.ts","src/cli.ts","test/cli.test.ts","README.md","test/readme.test.ts"],"validation":["npx vitest run test/cli.test.ts test/readme.test.ts","node dist/cli.js capabilities --json","node dist/cli.js --robot-triage"],"status":"applied"}
+{"recommendation_id":"R-002","files":["src/cli.ts","src/help.ts","test/cli.test.ts","README.md"],"validation":["npx vitest run test/cli.test.ts"],"status":"applied"}
+{"recommendation_id":"R-003","files":["src/cli.ts","test/cli.test.ts"],"validation":["node dist/cli.js --json","npx vitest run test/cli.test.ts"],"status":"applied"}
+{"recommendation_id":"R-004","files":["src/cli.ts"],"validation":["node dist/cli.js \"agent-session-search\" --json --max-results 1"],"status":"applied"}
+{"recommendation_id":"R-005","files":["src/fff-preflight.ts","src/help.ts","test/fff-preflight.test.ts"],"validation":["node dist/fff-preflight.js --help","npx vitest run test/fff-preflight.test.ts"],"status":"applied"}
+{"recommendation_id":"R-006","files":["src/roots.ts","test/search.test.ts"],"validation":["npx vitest run test/search.test.ts"],"status":"applied"}

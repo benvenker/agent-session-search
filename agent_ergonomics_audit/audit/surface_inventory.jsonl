@@ -1,0 +1,11 @@
+{"surface_id":"cli:help","kind":"cli_command","name":"agent-session-search help","evidence":"src/cli.ts help short-circuit; src/help.ts cliHelpText"}
+{"surface_id":"cli:search-json","kind":"cli_command","name":"agent-session-search <query> --json","evidence":"src/cli.ts parseArgs/searchInputFromParsedArgs/main"}
+{"surface_id":"cli:planned-probes","kind":"cli_flags","name":"--probe/--query --cwd --branch --reason","evidence":"added in src/cli.ts parseArgs"}
+{"surface_id":"cli:capabilities","kind":"cli_command","name":"agent-session-search capabilities --json","evidence":"added in src/help.ts cliCapabilities and src/cli.ts main"}
+{"surface_id":"cli:robot-docs","kind":"cli_command","name":"agent-session-search robot-docs guide","evidence":"added in src/help.ts robotDocsGuide and src/cli.ts main"}
+{"surface_id":"cli:robot-triage","kind":"cli_command","name":"agent-session-search --robot-triage","evidence":"added in src/help.ts robotTriage and src/cli.ts main"}
+{"surface_id":"cli:json-errors","kind":"error_message","name":"agent-session-search --json parse errors","evidence":"added JSON stderr envelope in src/cli.ts entrypoint catch"}
+{"surface_id":"doctor:help","kind":"cli_command","name":"agent-session-search-doctor --help","evidence":"added in src/fff-preflight.ts main and src/help.ts doctorHelpText"}
+{"surface_id":"search:unknown-source","kind":"warning","name":"unknown source/no selected source warnings","evidence":"src/roots.ts resolveSessionRoots"}
+{"surface_id":"mcp:search-sessions","kind":"mcp_tool","name":"search_sessions","evidence":"src/server.ts single tool; src/tool.ts schema; src/help.ts mcpSearchSessionsDescription"}
+

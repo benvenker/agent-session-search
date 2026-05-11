@@ -257,7 +257,11 @@ The CLI shares the same library and result shape, so a fallback agent doesn't ha
 
 ```bash
 agent-session-search help
+agent-session-search capabilities --json
+agent-session-search robot-docs guide
+agent-session-search --robot-triage
 agent-session-search "auth token timeout" --json
+agent-session-search "Find PR 227 work" --json --probe "PR #227" --probe paper-cuts --cwd /repo --branch paper-cuts --reason "Recover prior context"
 agent-session-search "auth token timeout" --source codex --source claude --json
 agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
@@ -265,13 +269,22 @@ agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.c
 Supported options:
 
 - `--json`: print the full result object.
+- `--robot-triage`: print an agent quick reference, recommended commands, and health checks as JSON.
 - `--source <source>`: restrict to a source; repeat for multiple sources.
+- `--probe <query>` / `--query <query>`: add a planned literal probe; repeat for multiple probes. These map to the MCP `queries` field.
+- `--cwd <path>`, `--branch <name>`, `--reason <text>`: attach operational context to the search request.
 - `--mode <candidates|evidence|debug>`: choose compact leads, matching snippets, or diagnostics.
 - `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes.
 - `--path <path>`: restrict evidence to a canonical session path; repeat for multiple paths.
 - `--max-patterns <n>`: limit expanded literal search patterns.
 - `--max-results <n>`: limit results per source, including focused `--path` evidence; `--max-results-per-source` is also accepted.
 - `-h`, `--help`, `help`: print CLI help without running a search.
+
+Discovery commands:
+
+- `capabilities --json`: print the machine-readable CLI and MCP contract, including commands, result modes, env vars, and exit codes.
+- `robot-docs guide`: print the in-tool guide for coding agents.
+- `--json --help`: alias for the capabilities payload, so JSON-first agents get a parseable contract instead of text help.
 
 JSON output includes:
 
@@ -287,7 +300,7 @@ JSON output includes:
 
 Missing and unreadable roots do not fail the whole search. A missing root emits a `missing_root` warning; an unreadable root emits an `unreadable_root` warning. As long as one source is searchable, you get partial results.
 
-Unknown or disabled requested sources emit `unknown_source`; if no enabled roots match a source filter, the response also includes `no_sources_selected`.
+Unknown or disabled requested sources emit `unknown_source` with the enabled source names and a recovery hint; if no enabled roots match a source filter, the response also includes `no_sources_selected`.
 
 If every attempted source fails and there are no results, the response includes an `all_sources_failed` warning with a concrete `rg` fallback command. Use that for exhaustive proof-style search.
 

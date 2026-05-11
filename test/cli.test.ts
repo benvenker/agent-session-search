@@ -1,9 +1,13 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { main, parseArgs, searchInputFromParsedArgs } from "../src/cli.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("CLI argument parsing", () => {
   it("prints help from the help command without running a search", async () => {
@@ -59,6 +63,94 @@ describe("CLI argument parsing", () => {
     }
   });
 
+  it("prints machine-readable capabilities without running a search", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["capabilities", "--json"]);
+
+      const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
+        tool: string;
+        contractVersion: string;
+        commands: Array<{ name: string }>;
+        mcp: { tools: Array<{ name: string }> };
+        exitCodes: Array<{ code: number; meaning: string }>;
+      };
+
+      expect(output.tool).toBe("agent-session-search");
+      expect(output.contractVersion).toBe("1.0");
+      expect(output.commands.map((command) => command.name)).toEqual(
+        expect.arrayContaining([
+          "search",
+          "capabilities",
+          "robot-docs guide",
+          "--robot-triage",
+        ])
+      );
+      expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
+      expect(output.exitCodes).toContainEqual({
+        code: 1,
+        meaning: "user-input-error",
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("treats --json help as a machine-readable capabilities request", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["--json", "--help"]);
+
+      const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
+        tool: string;
+        mcp: { tools: Array<{ name: string }> };
+      };
+      expect(output.tool).toBe("agent-session-search");
+      expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("prints robot docs without running a search", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["robot-docs", "guide"]);
+
+      const output = log.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("Agent guide: agent-session-search");
+      expect(output).toContain("capabilities --json");
+      expect(output).toContain("more.evidence");
+      expect(output).toContain("search_sessions");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("prints a robot triage payload without running a search", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["--robot-triage"]);
+
+      const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
+        quickRef: unknown;
+        recommendedCommands: string[];
+        healthChecks: string[];
+      };
+
+      expect(output.quickRef).toMatchObject({
+        mcpTool: "search_sessions",
+        defaultMode: "candidates",
+      });
+      expect(output.recommendedCommands).toContain(
+        'agent-session-search "auth token timeout" --json'
+      );
+      expect(output.healthChecks).toContain("agent-session-search-doctor");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("maps evidence follow-up flags to search input", () => {
     const args = parseArgs([
       "PR 227 papercuts",
@@ -72,6 +164,8 @@ describe("CLI argument parsing", () => {
 
     expect(args).toEqual({
       query: "PR 227 papercuts",
+      queries: [],
+      operationalContext: {},
       json: true,
       sources: ["codex"],
       resultsDisplayMode: "evidence",
@@ -82,9 +176,43 @@ describe("CLI argument parsing", () => {
     });
     expect(searchInputFromParsedArgs(args)).toEqual({
       query: "PR 227 papercuts",
+      queries: undefined,
+      operationalContext: undefined,
       sources: ["codex"],
       resultsDisplayMode: "evidence",
       paths: ["/Users/ben/.codex/sessions/session.jsonl"],
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
+      debug: undefined,
+    });
+  });
+
+  it("maps planned probes and operational context flags to search input", () => {
+    const args = parseArgs([
+      "Find PR 227 work",
+      "--probe",
+      "PR #227",
+      "--probe",
+      "paper-cuts",
+      "--cwd",
+      "/Users/ben/code/poolside/poolside-studio",
+      "--branch",
+      "paper-cuts",
+      "--reason",
+      "Recover prior context",
+    ]);
+
+    expect(searchInputFromParsedArgs(args)).toEqual({
+      query: "Find PR 227 work",
+      queries: ["PR #227", "paper-cuts"],
+      operationalContext: {
+        cwd: "/Users/ben/code/poolside/poolside-studio",
+        branch: "paper-cuts",
+        reason: "Recover prior context",
+      },
+      sources: undefined,
+      resultsDisplayMode: undefined,
+      paths: undefined,
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
       debug: undefined,
@@ -104,6 +232,8 @@ describe("CLI argument parsing", () => {
 
     expect(searchInputFromParsedArgs(parseArgs(["auth", "--debug"]))).toEqual({
       query: "auth",
+      queries: undefined,
+      operationalContext: undefined,
       sources: undefined,
       resultsDisplayMode: "debug",
       paths: undefined,
@@ -126,6 +256,8 @@ describe("CLI argument parsing", () => {
       )
     ).toEqual({
       query: "auth token timeout",
+      queries: undefined,
+      operationalContext: undefined,
       sources: undefined,
       resultsDisplayMode: undefined,
       paths: undefined,
@@ -142,6 +274,38 @@ describe("CLI argument parsing", () => {
     expect(() =>
       parseArgs(["auth token timeout", "--max-results", "0"])
     ).toThrow("--max-results must be a positive integer");
+  });
+
+  it("prints a JSON error envelope when --json parse requests fail", async () => {
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+        join(process.cwd(), "src", "cli.ts"),
+        "--json",
+      ],
+      { cwd: process.cwd() }
+    ).catch((error: unknown) => {
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: number;
+      };
+      expect(execError.code).toBe(1);
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    });
+
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toEqual({
+      error: {
+        code: "user_input_error",
+        message: "query is required",
+        suggestedCommand: "agent-session-search help",
+      },
+    });
   });
 
   it("honors environment config when running a search", async () => {

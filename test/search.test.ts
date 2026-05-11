@@ -1112,12 +1112,13 @@ describe("createSessionSearch", () => {
       {
         source: "codx",
         code: "unknown_source",
-        message: "Requested source is not configured or is disabled: codx",
+        message:
+          "Requested source is not configured or is disabled: codx. Enabled sources: codex. Run `agent-session-search capabilities --json` to inspect the CLI contract, or omit --source to search all enabled sources.",
       },
       {
         code: "no_sources_selected",
         message:
-          "No enabled configured sources matched the requested source filter.",
+          "No enabled configured sources matched the requested source filter. Enabled sources: codex. Omit --source or choose one of the enabled sources.",
       },
     ]);
     expect(result.results).toEqual([]);

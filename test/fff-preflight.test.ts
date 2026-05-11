@@ -3,16 +3,35 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   checkFffMcp,
   findOrphanFffMcpProcesses,
+  main,
   reapOrphanFffMcpProcesses,
 } from "../src/fff-preflight.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("FFF preflight command", () => {
+  it("prints help from standard help requests", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["--help"]);
+      await main(["-h"]);
+      await main(["help"]);
+
+      const outputs = log.mock.calls.map((call) => call.join(" "));
+      expect(outputs).toHaveLength(3);
+      expect(outputs[0]).toContain("Usage: agent-session-search-doctor");
+      expect(outputs[0]).toContain("--list-orphans");
+      expect(outputs[1]).toContain("Usage: agent-session-search-doctor");
+      expect(outputs[2]).toContain("Usage: agent-session-search-doctor");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("is exposed and documented as the supported setup check", async () => {
     const packageJson = JSON.parse(
       await readFile(join(process.cwd(), "package.json"), "utf8")
