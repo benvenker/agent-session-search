@@ -3,6 +3,8 @@
 Target: `/Users/ben/code/agent-session-search`
 Branch: `main`
 Mode: `full`
+Finalized at: `2026-05-11T03:06:52Z`
+Finalized SHA: `e4d9a2e783467933fc50bf160f255d8e5c7426c7`
 
 What changed:
 
@@ -18,8 +20,14 @@ Validation run:
 - `npm test`
 - `npm run smoke`
 - `npm run check:fff -- --skip-smoke`
+- `npm run check:beads`
 - `npx vitest run test/mcp-smoke.test.ts test/cli.test.ts test/readme.test.ts`
 - `for test_script in agent_ergonomics_audit/audit/regression_tests/*.test.sh; do "$test_script"; done`
+
+Phase 6/7 finalization notes:
+
+- Re-verified the changed surfaces only: MCP server version follows `package.json`, FastMCP structured-output behavior remains pinned to text JSON with no advertised `outputSchema`, and `sources --json` remains CLI-only while MCP exposes only `search_sessions`.
+- Fresh-eyes review found no code/test changes needed. Validation required `PATH=/opt/homebrew/bin:/Users/ben/.local/bin:$PATH` in this Codex shell so npm scripts used Homebrew Node and could find `fff-mcp`.
 
 Deferred pass 3 candidates:
 

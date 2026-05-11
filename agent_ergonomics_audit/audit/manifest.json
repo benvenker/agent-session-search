@@ -46,9 +46,9 @@
     {
       "pass": 2,
       "started_at": "2026-05-11T02:20:00Z",
-      "completed_at": "2026-05-11T02:26:56Z",
+      "completed_at": "2026-05-11T03:06:52Z",
       "mode": "full",
-      "target_sha": "b2dc3ff7554460b0fee859df92d056bdc4fd1800",
+      "target_sha": "e4d9a2e783467933fc50bf160f255d8e5c7426c7",
       "target_branch": "main",
       "feature_branch": null,
       "summary": {
@@ -62,7 +62,7 @@
         "ambition_bar_self_prompt_run": false,
         "median_uplift_pts": 180,
         "regressions_count": 0,
-        "fresh_eyes_rounds": 1
+        "fresh_eyes_rounds": 2
       },
       "artifacts": {
         "recommendations": "audit/recommendations.jsonl",
