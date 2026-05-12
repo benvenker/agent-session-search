@@ -8,6 +8,7 @@ Repo-local guidance for coding agents working in this project.
 - Keep the public MCP surface centered on the single `search_sessions` tool.
 - Treat FFF as the search engine. Do not add custom indexing, embeddings, SQLite search stores, markdown session exports, or session aggregation unless explicitly requested.
 - Preserve canonical absolute paths in search results and keep source/root metadata attached to hits.
+- Use `DESIGN.md` as the current design record. Track deferred implementation work in Beads instead of reviving the completed PRD.
 
 ## Development Commands
 

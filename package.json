@@ -18,6 +18,7 @@
   "files": [
     "dist/*.js",
     "AGENTS.md",
+    "DESIGN.md",
     "LICENSE",
     "scripts/postinstall.mjs",
     "README.md"

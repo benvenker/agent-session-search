@@ -59,6 +59,7 @@ describe("package build and tarball", () => {
     expect(packedPaths).toContain("dist/fff-preflight.js");
     expect(packedPaths).toContain("dist/server.js");
     expect(packedPaths).toContain("AGENTS.md");
+    expect(packedPaths).toContain("DESIGN.md");
     expect(packedPaths).toContain("scripts/postinstall.mjs");
     expect(packedPaths).not.toContain("dist/test/packaging.test.js");
     for (const forbiddenPrefix of [
