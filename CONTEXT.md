@@ -44,7 +44,7 @@ Do not add custom indexing, embeddings, SQLite stores, markdown session exports,
 - `docs/adr/` is for architecture decisions when present.
 - Accepted development plans and PRDs live under `docs/plans/`.
 - Early planning and scratch notes can live in local markdown such as `.scratch/<feature>/`.
-- Durable prototype findings and review artifacts live in `docs/prototypes/`.
+- Durable prototype findings and evaluation data live in `docs/prototypes/findings/`.
 - Prototype worktrees should merge findings before code; production code should land through a plan, Beads, or an explicit productionization decision.
 - Implementation-ready work lives in Beads via `br`; inspect graph state with `bv --robot-*`, never bare `bv`.
 - Repo-local agent setup docs live in `docs/agents/`.

@@ -8,7 +8,7 @@ Can `searchSessions` move from sequential per-source search to parallel per-sour
 
 ## How We Tested
 
-I ran the throwaway prototype in `src/prototype-fanout.ts` directly and then used NTM to ask Claude and Gemini for structured review. Claude completed a detailed review in `docs/prototypes/fanout-prototype-review-claude.md`. Gemini eventually wrote a shorter review in `docs/prototypes/fanout-prototype-review-gemini.md`, but it says environment constraints prevented direct execution, so treat it as a code-review signal rather than a behavioral test signal.
+I ran the throwaway prototype in `src/prototype-fanout.ts` directly and then used NTM to ask Claude and Gemini for structured review. Their useful review signals are summarized in this findings document; the raw review artifacts were treated as scratch input rather than durable repo history.
 
 Prototype command, from the package script in `package.json`:
 
@@ -110,4 +110,4 @@ The comparison table is useful and should stay if the prototype lives for anothe
 
 ## NTM Notes
 
-Claude's NTM review was the most useful external signal and is retained in `fanout-prototype-review-claude.md`. Gemini's review independently agreed with the slot model and suggested surfacing per-source elapsed timings in debug mode, but it did not directly execute the prototype. Both agents were interrupted after review to avoid accidental production edits, and the temporary NTM session was killed.
+Claude's NTM review was the most useful external signal. Gemini's review independently agreed with the slot model and suggested surfacing per-source elapsed timings in debug mode, but it did not directly execute the prototype. Both review signals are captured above; the raw review files are not retained as durable artifacts.

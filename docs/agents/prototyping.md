@@ -6,7 +6,7 @@ Use prototypes to answer focused product or architecture questions before creati
 
 Merge evidence, not accidental scaffolding.
 
-- Keep prototype findings, review notes, and measured results in `docs/prototypes/`.
+- Keep durable prototype findings and measured results in `docs/prototypes/findings/`.
 - Keep PRDs, implementation plans, and cross-prototype synthesis in `docs/plans/`.
 - Treat source files named like `prototype-*`, temporary package scripts, local transcripts, and scratch harnesses as throwaway unless the plan explicitly promotes them.
 
@@ -25,7 +25,7 @@ Because this package has a narrow public surface, prefer one coherent plan and B
 A prototype artifact belongs in product history only when it has a continuing role:
 
 - A findings document is evidence for planning.
-- A review document is supporting signal.
+- A review document is supporting signal, but should be summarized into findings instead of kept by default.
 - A script or harness is useful only if it becomes a documented repeatable tool.
 - A package script is useful only if future agents are expected to run it.
 

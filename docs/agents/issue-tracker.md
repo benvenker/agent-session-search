@@ -14,13 +14,13 @@ Suggested layout:
 - `.scratch/<feature-slug>/PRD.md` for private or early PRD drafts
 - `.scratch/<feature-slug>/notes.md` for planning notes
 - `docs/plans/` for durable PRDs, implementation plans, and cross-prototype synthesis
-- `docs/prototypes/` for prototype findings and review artifacts that should survive beyond scratch work
+- `docs/prototypes/findings/` for prototype findings and evaluation data that should survive beyond scratch work
 
 ## Prototype Graduation
 
 Prototype branches and worktrees should graduate knowledge before code.
 
-- Merge or copy durable findings into `docs/prototypes/`.
+- Merge or copy durable findings into `docs/prototypes/findings/`.
 - Synthesize accepted findings into `docs/plans/<initiative-slug>/PRD.md` before creating Beads when multiple ideas overlap.
 - Treat prototype code as reference material unless it has an implementation Bead or an explicit productionization decision.
 - Do not let throwaway prototype files, toy UIs, or partial implementation diffs reach mainline merely because their findings are valuable.

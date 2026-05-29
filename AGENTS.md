@@ -39,12 +39,12 @@ Use the local Beads, BV, and NTM operating guide before converting plans to Bead
 
 ### Prototype lifecycle
 
-Prototype in throwaway worktrees when useful, but merge durable findings before planning. Keep evidence in `docs/prototypes/`, synthesize implementation plans in `docs/plans/`, then convert stable plans to Beads. See `docs/agents/prototyping.md`.
+Prototype in throwaway worktrees when useful, but merge durable findings before planning. Keep findings in `docs/prototypes/findings/`, synthesize implementation plans in `docs/plans/`, then convert stable plans to Beads. See `docs/agents/prototyping.md`.
 
 ## Planning And Prototypes
 
 - Use `docs/plans/` for accepted development plans and PRDs that should guide future Beads or implementation.
-- Use `docs/prototypes/` for durable prototype findings, evaluation data, and review artifacts.
+- Use `docs/prototypes/findings/` for durable prototype findings and evaluation data.
 - Prototype worktrees should merge prototype knowledge before implementation code. Do not merge prototype code into mainline just because the findings are useful.
 - Before creating Beads from multiple prototype findings, consolidate overlapping ideas into a plan or PRD so narrow product-surface changes do not become conflicting task graphs.
 
