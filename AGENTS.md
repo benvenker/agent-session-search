@@ -19,6 +19,35 @@ Repo-local guidance for coding agents working in this project.
 - Run MCP server in development: `npm run dev:mcp`
 - Run CLI smoke path: `npm run dev:cli -- "auth token timeout" --json`
 
+## Agent skills
+
+### Issue tracker
+
+Planning/spec drafts live in local markdown; implementation-ready work lives in Beads via `br`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default Matt Pocock triage roles, including `ready-for-agent` for AFK-ready beads. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo; read `DESIGN.md`, root `CONTEXT.md`, and `docs/adr/` when present. See `docs/agents/domain.md`.
+
+### Beads and swarms
+
+Use the local Beads, BV, and NTM operating guide before converting plans to Beads or launching agent swarms. See `docs/agents/beads-and-swarms.md`.
+
+### Prototype lifecycle
+
+Prototype in throwaway worktrees when useful, but merge durable findings before planning. Keep evidence in `docs/prototypes/`, synthesize implementation plans in `docs/plans/`, then convert stable plans to Beads. See `docs/agents/prototyping.md`.
+
+## Planning And Prototypes
+
+- Use `docs/plans/` for accepted development plans and PRDs that should guide future Beads or implementation.
+- Use `docs/prototypes/` for durable prototype findings, evaluation data, and review artifacts.
+- Prototype worktrees should merge prototype knowledge before implementation code. Do not merge prototype code into mainline just because the findings are useful.
+- Before creating Beads from multiple prototype findings, consolidate overlapping ideas into a plan or PRD so narrow product-surface changes do not become conflicting task graphs.
+
 ## Implementation Notes
 
 - Prefer small, testable modules behind the single MCP tool: root resolution, query rewriting, FFF backend, fanout coordination, path normalization, and response shaping.
