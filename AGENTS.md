@@ -12,6 +12,7 @@ Repo-local guidance for coding agents working in this project.
 
 ## Development Commands
 
+- Use Node `>=22.12.0`; `nvm use` reads the repo `.nvmrc` and selects Node 24 LTS.
 - Install dependencies: `npm install`
 - Typecheck: `npm run check`
 - Test: `npm test`
