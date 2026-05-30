@@ -399,6 +399,138 @@ describe("createSessionSearch", () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it("keeps unscoped evidence groups separate for different sources with the same path", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const sharedRoot = join(tmp, "shared");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await mkdir(sharedRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            const sessionPath = join(sharedRoot, "same-session.jsonl");
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: source.name === "codex" ? 10 : 20,
+                  content: `${source.name} saw retry timeout`,
+                  pattern: "retry timeout",
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: source.name === "codex" ? 11 : 21,
+                  content: `${source.name} kept source metadata`,
+                  pattern: "source metadata",
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "retry timeout source metadata",
+      queries: ["retry timeout", "source metadata"],
+      resultsDisplayMode: "evidence",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalClaudeRoot = await realpath(claudeRoot);
+    const canonicalSessionPath = join(
+      await realpath(sharedRoot),
+      "same-session.jsonl"
+    );
+
+    expect(result.resultsShape).toBe("evidence_groups");
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: canonicalSessionPath,
+        hitCount: 2,
+        matchedQueries: ["retry timeout", "source metadata"],
+        matchedPatterns: ["retry timeout", "source metadata"],
+        snippets: [
+          {
+            line: 10,
+            content: "codex saw retry timeout",
+            pattern: "retry timeout",
+            query: "retry timeout",
+          },
+          {
+            line: 11,
+            content: "codex kept source metadata",
+            pattern: "source metadata",
+            query: "source metadata",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "retry timeout source metadata",
+            queries: ["retry timeout", "source metadata"],
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalSessionPath],
+          },
+        },
+      },
+      {
+        source: "claude",
+        root: canonicalClaudeRoot,
+        path: canonicalSessionPath,
+        hitCount: 2,
+        matchedQueries: ["retry timeout", "source metadata"],
+        matchedPatterns: ["retry timeout", "source metadata"],
+        snippets: [
+          {
+            line: 20,
+            content: "claude saw retry timeout",
+            pattern: "retry timeout",
+            query: "retry timeout",
+          },
+          {
+            line: 21,
+            content: "claude kept source metadata",
+            pattern: "source metadata",
+            query: "source metadata",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "retry timeout source metadata",
+            queries: ["retry timeout", "source metadata"],
+            sources: ["claude"],
+            resultsDisplayMode: "evidence",
+            paths: [canonicalSessionPath],
+          },
+        },
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("restricts evidence results to selected session paths", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -1429,6 +1561,53 @@ describe("createSessionSearch", () => {
           "Unscoped evidence searches are capped at 20 results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.",
       },
     ]);
+  });
+
+  it("returns an empty evidence-groups envelope for successful unscoped evidence with no hits", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search(input) {
+            calls.push(input);
+            return {
+              warnings: [],
+              results: [],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "nothing should match this",
+      resultsDisplayMode: "evidence",
+    });
+
+    expect(calls).toEqual([
+      {
+        patterns: ["nothing should match this"],
+        maxResults: 20,
+        context: undefined,
+      },
+    ]);
+    expect(result.resultsDisplayMode).toBe("evidence");
+    expect(result.resultsShape).toBe("evidence_groups");
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("uses validated config defaults when request options are omitted", async () => {
