@@ -171,7 +171,16 @@ export class CoordinatedSessionSearch implements SessionSearch {
           message,
         });
       } finally {
-        await backend?.close?.();
+        try {
+          await backend?.close?.();
+        } catch (error) {
+          warnings.push({
+            source: source.name,
+            root: source.root,
+            code: "source_cleanup_failed",
+            message: `Cleanup failed for source ${source.name}: ${errorMessage(error)}`,
+          });
+        }
       }
     }
 

@@ -1357,6 +1357,249 @@ describe("createSessionSearch", () => {
     ]);
   });
 
+  it("does not report cleanup failure when backend creation fails", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        if (source.name === "codex") {
+          throw new Error("could not start backend");
+        }
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 3,
+                  content: `matched ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      sources: ["codex", "claude"],
+      resultsDisplayMode: "evidence",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalClaudeRoot = await realpath(claudeRoot);
+
+    expect(result.searchedSources).toEqual([
+      {
+        name: "codex",
+        root: canonicalCodexRoot,
+        status: "failed",
+        warning: "Search failed for source codex: could not start backend",
+      },
+      {
+        name: "claude",
+        root: canonicalClaudeRoot,
+        status: "ok",
+      },
+    ]);
+    expect(result.warnings).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "source_search_failed",
+        message: "Search failed for source codex: could not start backend",
+      },
+    ]);
+    expect(result.results).toEqual([
+      {
+        source: "claude",
+        root: canonicalClaudeRoot,
+        path: join(canonicalClaudeRoot, "session.jsonl"),
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 3,
+            content: "matched auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["claude"],
+            resultsDisplayMode: "evidence",
+            paths: [join(canonicalClaudeRoot, "session.jsonl")],
+          },
+        },
+      },
+    ]);
+  });
+
+  it("keeps successful hits when custom backend cleanup fails", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 3,
+                  content: `matched ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+          async close() {
+            throw new Error("cleanup socket closed");
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+
+    expect(result.searchedSources).toEqual([
+      {
+        name: "codex",
+        root: canonicalCodexRoot,
+        status: "ok",
+      },
+    ]);
+    expect(result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: join(canonicalCodexRoot, "session.jsonl"),
+        line: 3,
+        preview: "matched auth token timeout",
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [join(canonicalCodexRoot, "session.jsonl")],
+          },
+        },
+      },
+    ]);
+    expect(result.warnings).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "source_cleanup_failed",
+        message: "Cleanup failed for source codex: cleanup socket closed",
+      },
+    ]);
+  });
+
+  it("reports cleanup evidence without replacing the original search failure", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search() {
+            throw new Error("grep unavailable");
+          },
+          async close() {
+            throw new Error("cleanup socket closed");
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+
+    expect(result.results).toEqual([]);
+    expect(result.searchedSources).toEqual([
+      {
+        name: "codex",
+        root: canonicalCodexRoot,
+        status: "failed",
+        warning: "Search failed for source codex: grep unavailable",
+      },
+    ]);
+    expect(result.warnings).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "source_search_failed",
+        message: "Search failed for source codex: grep unavailable",
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "source_cleanup_failed",
+        message: "Cleanup failed for source codex: cleanup socket closed",
+      },
+      {
+        code: "all_sources_failed",
+        message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}'`,
+      },
+    ]);
+  });
+
   it("adds an all-sources-failed warning when every searchable source fails", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
