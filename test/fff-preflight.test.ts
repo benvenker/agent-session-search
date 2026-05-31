@@ -65,10 +65,9 @@ describe("FFF preflight command", () => {
       preflightSourceArgs(),
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: sourceProcessEnv({
           PATH: join(emptyPath, "bin"),
-        },
+        }),
       }
     ).catch((error: unknown) => {
       const execError = error as {
@@ -105,10 +104,9 @@ describe("FFF preflight command", () => {
       [...preflightSourceArgs(), "--skip-smoke"],
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: sourceProcessEnv({
           PATH: fakeBin,
-        },
+        }),
       }
     );
 
@@ -176,12 +174,11 @@ describe("FFF preflight command", () => {
       [...preflightSourceArgs(), "--skip-smoke"],
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: sourceProcessEnv({
           PATH: fakeBin,
           AGENT_SESSION_SEARCH_DOCTOR_PS_FIXTURE:
             "101 1 fff-mcp --no-update-check /tmp/a\\n",
-        },
+        }),
       }
     );
     expect(withoutCleanup.stdout).not.toContain("Orphan fff-mcp cleanup");
@@ -191,12 +188,11 @@ describe("FFF preflight command", () => {
       [...preflightSourceArgs(), "--skip-smoke", "--list-orphans"],
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: sourceProcessEnv({
           PATH: fakeBin,
           AGENT_SESSION_SEARCH_DOCTOR_PS_FIXTURE:
             "101 1 fff-mcp --no-update-check /tmp/a\\n",
-        },
+        }),
       }
     );
     expect(withCleanup.stdout).toContain("Orphan fff-mcp cleanup:");
@@ -227,7 +223,16 @@ describe("FFF preflight command", () => {
 
 function preflightSourceArgs() {
   return [
+    "--no-warnings",
     join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
     join(process.cwd(), "src", "fff-preflight.ts"),
   ];
+}
+
+function sourceProcessEnv(overrides: NodeJS.ProcessEnv = {}) {
+  return {
+    ...process.env,
+    NODE_NO_WARNINGS: "1",
+    ...overrides,
+  };
 }

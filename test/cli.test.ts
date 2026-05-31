@@ -359,11 +359,12 @@ describe("CLI argument parsing", () => {
     const result = await execFileAsync(
       process.execPath,
       [
+        "--no-warnings",
         join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
         join(process.cwd(), "src", "cli.ts"),
         "--json",
       ],
-      { cwd: process.cwd() }
+      { cwd: process.cwd(), env: sourceProcessEnv() }
     ).catch((error: unknown) => {
       const execError = error as {
         stdout?: string;
@@ -427,3 +428,10 @@ describe("CLI argument parsing", () => {
     }
   });
 });
+
+function sourceProcessEnv() {
+  return {
+    ...process.env,
+    NODE_NO_WARNINGS: "1",
+  };
+}
