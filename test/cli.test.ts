@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
-import { main, parseArgs, searchInputFromParsedArgs } from "../src/cli.js";
+import {
+  CliParseError,
+  main,
+  parseArgs,
+  searchInputFromParsedArgs,
+} from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -377,6 +382,36 @@ describe("CLI argument parsing", () => {
     ).toThrow("--max-results must be a positive integer");
   });
 
+  it("suggests close known flags without auto-correcting", () => {
+    expect(() => parseArgs(["auth token timeout", "--jason"])).toThrow(
+      "did you mean --json?"
+    );
+
+    try {
+      parseArgs(["auth token timeout", "--jason"]);
+      throw new Error("expected parseArgs to reject the mistyped flag");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliParseError);
+      expect((error as CliParseError).suggestion).toEqual({
+        unknownOption: "--jason",
+        suggestedOption: "--json",
+        suggestedCommand: "agent-session-search 'auth token timeout' --json",
+      });
+    }
+
+    try {
+      parseArgs(["auth", "--max-result", "7"]);
+      throw new Error("expected parseArgs to reject the mistyped flag");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliParseError);
+      expect((error as CliParseError).suggestion).toMatchObject({
+        unknownOption: "--max-result",
+        suggestedOption: "--max-results",
+        suggestedCommand: "agent-session-search auth --max-results 7",
+      });
+    }
+  });
+
   it("prints a JSON error envelope when --json parse requests fail", async () => {
     const result = await execFileAsync(
       process.execPath,
@@ -408,6 +443,35 @@ describe("CLI argument parsing", () => {
         suggestedCommand: "agent-session-search help",
       },
     });
+  });
+
+  it("prints JSON typo suggestions on stderr without stdout", async () => {
+    const result = await runCliExpectFailure(["--json", "--jsno"]);
+
+    expect(result.stdout).toBe("");
+    const output = JSON.parse(result.stderr) as {
+      error: {
+        code: string;
+        message: string;
+        hint?: string;
+        suggestedCommand: string;
+      };
+    };
+    expect(output.error.code).toBe("user_input_error");
+    expect(output.error.message).toContain("did you mean --json?");
+    expect(output.error.hint).toContain("--json");
+    expect(output.error.suggestedCommand).toBe("agent-session-search --json");
+  });
+
+  it("prints human typo suggestions with a copy-pasteable command", async () => {
+    const result = await runCliExpectFailure(["--jason", "auth token timeout"]);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did you mean --json?");
+    expect(result.stderr).toContain(
+      "Suggested command: agent-session-search --json 'auth token timeout'"
+    );
+    expect(result.stderr).toContain("Usage: agent-session-search <query>");
   });
 
   it("honors environment config when running a search", async () => {
@@ -456,4 +520,28 @@ function sourceProcessEnv() {
     ...process.env,
     NODE_NO_WARNINGS: "1",
   };
+}
+
+async function runCliExpectFailure(argv: string[]) {
+  return execFileAsync(
+    process.execPath,
+    [
+      "--no-warnings",
+      join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+      join(process.cwd(), "src", "cli.ts"),
+      ...argv,
+    ],
+    { cwd: process.cwd(), env: sourceProcessEnv() }
+  ).catch((error: unknown) => {
+    const execError = error as {
+      stdout?: string;
+      stderr?: string;
+      code?: number;
+    };
+    expect(execError.code).toBe(1);
+    return {
+      stdout: execError.stdout ?? "",
+      stderr: execError.stderr ?? "",
+    };
+  });
 }

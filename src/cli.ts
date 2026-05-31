@@ -33,6 +33,54 @@ type ParsedArgs = {
   debug: boolean;
 };
 
+type ParseSuggestion = {
+  unknownOption: string;
+  suggestedOption: string;
+  suggestedCommand: string;
+};
+
+export class CliParseError extends Error {
+  readonly suggestion?: ParseSuggestion;
+
+  constructor(message: string, suggestion?: ParseSuggestion) {
+    super(message);
+    this.name = "CliParseError";
+    this.suggestion = suggestion;
+  }
+}
+
+const KNOWN_OPTIONS = [
+  "--json",
+  "--source",
+  "--probe",
+  "--query",
+  "--cwd",
+  "--branch",
+  "--reason",
+  "--mode",
+  "--results-display-mode",
+  "--candidates",
+  "--evidence",
+  "--debug",
+  "--path",
+  "--max-patterns",
+  "--max-results",
+  "--max-results-per-source",
+  "--robot-triage",
+  "--help",
+  "--version",
+] as const;
+
+const DEDUPED_BOOLEAN_OPTIONS = new Set<string>([
+  "--json",
+  "--candidates",
+  "--evidence",
+  "--debug",
+  "--robot-triage",
+  "--help",
+  "--version",
+]);
+
 export function parseArgs(argv: string[]): ParsedArgs {
   const sources: string[] = [];
   const paths: string[] = [];
@@ -134,7 +182,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (arg.startsWith("--")) {
-      throw new Error(`unknown option: ${arg}`);
+      throw unknownOptionError(arg, argv);
     }
     queryParts.push(arg);
   }
@@ -156,6 +204,123 @@ export function parseArgs(argv: string[]): ParsedArgs {
     maxResultsPerSource,
     debug,
   };
+}
+
+function unknownOptionError(option: string, argv: string[]) {
+  const suggestedOption = suggestKnownOption(option);
+  if (!suggestedOption) {
+    return new CliParseError(`unknown option: ${option}`);
+  }
+
+  return new CliParseError(
+    `unknown option: ${option}; did you mean ${suggestedOption}?`,
+    {
+      unknownOption: option,
+      suggestedOption,
+      suggestedCommand: correctedCommand(argv, option, suggestedOption),
+    }
+  );
+}
+
+function suggestKnownOption(option: string) {
+  const normalizedOption = stripOptionPrefix(option);
+  let best: { option: string; distance: number } | undefined;
+
+  for (const knownOption of KNOWN_OPTIONS) {
+    const distance = damerauLevenshtein(
+      normalizedOption,
+      stripOptionPrefix(knownOption)
+    );
+    if (!best || distance < best.distance) {
+      best = { option: knownOption, distance };
+    }
+  }
+
+  if (!best) {
+    return undefined;
+  }
+
+  const maxDistance = normalizedOption.length <= 4 ? 1 : 2;
+  return best.distance <= maxDistance ? best.option : undefined;
+}
+
+function stripOptionPrefix(option: string) {
+  return option.replace(/^--?/, "");
+}
+
+function correctedCommand(
+  argv: string[],
+  unknownOption: string,
+  suggestedOption: string
+) {
+  const correctedArgs: string[] = [];
+  const seenBooleanOptions = new Set<string>();
+  let replaced = false;
+
+  for (const arg of argv) {
+    const correctedArg =
+      !replaced && arg === unknownOption ? suggestedOption : arg;
+    replaced ||= arg === unknownOption;
+
+    if (
+      DEDUPED_BOOLEAN_OPTIONS.has(correctedArg) &&
+      seenBooleanOptions.has(correctedArg)
+    ) {
+      continue;
+    }
+    if (DEDUPED_BOOLEAN_OPTIONS.has(correctedArg)) {
+      seenBooleanOptions.add(correctedArg);
+    }
+    correctedArgs.push(correctedArg);
+  }
+
+  return ["agent-session-search", ...correctedArgs].map(shellQuote).join(" ");
+}
+
+function shellQuote(value: string) {
+  if (/^[A-Za-z0-9_./:=@%+-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function damerauLevenshtein(left: string, right: string) {
+  const rows = left.length + 1;
+  const columns = right.length + 1;
+  const distances = Array.from({ length: rows }, () =>
+    Array<number>(columns).fill(0)
+  );
+
+  for (let row = 0; row < rows; row += 1) {
+    distances[row]![0] = row;
+  }
+  for (let column = 0; column < columns; column += 1) {
+    distances[0]![column] = column;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      let distance = Math.min(
+        distances[row - 1]![column]! + 1,
+        distances[row]![column - 1]! + 1,
+        distances[row - 1]![column - 1]! + cost
+      );
+
+      if (
+        row > 1 &&
+        column > 1 &&
+        left[row - 1] === right[column - 2] &&
+        left[row - 2] === right[column - 1]
+      ) {
+        distance = Math.min(distance, distances[row - 2]![column - 2]! + 1);
+      }
+
+      distances[row]![column] = distance;
+    }
+  }
+
+  return distances[left.length]![right.length]!;
 }
 
 export function searchInputFromParsedArgs(
@@ -303,6 +468,8 @@ function parsePositiveInteger(value: string | undefined, option: string) {
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    const suggestion =
+      error instanceof CliParseError ? error.suggestion : undefined;
     if (process.argv.slice(2).includes("--json")) {
       console.error(
         JSON.stringify(
@@ -310,7 +477,13 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
             error: {
               code: "user_input_error",
               message,
-              suggestedCommand: "agent-session-search help",
+              ...(suggestion
+                ? {
+                    hint: `Replace ${suggestion.unknownOption} with ${suggestion.suggestedOption}.`,
+                  }
+                : {}),
+              suggestedCommand:
+                suggestion?.suggestedCommand ?? "agent-session-search help",
             },
           },
           null,
@@ -319,6 +492,9 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
       );
     } else {
       console.error(message);
+      if (suggestion) {
+        console.error(`Suggested command: ${suggestion.suggestedCommand}`);
+      }
       console.error(usage());
     }
     process.exitCode = 1;
