@@ -320,6 +320,17 @@ describe("CLI argument parsing", () => {
       maxResultsPerSource: undefined,
       debug: true,
     });
+
+    for (const argv of [
+      ["auth", "--candidates", "--debug"],
+      ["auth", "--debug", "--candidates"],
+    ]) {
+      expect(searchInputFromParsedArgs(parseArgs(argv))).toMatchObject({
+        query: "auth",
+        resultsDisplayMode: "candidates",
+        debug: true,
+      });
+    }
   });
 
   it("maps explicit caps to search input", () => {

@@ -72,6 +72,7 @@ export class OneRootFffBackend {
   async search(input: OneRootFffSearchInput): Promise<OneRootFffSearchOutput> {
     const results: SearchResult[] = [];
     const warnings: SearchWarning[] = [];
+    const deferBackendCap = shouldDeferBackendCap(input);
 
     for (const pattern of input.patterns) {
       if (hasReachedCap(results, input.maxResults)) {
@@ -80,7 +81,7 @@ export class OneRootFffBackend {
 
       const output = await this.searchPattern(
         pattern,
-        input.paths?.length
+        deferBackendCap
           ? undefined
           : remainingResults(results, input.maxResults)
       );
@@ -311,6 +312,14 @@ function remainingResults(
   return maxResults === undefined
     ? undefined
     : Math.max(maxResults - results.length, 0);
+}
+
+function shouldDeferBackendCap(input: OneRootFffSearchInput) {
+  return Boolean(input.paths?.length || hasRestrictiveInclude(input.include));
+}
+
+function hasRestrictiveInclude(include: string[] | undefined) {
+  return Boolean(include?.length && !include.includes("*"));
 }
 
 function responseText(response: FffToolResult) {

@@ -112,7 +112,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (arg === "--debug") {
       debug = true;
-      resultsDisplayMode = "debug";
+      resultsDisplayMode ??= "debug";
       continue;
     }
     if (arg === "--path") {

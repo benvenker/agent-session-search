@@ -63,7 +63,9 @@ export const searchSessionsInputSchema = z.object({
   debug: z
     .boolean()
     .optional()
-    .describe("Include query expansion and backend diagnostics."),
+    .describe(
+      "Include query expansion and diagnostics. Candidate-mode debug responses also include ranking explanations."
+    ),
 });
 
 export type SearchSessionsToolInput = z.infer<typeof searchSessionsInputSchema>;

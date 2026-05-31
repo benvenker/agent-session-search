@@ -69,6 +69,36 @@ export type SearchCandidate = {
   };
 };
 
+export type RankingRecencyBucket =
+  | "lt_2h"
+  | "lt_24h"
+  | "lt_7d"
+  | "lt_30d"
+  | "older_or_missing";
+
+export type RankingProjectMatch =
+  | "none"
+  | "path"
+  | "repo_token"
+  | "other_safe_metadata";
+
+export type SearchCandidateRankingDebug = {
+  rank: number;
+  source: SourceName;
+  path: string;
+  sessionId?: string;
+  hitCount: number;
+  originalIndex: number;
+  isCurrentSession: boolean;
+  mtimeMs?: number;
+  recencyBucket: RankingRecencyBucket;
+  recencyPoints: number;
+  densityPoints: number;
+  projectMatch: RankingProjectMatch;
+  projectPoints: number;
+  score: number;
+};
+
 export type SearchEvidenceSnippet = {
   line?: number;
   content: string;
@@ -88,6 +118,14 @@ export type SearchEvidenceGroup = {
   more: SearchCandidate["more"];
 };
 
+export type SearchSessionsDebug = {
+  input: SearchSessionsInput;
+  expandedPatterns: string[];
+  ranking?: {
+    candidates: SearchCandidateRankingDebug[];
+  };
+};
+
 export type SearchSessionsOutput = {
   query: string;
   resultsDisplayMode: ResultsDisplayMode;
@@ -96,7 +134,7 @@ export type SearchSessionsOutput = {
   searchedSources: SearchedSource[];
   warnings: SearchWarning[];
   results: Array<SearchResult | SearchCandidate | SearchEvidenceGroup>;
-  debug?: unknown;
+  debug?: SearchSessionsDebug;
 };
 
 export type SessionSearch = {
