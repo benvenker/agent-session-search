@@ -8,6 +8,7 @@
 .factory/
 .goose/
 ideas/
+.ntm/
 .pi/
 skills/
 skills-lock.json
