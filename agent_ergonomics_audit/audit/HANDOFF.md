@@ -1,34 +1,48 @@
-# Agent Ergonomics Pass 2 Handoff
+# Agent Ergonomics Pass 3 Handoff
 
-Target: `/Users/ben/code/agent-session-search`
+Target: `/data/projects/agent-session-search`
 Branch: `main`
-Mode: `full`
-Finalized at: `2026-05-11T03:06:52Z`
-Finalized SHA: `e4d9a2e783467933fc50bf160f255d8e5c7426c7`
+Mode: `audit-only` / re-score
+Finalized at: `2026-05-31T17:24:26Z`
+Finalized SHA: `8ddde9cff4d3a84c540bf46b62cd8d5273dc8b1e`
 
-What changed:
+Pass 3 result:
 
-- MCP server initialization now uses the package version from `package.json` instead of the stale hard-coded `0.1.0`.
-- FastMCP structured output was verified against the installed `fastmcp@4.0.1` and `@modelcontextprotocol/sdk@1.29.0`: the MCP SDK supports `structuredContent` with `outputSchema`, but FastMCP's successful tool result type only accepts string/content results. The server intentionally keeps `search_sessions` as text JSON and does not advertise `outputSchema`.
-- Added `agent-session-search sources --json` as a CLI-only source/config inspection command. It reports the config path, merged source roots, enabled/disabled state, status, include globs, and warnings without running a search or adding another MCP tool.
-- Help, capabilities, robot triage, README docs, and focused tests were updated for the new CLI inspection surface.
+- The completed Pass 1 and Pass 2 recommendations held.
+- No regression over 50 points was found.
+- Median current dimension score is about 870 across 11 scored surfaces.
+- The only below-700 average surface is `doctor:unknown-option`.
+
+Strong surfaces:
+
+- `agent-session-search capabilities --json`
+- `agent-session-search robot-docs guide`
+- `agent-session-search --robot-triage`
+- `agent-session-search sources --json`
+- `agent-session-search "<query>" --json` with candidate/evidence follow-up shape
+- MCP server exposes the single `search_sessions` tool and preserves text-JSON output.
+
+Queued for a focused Pass 4:
+
+- `R-008`: Add typo-aware CLI flag suggestions for `--jsno` / `--jason` style mistakes.
+- `R-009`: Make doctor parse errors show usage and a suggested command.
+- `R-010`: Broaden the documented exit-code contract beyond `0` and `1`, if compatible with existing scripts.
 
 Validation run:
 
-- `npm run check`
 - `npm run build`
+- `npm run check`
 - `npm test`
 - `npm run smoke`
-- `npm run check:fff -- --skip-smoke`
 - `npm run check:beads`
-- `npx vitest run test/mcp-smoke.test.ts test/cli.test.ts test/readme.test.ts`
+- `npm run check:fff -- --skip-smoke`
 - `for test_script in agent_ergonomics_audit/audit/regression_tests/*.test.sh; do "$test_script"; done`
 
-Phase 6/7 finalization notes:
+Artifacts added in this pass:
 
-- Re-verified the changed surfaces only: MCP server version follows `package.json`, FastMCP structured-output behavior remains pinned to text JSON with no advertised `outputSchema`, and `sources --json` remains CLI-only while MCP exposes only `search_sessions`.
-- Fresh-eyes review found no code/test changes needed. Validation required `PATH=/opt/homebrew/bin:/Users/ben/.local/bin:$PATH` in this Codex shell so npm scripts used Homebrew Node and could find `fff-mcp`.
-
-Deferred pass 3 candidates:
-
-- None from Pass 2. Keep the public MCP surface centered on the single `search_sessions` tool unless the on-disk model changes.
+- `audit/agent_surfaces_pass_3.jsonl`
+- `audit/recommendations_pass_3.jsonl`
+- `audit/scorecard_pass_3.md`
+- `audit/uplift_diff_pass_3.md`
+- `audit/regression_alerts_pass_3.md`
+- `audit/playbook_pass_3.md`

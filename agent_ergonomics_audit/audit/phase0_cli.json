@@ -1,6 +1,6 @@
 {
-  "target_path": "/Users/ben/code/agent-session-search",
-  "discovered_at": "2026-05-11T01:34:48Z",
+  "target_path": "/data/projects/agent-session-search",
+  "discovered_at": "2026-05-31T17:19:37Z",
   "languages": ["typescript_or_javascript"],
   "binaries": [
     "agent-session-search",
@@ -9,9 +9,9 @@
   ],
   "env_var_prefix": "AGENT_SESSION_SEARCH",
   "existing_surfaces": {
-    "robot_mode": false,
-    "capabilities": false,
-    "robot_docs": false
+    "robot_mode": true,
+    "capabilities": true,
+    "robot_docs": true
   },
-  "recommended_mode": "full"
+  "recommended_mode": "audit-only"
 }

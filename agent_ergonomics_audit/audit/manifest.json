@@ -1,8 +1,8 @@
 {
   "schema_version": "1.1.0",
   "tool_name": "agent-session-search",
-  "tool_repo": "/Users/ben/code/agent-session-search",
-  "audit_workspace": "/Users/ben/code/agent-session-search/agent_ergonomics_audit",
+  "tool_repo": "/data/projects/agent-session-search",
+  "audit_workspace": "/data/projects/agent-session-search/agent_ergonomics_audit",
   "rubric_version": "<git SHA of references/rubric/SCORING-RUBRIC.md when scoring ran>",
   "passes": [
     {
@@ -71,9 +71,40 @@
         "regression_alerts": "audit/regression_alerts.md",
         "handoff": "audit/HANDOFF.md"
       }
+    },
+    {
+      "pass": 3,
+      "started_at": "2026-05-31T17:19:37Z",
+      "completed_at": "2026-05-31T17:24:26Z",
+      "mode": "audit-only",
+      "target_sha": "8ddde9cff4d3a84c540bf46b62cd8d5273dc8b1e",
+      "target_branch": "main",
+      "feature_branch": null,
+      "summary": {
+        "surfaces_inventoried": 11,
+        "surfaces_scored": 11,
+        "recommendations_total": 3,
+        "recommendations_applied": 0,
+        "substantive_commits": 0,
+        "dimensions_touched": 0,
+        "ambition_bar_met": true,
+        "ambition_bar_self_prompt_run": false,
+        "median_uplift_pts": 0,
+        "regressions_count": 0,
+        "fresh_eyes_rounds": 0
+      },
+      "artifacts": {
+        "agent_surfaces": "audit/agent_surfaces_pass_3.jsonl",
+        "recommendations": "audit/recommendations_pass_3.jsonl",
+        "playbook": "audit/playbook_pass_3.md",
+        "scorecard": "audit/scorecard_pass_3.md",
+        "uplift_diff": "audit/uplift_diff_pass_3.md",
+        "regression_alerts": "audit/regression_alerts_pass_3.md",
+        "handoff": "audit/HANDOFF.md"
+      }
     }
   ],
-  "current_pass": 2,
+  "current_pass": 3,
   "pass_N+1_ready": true,
-  "next_pass_focus": "No Pass 2 deferrals remain; preserve the single search_sessions MCP tool and FFF-backed design."
+  "next_pass_focus": "Focused intent/error-pedagogy pass: add typo-aware CLI flag suggestions and doctor parse-error recovery before considering richer exit-code categories."
 }
