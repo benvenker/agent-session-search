@@ -68,8 +68,13 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
   return [
     {
       name: "codex",
-      path: join(home, ".codex", "sessions"),
-      include: ["*.jsonl"],
+      path: join(home, ".codex"),
+      include: [
+        "sessions/*.jsonl",
+        "sessions/**/*.jsonl",
+        "archived_sessions/*.jsonl",
+        "archived_sessions/**/*.jsonl",
+      ],
     },
     {
       name: "claude",

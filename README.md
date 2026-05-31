@@ -49,7 +49,7 @@ agent-session-search "auth token timeout" --json
 
 The npm postinstall step checks for `fff-mcp` on `PATH`. If it's missing and npm is running in an interactive terminal, it asks you to press Enter and then runs the FFF installer. In non-interactive installs, it prints the command instead. Review the FFF installer before piping it to bash: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
 
-The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. `which pool` only tells you where the binary was installed; if `pool config` prints different log or trajectory directories on your machine, override the `pool` root in config. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
+The package ships default source roots for `codex`, `claude`, `pi`, `cursor`, `hermes`, and `pool`. The `codex` default covers both live sessions and Codex archived sessions under `~/.codex`. The `pool` default uses the shared Pool history directory reported by `pool config`, which covers Pool CLI runs and Poolside Studio agent sessions. `which pool` only tells you where the binary was installed; if `pool config` prints different log or trajectory directories on your machine, override the `pool` root in config. Drop a config file (see [Configuration](#configuration)) to override paths or add your own sources.
 
 Or skip the manual setup entirely: once the package is installed, point a coding agent at this README and ask it to configure things for you. The config file and the MCP client registration are both plain JSON, the schema below is small, and the agent already knows which session directories live under your home dir. A prompt like "Set up agent-session-search on this machine: detect which default session roots actually exist, write `~/.config/agent-session-search/config.json` with only the ones that do, and add the MCP server entry to my client config" is usually enough.
 
@@ -93,7 +93,7 @@ agent query
   -> agent-session-search MCP
     -> deterministic query rewrite (or agent-planned `queries`)
     -> fanout to one fff-mcp child per source root
-        codex   -> ~/.codex/sessions
+        codex   -> ~/.codex/{sessions,archived_sessions}
         claude  -> ~/.claude/projects
         pi      -> ~/.pi/agent/sessions
         cursor  -> ~/.cursor/projects
@@ -137,8 +137,13 @@ Example:
   "roots": [
     {
       "name": "codex",
-      "path": "/Users/ben/.codex/sessions",
-      "include": ["*.jsonl"]
+      "path": "/Users/ben/.codex",
+      "include": [
+        "sessions/*.jsonl",
+        "sessions/**/*.jsonl",
+        "archived_sessions/*.jsonl",
+        "archived_sessions/**/*.jsonl"
+      ]
     },
     {
       "name": "claude",

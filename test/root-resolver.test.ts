@@ -2,15 +2,24 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { defaultSessionRoots, resolveSessionRoots } from "../src/roots.js";
+import {
+  defaultSessionRoots,
+  pathMatchesInclude,
+  resolveSessionRoots,
+} from "../src/roots.js";
 
 describe("resolveSessionRoots", () => {
   it("defines built-in defaults for supported session sources", () => {
     expect(defaultSessionRoots("/Users/ben")).toEqual([
       {
         name: "codex",
-        path: "/Users/ben/.codex/sessions",
-        include: ["*.jsonl"],
+        path: "/Users/ben/.codex",
+        include: [
+          "sessions/*.jsonl",
+          "sessions/**/*.jsonl",
+          "archived_sessions/*.jsonl",
+          "archived_sessions/**/*.jsonl",
+        ],
       },
       {
         name: "claude",
@@ -38,6 +47,45 @@ describe("resolveSessionRoots", () => {
         ],
       },
     ]);
+  });
+
+  it("includes live and archived Codex JSONL files in the built-in codex source", () => {
+    const codexRoot = "/Users/ben/.codex";
+    const include = defaultSessionRoots("/Users/ben").find(
+      (root) => root.name === "codex"
+    )?.include;
+
+    expect(
+      pathMatchesInclude(
+        codexRoot,
+        "/Users/ben/.codex/sessions/live.jsonl",
+        include
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesInclude(
+        codexRoot,
+        "/Users/ben/.codex/sessions/2026/05/31/live.jsonl",
+        include
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesInclude(
+        codexRoot,
+        "/Users/ben/.codex/archived_sessions/archive.jsonl",
+        include
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesInclude(
+        codexRoot,
+        "/Users/ben/.codex/archived_sessions/2026/archive.jsonl",
+        include
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesInclude(codexRoot, "/Users/ben/.codex/state_5.sqlite", include)
+    ).toBe(false);
   });
 
   it("loads configured roots and reports missing roots as warnings", async () => {
