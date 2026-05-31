@@ -102,9 +102,37 @@
         "regression_alerts": "audit/regression_alerts_pass_3.md",
         "handoff": "audit/HANDOFF.md"
       }
+    },
+    {
+      "pass": 4,
+      "started_at": "2026-05-31T18:13:00Z",
+      "completed_at": "2026-05-31T18:21:30Z",
+      "mode": "full",
+      "target_sha": "f1887c5",
+      "target_branch": "main",
+      "feature_branch": null,
+      "summary": {
+        "surfaces_inventoried": 3,
+        "surfaces_scored": 3,
+        "recommendations_total": 3,
+        "recommendations_applied": 3,
+        "substantive_commits": 1,
+        "dimensions_touched": 6,
+        "ambition_bar_met": true,
+        "ambition_bar_self_prompt_run": false,
+        "median_uplift_pts": 120,
+        "regressions_count": 0,
+        "fresh_eyes_rounds": 1
+      },
+      "artifacts": {
+        "recommendations": "audit/recommendations_pass_3.jsonl",
+        "applied_changes": "audit/applied_changes.jsonl",
+        "regression_tests": "audit/regression_tests/",
+        "handoff": "audit/HANDOFF.md"
+      }
     }
   ],
-  "current_pass": 3,
-  "pass_N+1_ready": true,
-  "next_pass_focus": "Focused intent/error-pedagogy pass: add typo-aware CLI flag suggestions and doctor parse-error recovery before considering richer exit-code categories."
+  "current_pass": 4,
+  "pass_N+1_ready": false,
+  "next_pass_focus": "No ready agent-ergonomics beads remain. Run re-score-only after future CLI or MCP surface changes."
 }
