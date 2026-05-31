@@ -2,6 +2,8 @@
 
 Date: 2026-05-30
 
+Status: implemented for Codex only on `main`. `src/search.ts` reads `process.env.CODEX_THREAD_ID` and demotes a Codex candidate only when the candidate `sessionId` exactly matches that value. The cross-agent limitation remains current.
+
 ## Question
 
 Can `search_sessions` safely identify and demote the caller's current live
@@ -20,7 +22,7 @@ records, but I did not find a reliable runtime environment or client signal
 that tells this MCP server which Claude or Pi transcript is the current caller.
 Cursor exposes resume/list concepts, but no documented current chat id
 environment variable was found. Hermes and Pool were not locally searchable
-enough on this machine to justify product behavior.
+enough on this machine to justify implementation.
 
 If follow-up implementation work is created, it should be narrow: keep Codex
 demotion, and only add another agent when a documented runtime signal can be
@@ -152,8 +154,8 @@ cross-agent limitation rather than implementing speculative demotion.
 
 The next code bead should only include Codex unless another agent exposes a
 stable signal that can be tested as an exact `source + sessionId` match. The
-normal response shape should remain score-free. Debug mode can later explain
-whether a candidate was demoted, but that is separate from this investigation.
+normal response should not include scores. Debug mode can later explain whether
+a candidate was demoted, but that is separate from this investigation.
 
 ## Narrow Follow-Up Bead Draft
 

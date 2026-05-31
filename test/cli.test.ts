@@ -72,6 +72,7 @@ describe("CLI argument parsing", () => {
         tool: string;
         contractVersion: string;
         commands: Array<{ name: string }>;
+        env: Array<{ name: string }>;
         mcp: { tools: Array<{ name: string }> };
         exitCodes: Array<{ code: number; meaning: string }>;
       };
@@ -88,6 +89,16 @@ describe("CLI argument parsing", () => {
         ])
       );
       expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
+      expect(output.env.map((entry) => entry.name)).toEqual(
+        expect.arrayContaining([
+          "AGENT_SESSION_SEARCH_CONFIG",
+          "AGENT_SESSION_SEARCH_FFF_DB_DIR",
+          "AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS",
+          "AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS",
+          "AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS",
+          "CODEX_THREAD_ID",
+        ])
+      );
       expect(output.exitCodes).toContainEqual({
         code: 1,
         meaning: "user-input-error",

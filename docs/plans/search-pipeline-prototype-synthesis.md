@@ -2,6 +2,8 @@
 
 Date: 2026-05-29
 
+Status: implemented on `main`. Parallel fanout, candidate ranking, project-aware boosting, ranking debug output, and Codex archived-session coverage now live in `src/search.ts`, `src/roots.ts`, and the focused tests under `test/search.test.ts` and `test/root-resolver.test.ts`. Keep this file as the planning record, not the current backlog.
+
 ## Summary
 
 Two prototype tracks are ready to move into Beads:
@@ -33,7 +35,7 @@ The implementation should keep FFF as the search backend and keep `search_sessio
 3. Add project-aware ranking and debug observability after the core ranking behavior lands.
 4. Evaluate the source-coverage gap where CASS can find archived sessions outside configured live roots.
 
-Fanout and ranking both touch `src/search.ts` and `test/search.test.ts`; sequence them by default unless an implementer reserves and splits the file surfaces explicitly.
+Fanout and ranking both touch `src/search.ts` and `test/search.test.ts`; sequence them by default unless an implementer reserves and splits those files explicitly.
 
 ## Verification
 

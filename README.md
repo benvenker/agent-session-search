@@ -6,7 +6,7 @@ Local MCP server (and CLI) that lets coding agents search their own past session
 
 If you run a lot of coding-agent sessions, this is for you. A single workstream usually spans many sessions: context windows fill up, you start a new one, you switch from Codex to Claude Code to Pi for the next pass, you come back to the same problem two weeks later. After a while you genuinely cannot remember where you talked to which agent about what. Was the bug we hit last Thursday in a Codex session or a Claude one? Which project? Which branch?
 
-The transcripts are already on disk in `~/.codex/sessions`, `~/.claude/projects`, `~/.pi/agent/sessions`, and the rest. They are searchable; they are just scattered across many directories and many session formats. This tool gives you, and any agent you point at it, one query that fans across all of them.
+The transcripts are already on disk in places like `~/.codex/{sessions,archived_sessions}`, `~/.claude/projects`, and `~/.pi/agent/sessions`. They are searchable; they are just scattered across many directories and many session formats. This tool gives you, and any agent you point at it, one request that searches all of them.
 
 Typical questions it answers:
 
@@ -21,7 +21,7 @@ Typical questions it answers:
 
 That's the whole thing. One binary (`fff-mcp`) plus one npm package. No background indexer, no embeddings, no separate database to babysit. Heavier session-memory systems can do more. They also cost more to keep running than they pay back, at least for me.
 
-The one design call beyond pure wrapping is small but worth flagging: each search candidate carries a complete `more.evidence` follow-up payload, server-prepared. The agent doesn't construct the next call, it echoes one back. It's an ergonomic touch most agent-facing tools skip, and it noticeably tightens the recall loop. See [Candidates first, evidence on demand](#candidates-first-evidence-on-demand).
+The main addition on top of wrapping FFF is the `more.evidence` follow-up payload on each search candidate. The server prepares the next request, and the agent can echo it back instead of constructing a second call. See [Candidates first, evidence follow-up](#candidates-first-evidence-follow-up).
 
 This is the smallest thing that worked.
 
@@ -78,9 +78,11 @@ The agent-native call is where this tool earns its keep. `query` stays a concise
 
 Strip tool-use directions, output-format instructions, and examples out of `query`. They become noise in future searches. If `queries` is omitted, the tool falls back to deterministic literal-pattern rewriting of `query`.
 
-### Candidates first, evidence on demand
+### Candidates first, evidence follow-up
 
-By default `search_sessions` returns compact session-level **candidates** grouped by `source` and `path`: a short `preview`, `hitCount`, the matched patterns, and a complete `more.evidence` follow-up request. The agent can then call the same tool again with that `more.evidence` object as input to get matching snippets from one selected session. No second pipeline, no new flags.
+By default `search_sessions` returns compact session-level **candidates** grouped by `source` and `path`: a short `preview`, `hitCount`, the matched patterns, and a complete `more.evidence` follow-up request. Candidates are ranked by bucketed file recency, capped hit density, project matches from `operationalContext` and session metadata, and current Codex session demotion when `CODEX_THREAD_ID` matches the candidate `sessionId`. Normal candidate output does not include score fields; pass `debug: true` or CLI `--candidates --debug` to inspect `debug.ranking.candidates`.
+
+The agent can then call the same tool again with that `more.evidence` object as input to get matching snippets from one selected session. The follow-up uses the same tool and no extra flags.
 
 An unscoped `evidence` request is still grouped by `source` and `path`, but includes a few representative `snippets` per session so the agent can choose which path to inspect next. Path-restricted evidence requests return raw hits and bypass default/configured per-source caps, so a selected session is never lost behind unrelated matches. An explicit `maxResultsPerSource` on the request still caps focused evidence per source, not per path.
 
@@ -92,7 +94,7 @@ This keeps the default response small enough to skim and lets the agent pull det
 agent query
   -> agent-session-search MCP
     -> deterministic query rewrite (or agent-planned `queries`)
-    -> fanout to one fff-mcp child per source root
+    -> parallel fanout to one fff-mcp child per source root
         codex   -> ~/.codex/{sessions,archived_sessions}
         claude  -> ~/.claude/projects
         pi      -> ~/.pi/agent/sessions
@@ -100,15 +102,17 @@ agent query
         hermes  -> ~/.hermes/sessions
         pool    -> ~/Library/Application Support/poolside
     -> normalize results to canonical absolute paths
+    -> rank default candidates by recency, hit density, project matches, and current-session demotion
     -> return compact candidates or grouped unscoped evidence
 ```
 
-Design choices worth knowing:
+Design choices:
 
-- **One MCP tool, not many.** Internal seams (root resolution, query rewriting, FFF backend, fanout, path normalization) stay testable modules but never leak into the agent-facing API.
+- **One MCP tool, not many.** Internal pieces such as root resolution, query rewriting, the FFF backend, fanout, and path normalization stay testable without becoming separate agent-facing tools.
 - **FFF is the engine.** No custom index, no embeddings, no SQLite. Raw session files are the source of truth.
 - **Canonical absolute paths in results**, with `source` and `root` attribution preserved, so agents can read the file directly.
 - **Partial success over hard failure.** A missing or unreadable root emits a warning; search continues across the rest.
+- **Candidate ranking changes order, not fields.** Normal results do not include score fields. Use debug mode only when you need to inspect a surprising order.
 
 ### What this doesn't do
 
@@ -269,6 +273,7 @@ agent-session-search --robot-triage
 agent-session-search "auth token timeout" --json
 agent-session-search "Find PR 227 work" --json --probe "PR #227" --probe paper-cuts --cwd /repo --branch paper-cuts --reason "Recover prior context"
 agent-session-search "auth token timeout" --source codex --source claude --json
+agent-session-search "auth token timeout" --json --candidates --debug
 agent-session-search "auth token timeout" --json --evidence --path /Users/ben/.codex/sessions/session.jsonl
 ```
 
@@ -280,7 +285,7 @@ Supported options:
 - `--probe <query>` / `--query <query>`: add a planned literal probe; repeat for multiple probes. These map to the MCP `queries` field.
 - `--cwd <path>`, `--branch <name>`, `--reason <text>`: attach operational context to the search request.
 - `--mode <candidates|evidence|debug>`: choose compact leads, matching snippets, or diagnostics.
-- `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes.
+- `--candidates`, `--evidence`, `--debug`: shortcuts for the matching result modes. Combine `--candidates --debug` to inspect candidate ranking details.
 - `--path <path>`: restrict evidence to a canonical session path; repeat for multiple paths.
 - `--max-patterns <n>`: limit expanded literal search patterns.
 - `--max-results <n>`: limit results per source, including focused `--path` evidence; `--max-results-per-source` is also accepted.
@@ -301,7 +306,8 @@ JSON output includes:
 - `expandedPatterns`: deterministic FFF-friendly literal patterns searched.
 - `searchedSources`: source names, canonical roots, status, source-level warnings.
 - `warnings`: missing roots, unreadable roots, backend failures, partial-success notices.
-- `results`: compact candidates by default. Unscoped evidence returns grouped session results with `snippets` and `more.evidence`; path-restricted evidence returns raw hits with `source`, `root`, canonical absolute `path`, `line`, bounded `content`, and optional `query` / `pattern`.
+- `results`: compact, ranked candidates by default. Unscoped evidence returns grouped session results with `snippets` and `more.evidence`; path-restricted evidence returns raw hits with `source`, `root`, canonical absolute `path`, `line`, bounded `content`, and optional `query` / `pattern`.
+- `debug.ranking.candidates`: present only for candidate-mode debug requests. Each entry reports rank, source, path, hit count, original index, current-session demotion, recency bucket/points, density points, project match/points, and final internal score.
 
 ## Warnings and partial success
 
@@ -320,6 +326,7 @@ All optional, and respected by both the CLI and the MCP server. The defaults wor
 - `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`: per-pattern FFF timeout in milliseconds. Runtime searches default to 15000.
 - `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS`: retry count for empty FFF results.
 - `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS`: delay between empty-result retries in milliseconds.
+- `CODEX_THREAD_ID`: when present in a Codex runtime, candidates whose `sessionId` matches this value are demoted so the current transcript does not rise to the top just because it contains the query being evaluated.
 
 ## Development
 

@@ -2,6 +2,8 @@
 
 Date: 2026-05-29
 
+Status: implemented and extended on `main`. Candidate ranking now combines recency, capped hit density, project matches, ranking debug output, and Codex current-session demotion in `src/search.ts`. Codex archived-session coverage landed separately in `src/roots.ts`. The "Gaps To Fix" section below is historical.
+
 ## Question
 
 Can default `search_sessions` candidate ordering improve "where did I just work on this?" recall by composing file recency with hit density, without letting fresh incidental matches or the current live transcript dominate useful historical sessions?
@@ -123,7 +125,7 @@ This improves the default "where was I just working?" path while avoiding the wo
 ## Gaps To Fix Before Treating Ranking As Done
 
 1. Add project-aware boosting.
-   Cross-project runs showed Pi and unrelated workspace sessions can still appear when they have fresh mtimes. Ranking should use `operationalContext.cwd`, canonical paths, and safe repo tokens to prefer the current project when the user provides context.
+   Cross-project runs showed Pi and unrelated workspace sessions can still appear when they have fresh mtimes. Ranking should use `operationalContext.cwd`, canonical paths, and repo tokens to prefer the current project when the user provides context.
 
 2. Decide how to expose or debug ranking.
    The current implementation keeps scores internal. That is probably right for the public response, but debug mode may need a ranking explanation so bad results are inspectable.

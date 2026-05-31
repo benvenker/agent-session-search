@@ -100,7 +100,8 @@ export function cliCapabilities(version: string) {
       },
       {
         name: "doctor",
-        usage: "agent-session-search-doctor [--skip-smoke] [--list-orphans]",
+        usage:
+          "agent-session-search-doctor [--skip-smoke] [--list-orphans] [--reap-orphans]",
         output: "FFF backend setup diagnostics.",
       },
     ],
@@ -129,6 +130,22 @@ export function cliCapabilities(version: string) {
       {
         name: "AGENT_SESSION_SEARCH_FFF_DB_DIR",
         use: "Override where temporary FFF frecency/history databases are written.",
+      },
+      {
+        name: "AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS",
+        use: "Override the per-pattern FFF timeout in milliseconds.",
+      },
+      {
+        name: "AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS",
+        use: "Override the retry count for initially empty FFF responses.",
+      },
+      {
+        name: "AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS",
+        use: "Override the delay between initially empty FFF response retries.",
+      },
+      {
+        name: "CODEX_THREAD_ID",
+        use: "When present, demote the matching current Codex session in candidate ranking.",
       },
     ],
     exitCodes: [
@@ -159,6 +176,7 @@ export function robotDocsGuide() {
     "Contract notes:",
     "- FFF is the search engine.",
     "- Results preserve canonical absolute paths plus source and root metadata.",
+    "- Candidate ranking uses recency, hit density, project matches, and Codex current-session demotion.",
     "- Missing roots are warnings; partial success is expected.",
     "- Keep the MCP surface centered on `search_sessions`.",
   ].join("\n");

@@ -2,6 +2,8 @@
 
 Date: 2026-05-29
 
+Status: implemented on `main`. The production search path now uses parallel per-source slots and deterministic slot merging in `src/search.ts`; this file records the prototype evidence behind that implementation.
+
 ## Question
 
 Can `searchSessions` move from sequential per-source search to parallel per-source slots while preserving deterministic output order, warning behavior, failure accounting, and evidence-cap behavior?
@@ -29,7 +31,7 @@ Scenarios exercised:
 
 Adopt the parallel-slot implementation shape. The prototype answers the core coordination question: aggregate per-source work by source index after all slots settle, rather than pushing into shared arrays as each source completes. That gives the expected latency win while preserving the ordering assumptions used later by candidate and evidence grouping.
 
-The right production shape is:
+The production implementation should:
 
 1. Build one slot promise per searchable source.
 2. Catch all source-local failures inside the slot so `Promise.all` does not reject early.
@@ -37,7 +39,7 @@ The right production shape is:
 4. Merge slots in original source order.
 5. Append global warnings only after all slots settle.
 
-The PRD should treat this as a search coordination change, not a new search backend. FFF remains the engine, `search_sessions` remains the public MCP surface, and result shaping should stay close to the current FFF result shape.
+The PRD should treat this as a search coordination change, not a new search backend. FFF remains the engine, `search_sessions` remains the public MCP tool, and returned results should stay close to the current FFF result structure.
 
 ## What The Prototype Gets Right
 
@@ -64,7 +66,7 @@ Use these module boundaries in the PRD. They are behavior boundaries, not a requ
 - Warning derivation: keeps root-resolution warnings first, source warnings second in source order, and global warnings last.
 - Evidence cap handling: preserves the existing distinction between unscoped evidence caps and path-restricted focused evidence.
 - Backend lifecycle: keeps default pooled FFF teardown centralized, while handling custom backends that expose per-search cleanup.
-- Debug observability: optional per-source elapsed timings may be useful, but should not change normal response shape unless explicitly designed.
+- Debug observability: optional per-source elapsed timings may be useful, but should not change normal responses unless explicitly designed.
 
 ## Gaps To Fix Before Production
 
@@ -85,7 +87,7 @@ Use these module boundaries in the PRD. They are behavior boundaries, not a requ
 
 ## Testing Contract
 
-Test through the public `searchSessions` behavior. Avoid tests that assert private function names, promise timing internals, or the exact shape of a slot object unless that object becomes a deliberate public module interface.
+Test through the public `searchSessions` behavior. Avoid tests that assert private function names, promise timing internals, or the exact fields of a slot object unless that object becomes a deliberate public module interface.
 
 Recommended production tests:
 
@@ -99,7 +101,7 @@ Recommended production tests:
 ## Out of Scope
 
 - Replacing FFF, adding embeddings, adding SQLite indexing, or exporting markdown sessions.
-- Changing the public MCP surface beyond the existing `search_sessions` behavior.
+- Changing the public MCP tool beyond the existing `search_sessions` behavior.
 - Re-ranking, summarizing, or otherwise changing response semantics outside deterministic source fanout.
 - Splitting Pool into multiple built-in sources.
 - Keeping the throwaway prototype as product code after the production behavior lands.

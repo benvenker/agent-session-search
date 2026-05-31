@@ -3,6 +3,8 @@
 Date: 2026-05-31
 Bead: `bd-3tv.4`
 
+Status: implemented on `main`. The built-in `codex` source is now rooted at `~/.codex` with include patterns for top-level and nested files under both `sessions/` and `archived_sessions/`; see `src/roots.ts` and `test/root-resolver.test.ts`. The earlier "effective product configuration" section remains as investigation evidence from before the change.
+
 ## Question
 
 Two known-answer sessions are searchable through CASS but are not available to

@@ -11,7 +11,7 @@ Agent Session Search is a local TypeScript ESM package that exposes:
 - one CLI binary: `agent-session-search`
 - one setup/diagnostic binary: `agent-session-search-doctor`
 
-The product searches local coding-agent session history across configured source roots. Raw session files remain the source of truth. FFF provides lexical search through `fff-mcp`. This package handles source-root resolution, deterministic query rewriting, fanout, path normalization, response shaping, and agent-friendly discovery surfaces.
+The product searches local coding-agent session history across configured source roots. Raw session files remain the source of truth. FFF provides lexical search through `fff-mcp`. This package handles source-root resolution, deterministic query rewriting, fanout, path normalization, candidate ranking, response shaping, and CLI discovery commands.
 
 The public MCP surface stays centered on `search_sessions`. Do not add lower-level MCP tools for root resolution, query rewriting, FFF child calls, or excerpt reads unless the one-tool boundary changes.
 
@@ -36,13 +36,15 @@ Built-in source roots are defined in `src/roots.ts` and are merged with the opti
 Current built-ins:
 
 ```text
-codex  -> ~/.codex/sessions
+codex  -> ~/.codex
 claude -> ~/.claude/projects
 pi     -> ~/.pi/agent/sessions
 cursor -> ~/.cursor/projects
 hermes -> ~/.hermes/sessions
 pool   -> ~/Library/Application Support/poolside
 ```
+
+The `codex` source uses include patterns for `sessions/*.jsonl`, `sessions/**/*.jsonl`, `archived_sessions/*.jsonl`, and `archived_sessions/**/*.jsonl`. Keep live and archived Codex files under the single `codex` source; do not add a separate `codex_archive` source unless Codex changes its storage model.
 
 The `pool` root points at the shared Pool history directory, not the Pool binary install path. That root covers Pool CLI trajectories/logs/sessions and Poolside Studio ACP records. Use `pool config` to verify custom Pool log or trajectory paths before changing the default.
 
@@ -55,8 +57,9 @@ agent or CLI query
   -> search_sessions / CLI search input
     -> load config and resolve enabled source roots
     -> expand planned probes or deterministic literal patterns
-    -> fan out to one fff-mcp child per source root
+    -> fan out in parallel to one fff-mcp child per source root
     -> normalize hits to canonical absolute paths
+    -> rank default candidates when candidate mode is requested
     -> shape results as candidates, evidence groups, or evidence hits
 ```
 
@@ -87,6 +90,8 @@ Set `query` to a concise recall task. Put short literal probes planned by the ca
 
 The default mode is `candidates`. A candidate includes `source`, `root`, canonical `path`, `preview`, match metadata, and a server-prepared `more.evidence` payload that can be echoed back to the same tool.
 
+Candidate ranking happens inside `search_sessions` before normal candidate output is returned. The ranking inputs are bucketed file `mtime`, capped hit density, project matches from `operationalContext` and session metadata, and Codex current-session demotion when `process.env.CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`. Normal candidate results do not include scores. Candidate-mode debug requests include `debug.ranking.candidates` with the rank, internal score components, project match, recency bucket, and current-session flag.
+
 `evidence` mode has two shapes:
 
 - unscoped evidence returns session-level evidence groups with representative snippets
@@ -96,9 +101,9 @@ The default mode is `candidates`. A candidate includes `source`, `root`, canonic
 
 ## CLI And Discovery Surfaces
 
-The CLI is the shipped fallback and inspection surface. It shares the same library and result shape as the MCP server.
+The CLI is the shipped fallback and inspection path. It shares the same library and result shape as the MCP server.
 
-Agent-facing CLI surfaces:
+Agent-facing CLI commands:
 
 ```bash
 agent-session-search help
@@ -114,7 +119,7 @@ agent-session-search-doctor --list-orphans
 
 `capabilities --json` is the machine-readable contract for commands, modes, environment variables, exit codes, and the single MCP tool. `sources --json` is CLI-only source/config inspection; do not turn it into a second MCP tool.
 
-`agent-session-search-doctor` is the setup and FFF health-check surface. It verifies that `fff-mcp` is on `PATH`, can run a live smoke test, and can list or reap orphaned `fff-mcp` processes from crashed sessions.
+`agent-session-search-doctor` handles setup and FFF health checks. It verifies that `fff-mcp` is on `PATH`, can run a live smoke test, and can list or reap orphaned `fff-mcp` processes from crashed sessions.
 
 `search_sessions` returns JSON as MCP text content and does not advertise `outputSchema`. The MCP SDK supports structured content, but the installed FastMCP wrapper path used here still returns successful tool results as string/content-style values. Keep the text-JSON behavior pinned by tests until a FastMCP upgrade makes structured output straightforward.
 
@@ -138,7 +143,7 @@ The pre-commit hook runs `npx lint-staged`, `npm run check:beads`, `npm run chec
 
 Track concrete follow-up work in Beads. Keep this section short; treat it as design memory, not a backlog.
 
-- Project-aware result ordering: boost hits tied to the caller's current cwd, repo, branch, or related worktrees without filtering out other sources.
 - Structured MCP output: revisit `outputSchema` and `structuredContent` if FastMCP supports successful structured tool results cleanly.
+- Cross-agent current-session demotion: add non-Codex demotion only when another agent exposes a documented runtime signal that exactly matches a candidate `sessionId`.
 - Read-only Code Mode: consider a small typed API only if composing lower-level operations from sandboxed code becomes clearly more useful than the current one-tool MCP surface.
 - Richer evidence excerpts: revisit surrounding-line or byte-window reads only if candidate/evidence modes stop being enough. Keep any expansion inside `search_sessions` unless the one-tool boundary changes.

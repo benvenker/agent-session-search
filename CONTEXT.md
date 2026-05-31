@@ -11,7 +11,7 @@ Agent Session Search is a local TypeScript ESM package for searching coding-agen
 
 ## Search Backend
 
-FFF is the search backend. This repo wraps `fff-mcp` by resolving source roots, rewriting queries into deterministic lexical probes, fanning out to one FFF child per root, normalizing paths, and shaping results for agents.
+FFF is the search backend. This repo wraps `fff-mcp` by resolving source roots, rewriting queries into deterministic lexical probes, fanning out to one FFF child per root, normalizing paths, ranking default candidates, and shaping results for agents.
 
 Do not add custom indexing, embeddings, SQLite stores, markdown session exports, or durable aggregation without a new design pass. Missing or unreadable roots should produce warnings while other roots continue.
 
@@ -21,10 +21,10 @@ Do not add custom indexing, embeddings, SQLite stores, markdown session exports,
 - `src/query-rewriter.ts`: deterministic query rewriting and literal probe generation.
 - `src/fff-backend.ts`: FFF child process calls and backend result adaptation.
 - `src/client-pool.ts` and `src/child-process-cleanup.ts`: FFF child lifecycle and cleanup behavior.
-- `src/search.ts`: fanout coordination, filtering, result grouping, and response shaping.
+- `src/search.ts`: fanout coordination, filtering, candidate ranking, result grouping, and response shaping.
 - `src/tool.ts` and `src/types.ts`: MCP tool input/output contracts and shared types.
 - `src/server.ts`: MCP server entry point.
-- `src/cli.ts` and `src/help.ts`: CLI surfaces and agent-readable help.
+- `src/cli.ts` and `src/help.ts`: CLI commands and agent-readable help.
 - `src/fff-preflight.ts`: doctor command and FFF availability checks.
 
 ## Behavioral Guardrails
@@ -32,10 +32,12 @@ Do not add custom indexing, embeddings, SQLite stores, markdown session exports,
 - Keep the one-tool MCP boundary unless `DESIGN.md` changes.
 - Prefer small, testable modules behind that boundary.
 - Keep query rewriting deterministic by default.
-- Keep output close to FFF hits: candidates, evidence groups, evidence hits, warnings, and debug diagnostics.
+- Keep output close to FFF hits: ranked candidates, evidence groups, evidence hits, warnings, and debug diagnostics.
 - Preserve canonical absolute paths in user-visible results.
 - Use source-level warnings for partial failures instead of failing the whole search.
 - Treat Pool as one `pool` source rooted at the shared Pool history directory unless Pool's on-disk storage model changes.
+- Treat Codex archived sessions as part of the single `codex` source rooted at `~/.codex`.
+- Keep ranking scores out of normal candidate output; expose them only through candidate-mode debug responses.
 
 ## Planning And Work Tracking
 

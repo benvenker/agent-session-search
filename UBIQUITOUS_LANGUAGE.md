@@ -52,18 +52,27 @@
 | **Result Shape**       | The structural form of `results`, such as candidates, evidence groups, or evidence hits.                         | display mode, output type               |
 | **Result Cap**         | A maximum number of backend hits considered or returned for a source.                                            | limit, page size, max results           |
 
+## Candidate Ranking
+
+| Term                         | Definition                                                                                                                   | Aliases to avoid                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| **Candidate Ranking**        | The internal ordering applied to default candidates before returning them.                                                   | search scoring, relevance model        |
+| **Recency Bucket**           | A coarse age bucket derived from a candidate session file's `mtime`.                                                         | timestamp score, frecency              |
+| **Hit Density**              | A capped signal based on how many backend hits grouped into a candidate.                                                     | raw hit count score, popularity        |
+| **Project Match**            | A match between caller project context and candidate path or early session metadata.                                         | project filter, workspace restriction  |
+| **Ranking Debug**            | Candidate-mode debug output under `debug.ranking.candidates` that explains internal score components without changing shape. | public score, ranking field            |
+| **Current Session Demotion** | The Codex-only demotion applied when `CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`.                        | self-hit filter, current-session block |
+| **Normal Candidate Output**  | Candidate output without ranking score fields.                                                                               | hidden ranking, opaque result          |
+
 ## Progressive Evidence
 
 | Term                     | Definition                                                                                                       | Aliases to avoid                       |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | **Progressive Evidence** | The workflow of starting with candidates and incrementally requesting bounded detail only for selected sessions. | browsing, deep read, context expansion |
-| **Anchor Hit**           | The matched line or byte position used as the center of an evidence excerpt.                                     | match, cursor, starting point          |
-| **Evidence Excerpt**     | A bounded section of a session file returned around an anchor hit.                                               | snippet, context, file chunk           |
-| **Line Context**         | The requested number of nearby lines before and after an anchor hit.                                             | context, window, surrounding lines     |
-| **Byte Budget**          | The maximum number of UTF-8 bytes allowed for an excerpt or tool response slice.                                 | token budget, size cap, max length     |
-| **Byte Window**          | A byte-bounded region of a file read around an anchor hit.                                                       | chunk, range, excerpt                  |
-| **Truncation**           | Deliberate omission of content outside a byte budget, reported with metadata.                                    | clipping, shortening, summarization    |
-| **Expansion Handle**     | An opaque or server-prepared follow-up payload for reading more before or after an excerpt.                      | cursor, continuation token, next page  |
+| **Anchor Hit**           | The matched line returned by FFF and used as the representative point for a candidate, snippet, or evidence hit. | match, cursor, starting point          |
+| **Bounded Content**      | Matched content truncated to the current byte caps before it appears in previews, snippets, or evidence hits.    | full context, summary                  |
+| **Line Context**         | The optional `context` request field reserved for backend support. Current FFF results remain bounded lines.     | LLM context, operational context       |
+| **Truncation**           | Deliberate omission of content outside a byte cap.                                                               | clipping, summarization                |
 
 ## Boundaries
 
@@ -84,10 +93,12 @@
 - A **Fanout Search** sends **Literal Patterns** to one **FFF Child** per selected **Source Root**.
 - A **Candidate** refers to exactly one **Canonical Path**.
 - A **Candidate** contains exactly one **Evidence Follow-Up**.
+- **Candidate Ranking** orders candidates, but **Normal Candidate Output** omits internal ranking fields.
+- **Ranking Debug** explains **Candidate Ranking** only when the caller asks for debug output.
 - **Evidence** is requested through the **Search Sessions Tool**, not through a separate public read tool.
-- An **Evidence Excerpt** is centered on an **Anchor Hit** and bounded by a **Byte Budget**.
-- **Line Context** is a request hint; **Byte Budget** is the hard safety contract.
-- **Progressive Evidence** preserves the one-tool product surface while allowing incremental detail.
+- **Evidence Groups** contain bounded **Snippets**; path-restricted **Evidence Hits** contain bounded matched content.
+- **Line Context** is currently a request hint; FFF still returns bounded matching lines.
+- **Progressive Evidence** keeps evidence retrieval inside the one MCP tool while allowing incremental detail.
 
 ## Example dialogue
 
@@ -97,15 +108,15 @@
 >
 > **Dev:** "If the agent needs more from one large JSONL **Session File**, should it read the file directly?"
 >
-> **Domain expert:** "Prefer **Progressive Evidence**. The agent echoes the **Evidence Follow-Up**, and the server returns an **Evidence Excerpt** around the **Anchor Hit**."
+> **Domain expert:** "Prefer **Progressive Evidence**. The agent echoes the **Evidence Follow-Up**, and the server returns bounded **Evidence Hits** for that selected path."
 >
 > **Dev:** "So `context: 5` means five lines no matter how large they are?"
 >
-> **Domain expert:** "No. **Line Context** is only a hint; the **Byte Budget** is the contract, especially for huge **JSONL Records**."
+> **Domain expert:** "No. **Line Context** is only a hint in the current backend. FFF results remain bounded matching lines."
 >
 > **Dev:** "And we still avoid a separate `read_excerpt` MCP tool?"
 >
-> **Domain expert:** "Yes. **Evidence** stays inside `search_sessions` unless **Code Mode** becomes a deliberate future surface."
+> **Domain expert:** "Yes. **Evidence** stays inside `search_sessions` unless **Code Mode** becomes a deliberate future API."
 
 ## Flagged ambiguities
 
@@ -113,9 +124,10 @@
 - "query" and "queries" are too easy to blur; prefer **Recall Task** for `query` and **Planned Probe** for entries in `queries`.
 - "pattern" should not mean regex or semantic search; prefer **Literal Pattern** for the FFF search string.
 - "source", "root", and "path" are distinct; prefer **Source** for the named corpus, **Source Root** for the indexed directory, and **Canonical Path** for a returned session file.
-- "snippet", "preview", and "excerpt" should stay separate; prefer **Preview** on candidates, **Snippet** inside grouped evidence, and **Evidence Excerpt** for bounded file-reading around an anchor.
-- "evidence" should not mean full-file content; prefer **Evidence** for matched detail and **Evidence Excerpt** for bounded nearby content.
+- "snippet" and "preview" should stay separate; prefer **Preview** on candidates and **Snippet** inside grouped evidence.
+- "evidence" should not mean full-file content; prefer **Evidence** for matched detail, **Evidence Group** for unscoped grouped detail, and **Evidence Hit** for path-restricted matched content.
 - "browser" is misleading for this feature because it suggests arbitrary file navigation; prefer **Progressive Evidence**.
 - "H2" was used in conversation but is unclear; clarify whether this means a human user, a second-stage agent, or another local term before encoding it into product language.
 - "CASS" should remain historical language for the disabled old approach; prefer **Agent Session Search** for this project.
-- "read_excerpt" should remain an internal operation name or future code-mode method, not a public MCP tool term unless the one-tool boundary changes.
+- "ranking" should not imply public score fields; prefer **Ranking Debug** for diagnostic score components and **Normal Candidate Output** for normal results.
+- "read_excerpt" should remain a future code-mode method name, not a current public MCP tool term unless the one-tool boundary changes.
