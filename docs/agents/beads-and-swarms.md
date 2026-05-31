@@ -99,6 +99,28 @@ If Agent Mail or reservations are degraded, do not pretend coordination is fine.
 - Do not let agents write subsystem essays instead of shipping. Require "commit real work or surface a blocker" for implementation panes.
 - Stop when convergence is real: ready queue empty, in-flight work unchanged, and no expected upstream signal.
 
+## Swarm Closeout
+
+Before reporting a swarm/operator pass as complete, make Beads state truthful.
+Do not leave completed or abandoned work in `in_progress`.
+
+For every `in_progress` bead:
+
+- Close it with evidence if the closure contract is satisfied.
+- Reopen it if the work is incomplete but can continue later.
+- Mark it blocked if progress requires a named external input or repair.
+
+Then run:
+
+```bash
+br sync --flush-only
+npm run check:beads:closeout
+```
+
+The pre-commit hook also runs `npm run check:beads:closeout`, so commits fail
+until stale `in_progress` beads are closed, reopened, marked blocked, or
+explicitly allowed with `ALLOW_IN_PROGRESS_BEADS=<id>`.
+
 ## Dispatch Packet Checklist
 
 When sending a Bead packet to an agent, include:
@@ -109,7 +131,8 @@ When sending a Bead packet to an agent, include:
 - Expected file/domain ownership.
 - Reservation instructions and degraded-reservation stop behavior.
 - Focused verification commands.
-- Commit/closeout policy.
+- Commit/closeout policy, including whether the pane should close its bead or
+  the operator will run the closeout sweep.
 - A reminder not to include peer work in commits or Bead closeout.
 
 ## CASS Usage

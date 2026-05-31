@@ -2,6 +2,7 @@ import type {
   SearchCandidate,
   SearchEvidenceGroup,
   SearchResult,
+  SearchWarning,
   SearchSessionsInput,
   SearchSessionsOutput,
   ResultsShape,
@@ -102,86 +103,39 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const rawResults: SearchResult[] = [];
     const createBackend =
       this.options.createBackend ?? this.defaultBackendPool!.createBackend;
-    let attemptedSourceCount = 0;
-    let failedSourceCount = 0;
     let unscopedEvidenceCapReached = false;
 
-    for (const source of searchedSources) {
-      if (source.status !== "ok") {
-        continue;
-      }
-
-      attemptedSourceCount += 1;
-      let backend: SessionSearchBackend | undefined;
-      try {
-        backend = await createBackend(source);
-        const backendInput: SessionSearchBackendInput = {
-          patterns: expandedPatterns,
-          maxResults: requestMaxResultsPerSource,
+    const sourceSlots = await Promise.all(
+      searchedSources.map((source, index) =>
+        searchSourceSlot({
+          index,
+          source,
+          createBackend,
+          input,
+          expandedPatterns,
+          requestMaxResultsPerSource,
           context,
-        };
-        if (input.paths?.length) {
-          backendInput.paths = input.paths;
-        }
-        if (source.include?.length) {
-          backendInput.include = source.include;
-        }
-        const output = await backend.search(backendInput);
-        warnings.push(...output.warnings);
-        const sourceResults = maybeCapResults(
-          output.results.filter((result) =>
-            resultMatchesSourceFilters(result, source, input)
-          ),
-          requestMaxResultsPerSource
-        )
-          .map(truncateEvidenceResult)
-          .map((result) =>
-            result.pattern
-              ? {
-                  ...result,
-                  query: queryByPattern.get(result.pattern),
-                }
-              : result
-          );
-        if (
-          isDefaultUnscopedEvidenceCapApplied &&
-          maxResultsPerSource !== undefined &&
-          sourceResults.length >= maxResultsPerSource
-        ) {
-          unscopedEvidenceCapReached = true;
-        }
-        rawResults.push(...sourceResults);
-        if (sourceResults.length === 0) {
-          const backendFailure = output.warnings.find(isBackendFailureWarning);
-          if (backendFailure) {
-            source.status = "failed";
-            source.warning = backendFailure.message;
-            failedSourceCount += 1;
-          }
-        }
-      } catch (error) {
-        const message = `Search failed for source ${source.name}: ${errorMessage(error)}`;
+          queryByPattern,
+          isDefaultUnscopedEvidenceCapApplied,
+          maxResultsPerSource,
+        })
+      )
+    );
+    const attemptedSlots = sourceSlots.filter((slot) => slot.attempted);
+    const failedSourceCount = attemptedSlots.filter(
+      (slot) => slot.failed
+    ).length;
+
+    for (const slot of sourceSlots) {
+      const source = searchedSources[slot.index];
+      if (slot.status === "failed") {
         source.status = "failed";
-        source.warning = message;
-        failedSourceCount += 1;
-        warnings.push({
-          source: source.name,
-          root: source.root,
-          code: "source_search_failed",
-          message,
-        });
-      } finally {
-        try {
-          await backend?.close?.();
-        } catch (error) {
-          warnings.push({
-            source: source.name,
-            root: source.root,
-            code: "source_cleanup_failed",
-            message: `Cleanup failed for source ${source.name}: ${errorMessage(error)}`,
-          });
-        }
+        source.warning = slot.warning;
       }
+      warnings.push(...slot.warnings);
+      rawResults.push(...slot.results);
+      unscopedEvidenceCapReached =
+        unscopedEvidenceCapReached || slot.unscopedEvidenceCapReached;
     }
 
     if (unscopedEvidenceCapReached) {
@@ -192,8 +146,8 @@ export class CoordinatedSessionSearch implements SessionSearch {
     }
 
     if (
-      attemptedSourceCount > 0 &&
-      failedSourceCount === attemptedSourceCount &&
+      attemptedSlots.length > 0 &&
+      failedSourceCount === attemptedSlots.length &&
       rawResults.length === 0
     ) {
       warnings.push({
@@ -234,6 +188,148 @@ export class CoordinatedSessionSearch implements SessionSearch {
   async close(): Promise<void> {
     await this.defaultBackendPool?.close();
   }
+}
+
+type SourceSearchSlotInput = {
+  index: number;
+  source: ResolvedSessionSource;
+  createBackend: CreateSessionSearchBackend;
+  input: SearchSessionsInput;
+  expandedPatterns: string[];
+  requestMaxResultsPerSource: number | undefined;
+  context: number | undefined;
+  queryByPattern: Map<string, string>;
+  isDefaultUnscopedEvidenceCapApplied: boolean;
+  maxResultsPerSource: number | undefined;
+};
+
+type SourceSearchSlotResult = {
+  index: number;
+  attempted: boolean;
+  status: ResolvedSessionSource["status"];
+  warning?: string;
+  warnings: SearchWarning[];
+  results: SearchResult[];
+  failed: boolean;
+  unscopedEvidenceCapReached: boolean;
+};
+
+async function searchSourceSlot({
+  index,
+  source,
+  createBackend,
+  input,
+  expandedPatterns,
+  requestMaxResultsPerSource,
+  context,
+  queryByPattern,
+  isDefaultUnscopedEvidenceCapApplied,
+  maxResultsPerSource,
+}: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
+  if (source.status !== "ok") {
+    return {
+      index,
+      attempted: false,
+      status: source.status,
+      warning: source.warning,
+      warnings: [],
+      results: [],
+      failed: false,
+      unscopedEvidenceCapReached: false,
+    };
+  }
+
+  const warnings: SearchWarning[] = [];
+  const results: SearchResult[] = [];
+  let backend: SessionSearchBackend | undefined;
+  let status: ResolvedSessionSource["status"] = "ok";
+  let warning: string | undefined;
+  let failed = false;
+  let unscopedEvidenceCapReached = false;
+
+  try {
+    backend = await createBackend(source);
+    const backendInput: SessionSearchBackendInput = {
+      patterns: expandedPatterns,
+      maxResults: requestMaxResultsPerSource,
+      context,
+    };
+    if (input.paths?.length) {
+      backendInput.paths = input.paths;
+    }
+    if (source.include?.length) {
+      backendInput.include = source.include;
+    }
+
+    const output = await backend.search(backendInput);
+    warnings.push(...output.warnings);
+    const sourceResults = maybeCapResults(
+      output.results.filter((result) =>
+        resultMatchesSourceFilters(result, source, input)
+      ),
+      requestMaxResultsPerSource
+    )
+      .map(truncateEvidenceResult)
+      .map((result) =>
+        result.pattern
+          ? {
+              ...result,
+              query: queryByPattern.get(result.pattern),
+            }
+          : result
+      );
+
+    if (
+      isDefaultUnscopedEvidenceCapApplied &&
+      maxResultsPerSource !== undefined &&
+      sourceResults.length >= maxResultsPerSource
+    ) {
+      unscopedEvidenceCapReached = true;
+    }
+    results.push(...sourceResults);
+
+    if (sourceResults.length === 0) {
+      const backendFailure = output.warnings.find(isBackendFailureWarning);
+      if (backendFailure) {
+        status = "failed";
+        warning = backendFailure.message;
+        failed = true;
+      }
+    }
+  } catch (error) {
+    const message = `Search failed for source ${source.name}: ${errorMessage(error)}`;
+    status = "failed";
+    warning = message;
+    failed = true;
+    warnings.push({
+      source: source.name,
+      root: source.root,
+      code: "source_search_failed",
+      message,
+    });
+  } finally {
+    try {
+      await backend?.close?.();
+    } catch (error) {
+      warnings.push({
+        source: source.name,
+        root: source.root,
+        code: "source_cleanup_failed",
+        message: `Cleanup failed for source ${source.name}: ${errorMessage(error)}`,
+      });
+    }
+  }
+
+  return {
+    index,
+    attempted: true,
+    status,
+    ...(warning ? { warning } : {}),
+    warnings,
+    results,
+    failed,
+    unscopedEvidenceCapReached,
+  };
 }
 
 function shapeResults(
@@ -422,10 +518,14 @@ export function createSessionSearch(
 }
 
 function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
+  try {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  } catch {
+    return "Unknown error";
   }
-  return String(error);
 }
 
 function isBackendFailureWarning(warning: { code: string }) {

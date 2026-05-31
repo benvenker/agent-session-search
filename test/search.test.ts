@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSessionSearch } from "../src/search.js";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe("createSessionSearch", () => {
   it("returns compact session candidates by default", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
@@ -268,6 +272,128 @@ describe("createSessionSearch", () => {
           maxResults: 20,
           context: undefined,
           include: ["*.jsonl"],
+        },
+      },
+    ]);
+  });
+
+  it("searches ok source roots concurrently while merging results in source order", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    let claudeStarted!: () => void;
+    const claudeStartedPromise = new Promise<void>((resolve) => {
+      claudeStarted = resolve;
+    });
+    const startOrder: string[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            startOrder.push(source.name);
+            if (source.name === "codex") {
+              await claudeStartedPromise;
+            } else {
+              claudeStarted();
+            }
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, `${source.name}.jsonl`),
+                  line: source.name === "codex" ? 10 : 20,
+                  content: `${source.name} saw ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const outcome = await Promise.race([
+      search
+        .searchSessions({
+          query: "auth token timeout",
+          sources: ["codex", "claude"],
+          resultsDisplayMode: "evidence",
+        })
+        .then((result) => ({ type: "result" as const, result })),
+      sleep(50).then(() => ({ type: "timeout" as const })),
+    ]);
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalClaudeRoot = await realpath(claudeRoot);
+
+    expect(outcome.type).toBe("result");
+    if (outcome.type !== "result") {
+      return;
+    }
+    expect(startOrder).toEqual(["codex", "claude"]);
+    expect(outcome.result.results).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        path: join(canonicalCodexRoot, "codex.jsonl"),
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 10,
+            content: "codex saw auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["codex"],
+            resultsDisplayMode: "evidence",
+            paths: [join(canonicalCodexRoot, "codex.jsonl")],
+          },
+        },
+      },
+      {
+        source: "claude",
+        root: canonicalClaudeRoot,
+        path: join(canonicalClaudeRoot, "claude.jsonl"),
+        hitCount: 1,
+        matchedQueries: ["auth token timeout"],
+        matchedPatterns: ["auth token timeout"],
+        snippets: [
+          {
+            line: 20,
+            content: "claude saw auth token timeout",
+            pattern: "auth token timeout",
+            query: "auth token timeout",
+          },
+        ],
+        more: {
+          evidence: {
+            query: "auth token timeout",
+            sources: ["claude"],
+            resultsDisplayMode: "evidence",
+            paths: [join(canonicalClaudeRoot, "claude.jsonl")],
+          },
         },
       },
     ]);
@@ -1214,6 +1340,84 @@ describe("createSessionSearch", () => {
     });
   });
 
+  it("keeps root warnings before source warnings in configured source order", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const missingRoot = join(tmp, "missing");
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "hermes", path: missingRoot },
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    let claudeStarted!: () => void;
+    const claudeStartedPromise = new Promise<void>((resolve) => {
+      claudeStarted = resolve;
+    });
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            if (source.name === "codex") {
+              await claudeStartedPromise;
+            } else {
+              claudeStarted();
+            }
+            return {
+              warnings: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  code: `${source.name}_warning`,
+                  message: `${source.name} warning`,
+                },
+              ],
+              results: [],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const canonicalClaudeRoot = await realpath(claudeRoot);
+
+    expect(result.warnings).toEqual([
+      {
+        source: "hermes",
+        root: missingRoot,
+        code: "missing_root",
+        message: `Configured root does not exist: ${missingRoot}`,
+      },
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "codex_warning",
+        message: "codex warning",
+      },
+      {
+        source: "claude",
+        root: canonicalClaudeRoot,
+        code: "claude_warning",
+        message: "claude warning",
+      },
+    ]);
+  });
+
   it("warns when requested sources do not select any enabled configured root", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -1535,6 +1739,72 @@ describe("createSessionSearch", () => {
         root: canonicalCodexRoot,
         code: "source_cleanup_failed",
         message: "Cleanup failed for source codex: cleanup socket closed",
+      },
+    ]);
+  });
+
+  it("keeps successful hits when cleanup error stringification fails", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 3,
+                  content: `matched ${input.patterns[0]}`,
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+          async close() {
+            throw {
+              toString() {
+                throw new Error("stringify exploded");
+              },
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+
+    expect(result.searchedSources).toEqual([
+      {
+        name: "codex",
+        root: canonicalCodexRoot,
+        status: "ok",
+      },
+    ]);
+    expect(result.results).toHaveLength(1);
+    expect(result.warnings).toEqual([
+      {
+        source: "codex",
+        root: canonicalCodexRoot,
+        code: "source_cleanup_failed",
+        message: "Cleanup failed for source codex: Unknown error",
       },
     ]);
   });

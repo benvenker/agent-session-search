@@ -6,5 +6,6 @@ fi
 
 npx lint-staged
 npm run check:beads
+npm run check:beads:closeout
 npm run check
 npm run test

@@ -36,6 +36,7 @@
     "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
     "smoke": "vitest run test/mcp-smoke.test.ts",
+    "check:beads:closeout": "node scripts/check-beads-closeout.mjs",
     "dev:mcp": "tsx src/server.ts",
     "dev:cli": "tsx src/cli.ts",
     "prepare": "husky"
