@@ -412,6 +412,25 @@ describe("CLI argument parsing", () => {
     }
   });
 
+  it("suggests standalone commands for top-level-only flags in search contexts", () => {
+    for (const option of ["--help", "--version", "--robot-triage"]) {
+      try {
+        parseArgs(["auth", option]);
+        throw new Error(`expected parseArgs to reject misplaced ${option}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CliParseError);
+        expect((error as Error).message).toBe(
+          `${option} must be used as a standalone command`
+        );
+        expect((error as CliParseError).suggestion).toEqual({
+          unknownOption: option,
+          suggestedOption: option,
+          suggestedCommand: `agent-session-search ${option}`,
+        });
+      }
+    }
+  });
+
   it("prints a JSON error envelope when --json parse requests fail", async () => {
     const result = await execFileAsync(
       process.execPath,

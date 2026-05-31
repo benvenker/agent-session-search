@@ -81,6 +81,12 @@ const DEDUPED_BOOLEAN_OPTIONS = new Set<string>([
   "--version",
 ]);
 
+const TOP_LEVEL_ONLY_OPTIONS = new Set<string>([
+  "--robot-triage",
+  "--help",
+  "--version",
+]);
+
 export function parseArgs(argv: string[]): ParsedArgs {
   const sources: string[] = [];
   const paths: string[] = [];
@@ -212,14 +218,16 @@ function unknownOptionError(option: string, argv: string[]) {
     return new CliParseError(`unknown option: ${option}`);
   }
 
-  return new CliParseError(
-    `unknown option: ${option}; did you mean ${suggestedOption}?`,
-    {
-      unknownOption: option,
-      suggestedOption,
-      suggestedCommand: correctedCommand(argv, option, suggestedOption),
-    }
-  );
+  const message =
+    option === suggestedOption && TOP_LEVEL_ONLY_OPTIONS.has(suggestedOption)
+      ? `${suggestedOption} must be used as a standalone command`
+      : `unknown option: ${option}; did you mean ${suggestedOption}?`;
+
+  return new CliParseError(message, {
+    unknownOption: option,
+    suggestedOption,
+    suggestedCommand: correctedCommand(argv, option, suggestedOption),
+  });
 }
 
 function suggestKnownOption(option: string) {
@@ -253,6 +261,10 @@ function correctedCommand(
   unknownOption: string,
   suggestedOption: string
 ) {
+  if (TOP_LEVEL_ONLY_OPTIONS.has(suggestedOption)) {
+    return ["agent-session-search", suggestedOption].map(shellQuote).join(" ");
+  }
+
   const correctedArgs: string[] = [];
   const seenBooleanOptions = new Set<string>();
   let replaced = false;
@@ -275,6 +287,13 @@ function correctedCommand(
   }
 
   return ["agent-session-search", ...correctedArgs].map(shellQuote).join(" ");
+}
+
+function suggestionHint(suggestion: ParseSuggestion) {
+  if (suggestion.unknownOption === suggestion.suggestedOption) {
+    return `Run ${suggestion.suggestedOption} as a standalone command.`;
+  }
+  return `Replace ${suggestion.unknownOption} with ${suggestion.suggestedOption}.`;
 }
 
 function shellQuote(value: string) {
@@ -479,7 +498,7 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
               message,
               ...(suggestion
                 ? {
-                    hint: `Replace ${suggestion.unknownOption} with ${suggestion.suggestedOption}.`,
+                    hint: suggestionHint(suggestion),
                   }
                 : {}),
               suggestedCommand:
