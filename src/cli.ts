@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { isEntrypoint } from "./entrypoint.js";
 import { searchOptionsFromEnv } from "./env.js";
 import {
   cliCapabilities,
@@ -324,11 +323,4 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
     }
     process.exitCode = 1;
   });
-}
-
-function isEntrypoint(moduleUrl: string, argvPath: string | undefined) {
-  if (!argvPath) {
-    return false;
-  }
-  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
 }

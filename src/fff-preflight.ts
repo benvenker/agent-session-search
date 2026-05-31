@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { isEntrypoint } from "./entrypoint.js";
 import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
 import { doctorHelpText } from "./help.js";
 import type { SourceName } from "./types.js";
@@ -348,11 +347,4 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   });
-}
-
-function isEntrypoint(moduleUrl: string, argvPath: string | undefined) {
-  if (!argvPath) {
-    return false;
-  }
-  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
 }
