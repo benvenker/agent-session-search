@@ -108,6 +108,14 @@ describe("CLI argument parsing", () => {
         code: 1,
         meaning: "user-input-error",
       });
+      expect(output.exitCodes).toContainEqual({
+        code: 3,
+        meaning: "tool-environment-error",
+      });
+      expect(output.exitCodes).toContainEqual({
+        code: 4,
+        meaning: "upstream-failure",
+      });
     } finally {
       log.mockRestore();
     }

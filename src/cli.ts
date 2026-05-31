@@ -108,7 +108,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--source") {
       const source = argv[index + 1];
       if (!source) {
-        throw new Error("--source requires a value");
+        throw inputError("--source requires a value");
       }
       sources.push(source);
       index += 1;
@@ -117,7 +117,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--probe" || arg === "--query") {
       const query = argv[index + 1];
       if (!query) {
-        throw new Error(`${arg} requires a value`);
+        throw inputError(`${arg} requires a value`);
       }
       queries.push(query);
       index += 1;
@@ -126,7 +126,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--cwd") {
       const cwd = argv[index + 1];
       if (!cwd) {
-        throw new Error("--cwd requires a value");
+        throw inputError("--cwd requires a value");
       }
       operationalContext.cwd = cwd;
       index += 1;
@@ -135,7 +135,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--branch") {
       const branch = argv[index + 1];
       if (!branch) {
-        throw new Error("--branch requires a value");
+        throw inputError("--branch requires a value");
       }
       operationalContext.branch = branch;
       index += 1;
@@ -144,7 +144,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--reason") {
       const reason = argv[index + 1];
       if (!reason) {
-        throw new Error("--reason requires a value");
+        throw inputError("--reason requires a value");
       }
       operationalContext.reason = reason;
       index += 1;
@@ -171,7 +171,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--path") {
       const path = argv[index + 1];
       if (!path) {
-        throw new Error("--path requires a value");
+        throw inputError("--path requires a value");
       }
       paths.push(path);
       index += 1;
@@ -195,7 +195,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   const query = queryParts.join(" ").trim();
   if (!query) {
-    throw new Error("query is required");
+    throw inputError("query is required");
   }
 
   return {
@@ -228,6 +228,10 @@ function unknownOptionError(option: string, argv: string[]) {
     suggestedOption,
     suggestedCommand: correctedCommand(argv, option, suggestedOption),
   });
+}
+
+function inputError(message: string) {
+  return new CliParseError(message);
 }
 
 function suggestKnownOption(option: string) {
@@ -465,23 +469,23 @@ function parseResultsDisplayMode(
   option: string
 ): ResultsDisplayMode {
   if (!value) {
-    throw new Error(`${option} requires a value`);
+    throw inputError(`${option} requires a value`);
   }
   if (value === "candidates" || value === "evidence" || value === "debug") {
     return value;
   }
-  throw new Error(`${option} must be one of: candidates, evidence, debug`);
+  throw inputError(`${option} must be one of: candidates, evidence, debug`);
 }
 
 function parsePositiveInteger(value: string | undefined, option: string) {
   if (!value) {
-    throw new Error(`${option} requires a value`);
+    throw inputError(`${option} requires a value`);
   }
   const parsed = Number(value);
   if (Number.isInteger(parsed) && parsed > 0) {
     return parsed;
   }
-  throw new Error(`${option} must be a positive integer`);
+  throw inputError(`${option} must be a positive integer`);
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {
@@ -516,6 +520,6 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
       }
       console.error(usage());
     }
-    process.exitCode = 1;
+    process.exitCode = error instanceof CliParseError ? 1 : 4;
   });
 }

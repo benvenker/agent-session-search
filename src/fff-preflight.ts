@@ -52,6 +52,21 @@ type FffSmokeResult =
       reason: string;
     };
 
+type DoctorParseSuggestion = {
+  hint?: string;
+  suggestedCommand: string;
+};
+
+class DoctorParseError extends Error {
+  readonly suggestion: DoctorParseSuggestion;
+
+  constructor(message: string, suggestion: DoctorParseSuggestion) {
+    super(message);
+    this.name = "DoctorParseError";
+    this.suggestion = suggestion;
+  }
+}
+
 export type ProcessInfo = {
   pid: number;
   ppid: number;
@@ -190,7 +205,7 @@ export async function main(argv = process.argv.slice(2)) {
   console.error(`  curl -L ${FFF_MCP_INSTALLER_URL} | bash`);
   console.error("Review the installer before running it if desired:");
   console.error(`  ${FFF_MCP_INSTALLER_URL}`);
-  process.exitCode = 1;
+  process.exitCode = 3;
 }
 
 function parseArgs(argv: string[]): CheckFffMcpOptions {
@@ -200,7 +215,10 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
     if (arg === "--command") {
       const command = argv[index + 1];
       if (!command) {
-        throw new Error("--command requires a value");
+        throw new DoctorParseError("--command requires a value", {
+          hint: "Pass the fff-mcp binary after --command.",
+          suggestedCommand: "agent-session-search-doctor --command <bin>",
+        });
       }
       options.command = command;
       index += 1;
@@ -218,13 +236,153 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
       options.reapOrphans = true;
       continue;
     }
-    throw new Error(`Unknown option: ${arg}`);
+    throw unknownOptionError(arg, argv);
   }
   return options;
 }
 
 function isHelpRequest(argv: string[]) {
   return argv.length === 1 && ["help", "--help", "-h"].includes(argv[0]);
+}
+
+const KNOWN_DOCTOR_OPTIONS = [
+  "--command",
+  "--skip-smoke",
+  "--list-orphans",
+  "--reap-orphans",
+  "--help",
+] as const;
+
+const BOOLEAN_DOCTOR_OPTIONS = new Set<string>([
+  "--skip-smoke",
+  "--list-orphans",
+  "--reap-orphans",
+  "--help",
+]);
+
+function unknownOptionError(option: string, argv: string[]) {
+  const suggestedOption = suggestKnownOption(option);
+  if (!suggestedOption) {
+    return new DoctorParseError(`Unknown option: ${option}`, {
+      hint: "Run help to inspect supported doctor flags.",
+      suggestedCommand: "agent-session-search-doctor help",
+    });
+  }
+
+  return new DoctorParseError(
+    `Unknown option: ${option}; did you mean ${suggestedOption}?`,
+    {
+      hint: `Replace ${option} with ${suggestedOption}.`,
+      suggestedCommand: correctedDoctorCommand(argv, option, suggestedOption),
+    }
+  );
+}
+
+function suggestKnownOption(option: string) {
+  if (!option.startsWith("-")) {
+    return undefined;
+  }
+
+  const normalizedOption = stripOptionPrefix(option);
+  let best: { option: string; distance: number } | undefined;
+
+  for (const knownOption of KNOWN_DOCTOR_OPTIONS) {
+    const distance = damerauLevenshtein(
+      normalizedOption,
+      stripOptionPrefix(knownOption)
+    );
+    if (!best || distance < best.distance) {
+      best = { option: knownOption, distance };
+    }
+  }
+
+  if (!best) {
+    return undefined;
+  }
+
+  const maxDistance = normalizedOption.length <= 4 ? 1 : 2;
+  return best.distance <= maxDistance ? best.option : undefined;
+}
+
+function correctedDoctorCommand(
+  argv: string[],
+  unknownOption: string,
+  suggestedOption: string
+) {
+  const correctedArgs: string[] = [];
+  const seenBooleanOptions = new Set<string>();
+  let replaced = false;
+
+  for (const arg of argv) {
+    const correctedArg =
+      !replaced && arg === unknownOption ? suggestedOption : arg;
+    replaced ||= arg === unknownOption;
+
+    if (
+      BOOLEAN_DOCTOR_OPTIONS.has(correctedArg) &&
+      seenBooleanOptions.has(correctedArg)
+    ) {
+      continue;
+    }
+    if (BOOLEAN_DOCTOR_OPTIONS.has(correctedArg)) {
+      seenBooleanOptions.add(correctedArg);
+    }
+    correctedArgs.push(correctedArg);
+  }
+
+  return ["agent-session-search-doctor", ...correctedArgs]
+    .map(shellQuote)
+    .join(" ");
+}
+
+function stripOptionPrefix(option: string) {
+  return option.replace(/^--?/, "");
+}
+
+function shellQuote(value: string) {
+  if (/^[A-Za-z0-9_./:=@%+-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function damerauLevenshtein(left: string, right: string) {
+  const rows = left.length + 1;
+  const columns = right.length + 1;
+  const distances = Array.from({ length: rows }, () =>
+    Array<number>(columns).fill(0)
+  );
+
+  for (let row = 0; row < rows; row += 1) {
+    distances[row]![0] = row;
+  }
+  for (let column = 0; column < columns; column += 1) {
+    distances[0]![column] = column;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      let distance = Math.min(
+        distances[row - 1]![column]! + 1,
+        distances[row]![column - 1]! + 1,
+        distances[row - 1]![column - 1]! + cost
+      );
+
+      if (
+        row > 1 &&
+        column > 1 &&
+        left[row - 1] === right[column - 2] &&
+        left[row - 2] === right[column - 1]
+      ) {
+        distance = Math.min(distance, distances[row - 2]![column - 2]! + 1);
+      }
+
+      distances[row]![column] = distance;
+    }
+  }
+
+  return distances[left.length]![right.length]!;
 }
 
 async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
@@ -344,7 +502,16 @@ function isNotFoundError(error: unknown) {
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
+    if (error instanceof DoctorParseError) {
+      console.error(error.message);
+      if (error.suggestion.hint) {
+        console.error(`Hint: ${error.suggestion.hint}`);
+      }
+      console.error(`Suggested command: ${error.suggestion.suggestedCommand}`);
+      console.error(doctorHelpText());
+    } else {
+      console.error(error instanceof Error ? error.message : error);
+    }
+    process.exitCode = error instanceof DoctorParseError ? 1 : 4;
   });
 }

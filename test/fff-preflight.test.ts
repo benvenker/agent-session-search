@@ -75,7 +75,7 @@ describe("FFF preflight command", () => {
         stderr?: string;
         code?: number;
       };
-      expect(execError.code).toBe(1);
+      expect(execError.code).toBe(3);
       return {
         stdout: execError.stdout ?? "",
         stderr: execError.stderr ?? "",
@@ -200,6 +200,50 @@ describe("FFF preflight command", () => {
     expect(withCleanup.stdout).toContain("pid 101");
   }, 60_000);
 
+  it("teaches unknown doctor options with usage and a safe next command", async () => {
+    const result = await runDoctorExpectFailure(["--wat"]);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Unknown option: --wat");
+    expect(result.stderr).toContain(
+      "Run help to inspect supported doctor flags."
+    );
+    expect(result.stderr).toContain(
+      "Suggested command: agent-session-search-doctor help"
+    );
+    expect(result.stderr).toContain("Usage: agent-session-search-doctor");
+  });
+
+  it("suggests close doctor flag spellings without running preflight", async () => {
+    for (const [mistyped, expected] of [
+      ["--list-orphan", "--list-orphans"],
+      ["--reap-orphan", "--reap-orphans"],
+      ["--skip-smok", "--skip-smoke"],
+    ] as const) {
+      const result = await runDoctorExpectFailure([mistyped]);
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(
+        `Unknown option: ${mistyped}; did you mean ${expected}?`
+      );
+      expect(result.stderr).toContain(
+        `Suggested command: agent-session-search-doctor ${expected}`
+      );
+      expect(result.stderr).toContain("Usage: agent-session-search-doctor");
+    }
+  });
+
+  it("shows usage when --command is missing a value", async () => {
+    const result = await runDoctorExpectFailure(["--command"]);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("--command requires a value");
+    expect(result.stderr).toContain(
+      "Suggested command: agent-session-search-doctor --command <bin>"
+    );
+    expect(result.stderr).toContain("Usage: agent-session-search-doctor");
+  });
+
   it("fails when the live grep smoke test fails", async () => {
     const result = await checkFffMcp({
       command: process.execPath,
@@ -235,4 +279,22 @@ function sourceProcessEnv(overrides: NodeJS.ProcessEnv = {}) {
     NODE_NO_WARNINGS: "1",
     ...overrides,
   };
+}
+
+async function runDoctorExpectFailure(argv: string[]) {
+  return execFileAsync(process.execPath, [...preflightSourceArgs(), ...argv], {
+    cwd: process.cwd(),
+    env: sourceProcessEnv(),
+  }).catch((error: unknown) => {
+    const execError = error as {
+      stdout?: string;
+      stderr?: string;
+      code?: number;
+    };
+    expect(execError.code).toBe(1);
+    return {
+      stdout: execError.stdout ?? "",
+      stderr: execError.stderr ?? "",
+    };
+  });
 }

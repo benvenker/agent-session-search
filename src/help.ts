@@ -151,6 +151,8 @@ export function cliCapabilities(version: string) {
     exitCodes: [
       { code: 0, meaning: "success" },
       { code: 1, meaning: "user-input-error" },
+      { code: 3, meaning: "tool-environment-error" },
+      { code: 4, meaning: "upstream-failure" },
     ],
   };
 }
