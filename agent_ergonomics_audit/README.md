@@ -8,15 +8,17 @@ This is a measurement workspace produced by the
 
 ## Current Status
 
-The audit is idle. Pass 1 and Pass 2 are complete, and recommendations `R-001`
-through `R-007` are applied. A future Pass 3 would be a fresh re-score against
-current `main`, not required Pass 2 cleanup.
+The audit is idle. Passes 1 through 4 are complete, and recommendations `R-001`
+through `R-010` are applied. Pass 4 closed the Pass 3 parse-error queue:
+CLI flag typo suggestions, doctor parse-error suggestions, and the published
+exit-code contract are now implemented and covered by regression tests. A future
+Pass 5 should be re-score-only unless new search or CLI product work changes an
+agent-facing surface.
 
 Terminology:
 
 - **Pass**: one whole audit/improvement cycle.
-- **Phase**: a step inside a pass. The last completed phase is Pass 2,
-  Phase 10 handoff.
+- **Phase**: a step inside a pass. The last completed phase is Pass 4 closeout.
 - **Recommendation**: a ranked work item such as `R-002`. Recommendation
   numbers are not pass numbers.
 
@@ -30,9 +32,13 @@ Terminology:
 - `audit/applied_changes.jsonl`: what was applied plus commit refs
 - `audit/scorecard.md`: human-readable scorecard
 - `audit/playbook.md`: top-10 narrative
+- `audit/playbook_pass_3.md`: Pass 3 top-10 narrative
 - `audit/uplift_diff.md`: pass-N vs pass-N-1 deltas
+- `audit/uplift_diff_pass_3.md`: Pass 3 uplift deltas
 - `audit/regression_alerts.md`: surfaces that dropped scores
+- `audit/regression_alerts_pass_3.md`: Pass 3 regression alerts
 - `audit/regression_tests/`: golden/snapshot tests
+- `audit/scorecard_pass_3.md`: Pass 3 human-readable scorecard
 - `audit/HANDOFF.md`: queued work for the next pass
 
 Some upstream skill templates also mention `audit/heatmap.svg` and

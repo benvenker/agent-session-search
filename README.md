@@ -275,6 +275,19 @@ Common options:
 
 JSON output includes `query`, `resultsDisplayMode`, `resultsShape`, `expandedPatterns`, `searchedSources`, `warnings`, `results`, and optional `debug.ranking.candidates`.
 
+Parse failures are user-input errors. In human output the CLI prints the error,
+usage, and a copy-pasteable suggested command when a close flag spelling is
+available:
+
+```bash
+agent-session-search --jason "auth token timeout"
+# unknown option: --jason; did you mean --json?
+# Suggested command: agent-session-search --json 'auth token timeout'
+```
+
+With `--json`, parse failures go to stderr as a JSON envelope with
+`error.code: "user_input_error"` and `suggestedCommand`.
+
 ### `agent-session-search capabilities --json`
 
 ```bash
@@ -283,6 +296,10 @@ agent-session-search --json --help
 ```
 
 Print the machine-readable CLI and MCP contract, including commands, modes, environment variables, and exit codes.
+
+Documented exit-code categories are `0` for success, `1` for user-input errors,
+`3` for tool-environment errors such as a missing FFF backend, and `4` for
+unexpected upstream failures.
 
 ### `agent-session-search sources --json`
 
@@ -319,6 +336,10 @@ agent-session-search-doctor --command /usr/local/bin/fff-mcp --skip-smoke
 ```
 
 Verify that `fff-mcp` is on `PATH`, run a live smoke test unless skipped, and optionally list or reap orphaned `fff-mcp` processes from crashed sessions.
+
+Doctor parse errors do not run preflight. Unknown options print usage and a safe
+next command; close flag spellings such as `--skip-smok` suggest the matching
+doctor flag.
 
 ### `agent-session-search-mcp`
 
@@ -519,6 +540,8 @@ Key modules:
 | `missing_root`                       | A configured or built-in source directory does not exist. | Run `agent-session-search sources --json`; disable the root or create/update the path.                       |
 | `unreadable_root`                    | The source exists but cannot be read.                     | Fix filesystem permissions or remove the root from config.                                                   |
 | `unknown_source`                     | A requested `--source` is not configured or is disabled.  | Check enabled names with `agent-session-search sources --json`; omit `--source` to search all enabled roots. |
+| Mistyped CLI flag                    | The CLI rejected a near-miss option before searching.     | Use the printed `Suggested command`; JSON mode returns the same next command under `error.suggestedCommand`. |
+| Mistyped doctor flag                 | Doctor rejected a near-miss option before preflight.      | Use the printed doctor command, for example `agent-session-search-doctor --skip-smoke`.                      |
 | `no_sources_selected`                | Filters excluded every enabled source.                    | Remove the filter or choose one of the enabled sources.                                                      |
 | `all_sources_failed`                 | Every attempted source failed and no results were found.  | Use the warning's concrete `rg` fallback command for exhaustive proof-style search.                          |
 | Broad evidence is capped             | Unscoped `evidence` mode is intentionally bounded.        | Start with candidates, then pass a candidate `more.evidence` payload or use `--path`.                        |

@@ -7,6 +7,7 @@ Agent Session Search is a local TypeScript ESM package for searching coding-agen
 - The public MCP surface is the single `search_sessions` tool.
 - The CLI uses the same search flow and result shape as the MCP server.
 - `agent-session-search-doctor` is for setup, FFF health checks, and orphaned `fff-mcp` process cleanup.
+- CLI and doctor parse errors are user-input failures. They should fail before search or preflight, print usage, and include a suggested command when a close flag spelling is available.
 - Raw session files are the source of truth. Results should preserve canonical absolute paths plus `source` and `root` metadata.
 
 ## Search Backend
@@ -35,6 +36,7 @@ Do not add custom indexing, embeddings, SQLite stores, markdown session exports,
 - Keep output close to FFF hits: ranked candidates, evidence groups, evidence hits, warnings, and debug diagnostics.
 - Preserve canonical absolute paths in user-visible results.
 - Use source-level warnings for partial failures instead of failing the whole search.
+- Keep parse-error behavior agent-readable: CLI JSON failures use `error.code: "user_input_error"` on stderr, while human output includes usage and a copy-pasteable next command.
 - Treat Pool as one `pool` source rooted at the shared Pool history directory unless Pool's on-disk storage model changes.
 - Treat Codex archived sessions as part of the single `codex` source rooted at `~/.codex`.
 - Keep ranking scores out of normal candidate output; expose them only through candidate-mode debug responses.

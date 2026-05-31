@@ -52,6 +52,15 @@
 | **Result Shape**       | The structural form of `results`, such as candidates, evidence groups, or evidence hits.                         | display mode, output type               |
 | **Result Cap**         | A maximum number of backend hits considered or returned for a source.                                            | limit, page size, max results           |
 
+## CLI Ergonomics
+
+| Term                   | Definition                                                                                                                           | Aliases to avoid                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| **Parse Failure**      | A user-input failure raised before search or doctor preflight because arguments are missing, invalid, or unknown.                    | runtime failure, backend failure |
+| **Flag Suggestion**    | A near-miss correction for a known CLI or doctor flag, based on bounded edit distance.                                               | autocorrect, fuzzy search        |
+| **Suggested Command**  | A copy-pasteable command printed with a parse failure when the tool can infer the safe next invocation.                              | fix, repair command              |
+| **Exit-Code Category** | The machine-readable class exposed by `capabilities --json`: success, user-input error, tool-environment error, or upstream failure. | status, result code              |
+
 ## Candidate Ranking
 
 | Term                         | Definition                                                                                                                   | Aliases to avoid                       |
@@ -93,6 +102,7 @@
 - A **Fanout Search** sends **Literal Patterns** to one **FFF Child** per selected **Source Root**.
 - A **Candidate** refers to exactly one **Canonical Path**.
 - A **Candidate** contains exactly one **Evidence Follow-Up**.
+- A **Parse Failure** happens before search or doctor preflight; it may include a **Flag Suggestion** and **Suggested Command**.
 - **Candidate Ranking** orders candidates, but **Normal Candidate Output** omits internal ranking fields.
 - **Ranking Debug** explains **Candidate Ranking** only when the caller asks for debug output.
 - **Evidence** is requested through the **Search Sessions Tool**, not through a separate public read tool.
@@ -131,3 +141,4 @@
 - "CASS" should remain historical language for the disabled old approach; prefer **Agent Session Search** for this project.
 - "ranking" should not imply public score fields; prefer **Ranking Debug** for diagnostic score components and **Normal Candidate Output** for normal results.
 - "read_excerpt" should remain a future code-mode method name, not a current public MCP tool term unless the one-tool boundary changes.
+- "suggestion" should not imply the tool ran a corrected command. Prefer **Flag Suggestion** for the correction and **Suggested Command** for the exact next invocation.

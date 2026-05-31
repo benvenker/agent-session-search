@@ -121,6 +121,14 @@ agent-session-search-doctor --list-orphans
 
 `agent-session-search-doctor` handles setup and FFF health checks. It verifies that `fff-mcp` is on `PATH`, can run a live smoke test, and can list or reap orphaned `fff-mcp` processes from crashed sessions.
 
+CLI and doctor parse failures are part of the agent-facing contract. Search CLI
+unknown-option failures exit `1`; with `--json` they write a structured
+`user_input_error` envelope to stderr, including `suggestedCommand` when a close
+known flag spelling or misplaced top-level flag can be corrected. Human output
+prints usage plus the suggested command. Doctor parse failures also exit `1`,
+print usage, and do not run the FFF preflight. Environment failures such as a
+missing `fff-mcp` use exit `3`; unexpected entrypoint failures use exit `4`.
+
 `search_sessions` returns JSON as MCP text content and does not advertise `outputSchema`. The MCP SDK supports structured content, but the installed FastMCP wrapper path used here still returns successful tool results as string/content-style values. Keep the text-JSON behavior pinned by tests until a FastMCP upgrade makes structured output straightforward.
 
 ## Development And Validation
