@@ -2,71 +2,49 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-describe("README setup documentation", () => {
-  it("documents the clean local setup and search behavior", async () => {
+describe("README documentation", () => {
+  it("keeps the README as the project front door and delegates reference docs", async () => {
     const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
 
-    expect(readme).not.toContain(
-      "search backend is implemented by the follow-up beads"
-    );
-
     for (const requiredText of [
-      "npm install",
-      "npm run check:fff",
-      "npm run check",
-      "npm test",
-      "npm run build",
-      "npm run smoke",
-      "npm pack --dry-run --json",
-      "npm pack --pack-destination",
-      "npm install --foreground-scripts --no-audit --no-fund",
-      "npm trusted publishing",
-      "npm version patch",
-      "git push origin main --follow-tags",
-      "creates the GitHub Release marked as latest",
-      "npm run dev:mcp",
-      'npm run dev:cli -- "auth token timeout" --json',
-      "agent-session-search-mcp",
+      "Local MCP server and CLI",
+      "search_sessions",
       "agent-session-search-doctor",
-      "agent-session-search help",
-      "agent-session-search capabilities --json",
-      "agent-session-search sources --json",
-      "agent-session-search robot-docs guide",
-      "agent-session-search --robot-triage",
       'agent-session-search "auth token timeout" --json',
-      "--probe",
-      "--cwd",
-      "--branch",
-      "--reason",
-      "--mode <candidates|evidence|debug>",
-      "--evidence",
-      "debug.ranking.candidates",
+      "agent-session-search-mcp",
+      "more.evidence",
       "AGENT_SESSION_SEARCH_CONFIG",
-      "AGENT_SESSION_SEARCH_FFF_DB_DIR",
-      "CODEX_THREAD_ID",
-      "~/.config/agent-session-search/config.json",
-      '"codex"',
-      '"claude"',
-      '"pi"',
-      '"cursor"',
-      '"hermes"',
-      '"pool"',
-      '"include"',
-      '"*.jsonl"',
-      '"*/agent-transcripts/**/*.jsonl"',
-      '"*/agent-transcripts/**/*.json"',
-      '"trajectories/*.ndjson"',
-      'sources: "all"',
-      "resultsDisplayMode",
-      "--source codex",
-      "enabled, status, include, and warning",
-      "missing_root",
-      "unreadable_root",
-      "partial results",
-      "Adding another agent",
-      "not a closed list",
+      '"resultsDisplayMode": "candidates"',
+      '"debug": true',
+      "[CLI reference](docs/cli.md)",
+      "[MCP tool contract](docs/mcp.md)",
+      "[Configuration](docs/configuration.md)",
+      "[Troubleshooting](docs/troubleshooting.md)",
+      "[Release process](docs/maintainers/release.md)",
+      "[Contribution policy](CONTRIBUTING.md)",
+      "[Design record](DESIGN.md)",
     ]) {
       expect(readme).toContain(requiredText);
     }
+
+    for (const removedBloat of [
+      "About Contributions",
+      "npm trusted publishing",
+      "npm pack --pack-destination",
+      "Parse failures are user-input errors",
+      "Key modules:",
+    ]) {
+      expect(readme).not.toContain(removedBloat);
+    }
+  });
+
+  it("ships the extracted docs with the npm package", async () => {
+    const packageJson = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8")
+    ) as { files: string[] };
+
+    expect(packageJson.files).toContain("CONTRIBUTING.md");
+    expect(packageJson.files).toContain("docs/*.md");
+    expect(packageJson.files).toContain("docs/maintainers/*.md");
   });
 });

@@ -40,6 +40,10 @@ describe("FFF preflight command", () => {
       scripts: Record<string, string>;
     };
     const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
+    const configDocs = await readFile(
+      join(process.cwd(), "docs", "configuration.md"),
+      "utf8"
+    );
 
     expect(packageJson.bin["agent-session-search-doctor"]).toBe(
       "dist/fff-preflight.js"
@@ -50,8 +54,10 @@ describe("FFF preflight command", () => {
     );
     expect(readme).toContain("npm run check:fff");
     expect(readme).toContain("agent-session-search-doctor");
-    expect(readme).toContain("AGENT_SESSION_SEARCH_FFF_DB_DIR");
     expect(readme).toContain("AGENT_SESSION_SEARCH_CONFIG");
+    expect(readme).toContain("[Configuration](docs/configuration.md)");
+    expect(configDocs).toContain("AGENT_SESSION_SEARCH_FFF_DB_DIR");
+    expect(configDocs).toContain("AGENT_SESSION_SEARCH_CONFIG");
   });
 
   it("fails with actionable installer guidance when fff-mcp is missing from PATH", async () => {
