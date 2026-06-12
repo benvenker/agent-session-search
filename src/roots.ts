@@ -96,6 +96,11 @@ export function defaultSessionRoots(home = homedir()): SessionRootConfig[] {
     },
     { name: "hermes", path: join(home, ".hermes", "sessions"), include: ["*"] },
     {
+      name: "gemini",
+      path: join(home, ".gemini", "tmp"),
+      include: ["*/chats/*.json", "*/logs.json"],
+    },
+    {
       name: "pool",
       path: join(home, "Library", "Application Support", "poolside"),
       include: [

@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/npm/l/@benvenker/agent-session-search.svg)](./LICENSE)
 ![node](https://img.shields.io/badge/node-%3E%3D22.12.0-339933)
 
-Local MCP server and CLI for searching coding-agent session history across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and configured text transcript roots.
+Local MCP server and CLI for searching coding-agent session history across Codex, Claude Code, Gemini, Cursor, Pi, Hermes, Pool, and configured text transcript roots.
 
 Agent Session Search wraps [FFF][fff]. It keeps raw session files as the source of truth, fans out one lexical search across enabled source roots, and returns canonical absolute paths plus bounded evidence.
 
@@ -117,6 +117,7 @@ Built-in source roots:
 | `pi`     | `~/.pi/agent/sessions`                   | Pi session records.                               |
 | `cursor` | `~/.cursor/projects`                     | Cursor agent transcript paths.                    |
 | `hermes` | `~/.hermes/sessions`                     | Hermes session records.                           |
+| `gemini` | `~/.gemini/tmp`                          | Gemini CLI chat JSON and logs.                    |
 | `pool`   | `~/Library/Application Support/poolside` | Shared Pool CLI and Poolside Studio history root. |
 
 Add a custom text transcript root without re-declaring the built-ins:

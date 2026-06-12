@@ -41,6 +41,7 @@ claude -> ~/.claude/projects
 pi     -> ~/.pi/agent/sessions
 cursor -> ~/.cursor/projects
 hermes -> ~/.hermes/sessions
+gemini -> ~/.gemini/tmp
 pool   -> ~/Library/Application Support/poolside
 ```
 

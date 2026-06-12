@@ -17,6 +17,7 @@ Override that path with `AGENT_SESSION_SEARCH_CONFIG`.
 | `pi`     | `~/.pi/agent/sessions`                   | `*`                                                                                                    |
 | `cursor` | `~/.cursor/projects`                     | `*/agent-transcripts/**/*.jsonl`, `*/agent-transcripts/**/*.json`                                      |
 | `hermes` | `~/.hermes/sessions`                     | `*`                                                                                                    |
+| `gemini` | `~/.gemini/tmp`                          | `*/chats/*.json`, `*/logs.json`                                                                        |
 | `pool`   | `~/Library/Application Support/poolside` | `trajectories/*.ndjson`, `logs/*.log`, `sessions/*.json`, `acp/**/*.json`                              |
 
 Codex live and archived sessions stay under the single `codex` source. Pool is modeled as one `pool` source rooted at the shared Pool history directory; the Pool binary install path is not the session-history path.

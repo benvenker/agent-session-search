@@ -30,7 +30,7 @@ import {
   type SessionRootConfig,
 } from "./roots.js";
 import { rewriteQueryPatterns } from "./query-rewriter.js";
-import { basename, isAbsolute, normalize, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 export type SessionSearchBackendInput = {
   patterns: string[];
@@ -271,8 +271,11 @@ async function searchSourceSlot({
 
     const output = await backend.search(backendInput);
     warnings.push(...output.warnings);
+    const canonicalResults = await Promise.all(
+      output.results.map((result) => canonicalizeSearchResult(result, source))
+    );
     const sourceResults = maybeCapResults(
-      output.results.filter((result) =>
+      canonicalResults.filter((result) =>
         resultMatchesSourceFilters(result, source, input)
       ),
       requestMaxResultsPerSource
@@ -337,6 +340,33 @@ async function searchSourceSlot({
     results,
     failed,
     unscopedEvidenceCapReached,
+  };
+}
+
+async function canonicalizeSearchResult(
+  result: SearchResult,
+  source: ResolvedSessionSource
+): Promise<SearchResult> {
+  const absolutePath = isAbsolute(result.path)
+    ? result.path
+    : join(source.root, result.path);
+  let path = normalize(absolutePath);
+
+  try {
+    path = await realpath(path);
+  } catch {
+    try {
+      path = join(await realpath(dirname(path)), basename(path));
+    } catch {
+      // Search results can point at files deleted between backend search and
+      // shaping. Keep an absolute normalized path rather than dropping evidence.
+    }
+  }
+
+  return {
+    ...result,
+    root: source.root,
+    path,
   };
 }
 

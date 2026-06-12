@@ -37,6 +37,11 @@ describe("resolveSessionRoots", () => {
       },
       { name: "hermes", path: "/Users/ben/.hermes/sessions", include: ["*"] },
       {
+        name: "gemini",
+        path: "/Users/ben/.gemini/tmp",
+        include: ["*/chats/*.json", "*/logs.json"],
+      },
+      {
         name: "pool",
         path: "/Users/ben/Library/Application Support/poolside",
         include: [

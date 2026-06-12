@@ -4,6 +4,7 @@ export type BuiltinSource =
   | "pi"
   | "cursor"
   | "hermes"
+  | "gemini"
   | "pool";
 export type SourceName = BuiltinSource | (string & {});
 
