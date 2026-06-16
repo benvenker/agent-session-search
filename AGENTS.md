@@ -20,6 +20,15 @@ Repo-local guidance for coding agents working in this project.
 - Run MCP server in development: `npm run dev:mcp`
 - Run CLI smoke path: `npm run dev:cli -- "auth token timeout" --json`
 
+## Smithers
+
+- Smithers is installed repo-locally under `.smithers/`; it provides durable workflow orchestration for larger agent tasks.
+- Invoke the CLI as `bunx smithers-orchestrator <command>`. Do not use `bunx smithers`; the Smithers docs note that `smithers` is an unrelated npm package name.
+- Project MCP config lives in `.mcp.json` and registers Smithers with `bunx smithers-orchestrator --mcp`.
+- List available local workflows with `bunx smithers-orchestrator workflow list --format md`.
+- Validate the workflow pack with `cd .smithers && bun run typecheck`.
+- Generated per-command Smithers skills under `.agents/skills/` are local agent artifacts and remain ignored by this repo.
+
 ## Agent skills
 
 ### Issue tracker
