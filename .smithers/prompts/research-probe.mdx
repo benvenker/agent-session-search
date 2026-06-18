@@ -1,0 +1,21 @@
+# Research Probe
+
+Answer one narrow research question for the request below.
+
+Do not implement code. Do not produce a full plan. Gather concrete evidence:
+file paths, relevant symbols, tests, docs, commands, and links when external
+research is truly needed. Keep the answer compact enough to pass to a planner.
+Set `perspective` to a short name for this probe.
+
+REQUEST:
+{props.prompt}
+
+PROBE:
+{props.probe}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

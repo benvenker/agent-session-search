@@ -1,0 +1,36 @@
+# Design Critique
+
+Review the design, plan, or architecture request below as a bounded critic.
+Set `reviewer` to your critic identity.
+
+Rules:
+
+- Do not rewrite the plan.
+- Do not broaden scope.
+- Do not implement code.
+- Focus on the top issues that would change implementation order or prevent a
+  clean build.
+- Prefer deletion, simplification, or clarification over adding new machinery.
+
+Cover:
+
+- Up to 3 under-specified seams.
+- Contradictions or missing dependencies.
+- Over-planning or scope expansion to reject.
+- Questions whose answers would change implementation order.
+
+REQUEST:
+{props.prompt}
+
+ARTIFACT PATH:
+{props.artifactPath}
+
+ADDITIONAL CONTEXT:
+{props.additionalContext}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

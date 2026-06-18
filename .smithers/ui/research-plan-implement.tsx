@@ -7,8 +7,10 @@ import {
   useGatewayRunEvents,
   useGatewayRuns,
 } from "smithers-orchestrator/gateway-react";
+import { selectLatestLoopAttempt } from "./loop-attempts";
 
 const WORKFLOW_KEY = "research-plan-implement";
+const MAX_ITERATIONS = 3;
 
 type RunSummary = {
   runId: string;
@@ -45,20 +47,46 @@ function rowOf(value: unknown): Record<string, unknown> {
   return row;
 }
 
-type ResearchOutput = { summary: string; keyFindings: string[] };
+type ResearchOutput = {
+  summary: string;
+  keyFindings: string[];
+  files: string[];
+  risks: string[];
+  openQuestions: string[];
+};
 function extractResearch(value: unknown): ResearchOutput | null {
   const row = rowOf(value);
   const summary = asString(row.summary);
   if (summary === undefined) return null;
-  return { summary, keyFindings: asStringArray(row.keyFindings) };
+  return {
+    summary,
+    keyFindings: asStringArray(row.keyFindings),
+    files: asStringArray(row.files),
+    risks: asStringArray(row.risks),
+    openQuestions: asStringArray(row.openQuestions),
+  };
 }
 
-type PlanOutput = { summary: string; steps: string[] };
+type PlanOutput = {
+  summary: string;
+  steps: string[];
+  files: string[];
+  risks: string[];
+  validation: string[];
+  openQuestions: string[];
+};
 function extractPlan(value: unknown): PlanOutput | null {
   const row = rowOf(value);
   const summary = asString(row.summary);
   if (summary === undefined) return null;
-  return { summary, steps: asStringArray(row.steps) };
+  return {
+    summary,
+    steps: asStringArray(row.steps),
+    files: asStringArray(row.files),
+    risks: asStringArray(row.risks),
+    validation: asStringArray(row.validation),
+    openQuestions: asStringArray(row.openQuestions),
+  };
 }
 
 type ImplementOutput = {
@@ -277,20 +305,50 @@ function App() {
     nodeId: "plan",
     iteration: 0,
   });
-  const implementOut = useGatewayNodeOutput({
+  const implement0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:implement",
     iteration: 0,
   });
-  const validateOut = useGatewayNodeOutput({
+  const implement1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:implement",
+    iteration: 1,
+  });
+  const implement2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:implement",
+    iteration: 2,
+  });
+  const validate0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:validate",
     iteration: 0,
   });
-  const reviewOut = useGatewayNodeOutput({
+  const validate1Out = useGatewayNodeOutput({
     runId: activeRunId,
-    nodeId: "impl:review:0",
+    nodeId: "impl:validate",
+    iteration: 1,
+  });
+  const validate2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:validate",
+    iteration: 2,
+  });
+  const review0Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
     iteration: 0,
+  });
+  const review1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
+    iteration: 1,
+  });
+  const review2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
+    iteration: 2,
   });
 
   const research = useMemo(
@@ -298,15 +356,21 @@ function App() {
     [researchOut.data]
   );
   const plan = useMemo(() => extractPlan(planOut.data), [planOut.data]);
-  const implement = useMemo(
-    () => extractImplement(implementOut.data),
-    [implementOut.data]
-  );
-  const validate = useMemo(
-    () => extractValidate(validateOut.data),
-    [validateOut.data]
-  );
-  const review = useMemo(() => extractReview(reviewOut.data), [reviewOut.data]);
+  const attemptQueries = [
+    { implement: implement0Out, validate: validate0Out, review: review0Out },
+    { implement: implement1Out, validate: validate1Out, review: review1Out },
+    { implement: implement2Out, validate: validate2Out, review: review2Out },
+  ];
+  const attempts = attemptQueries.map((attempt, iteration) => ({
+    iteration,
+    implement: extractImplement(attempt.implement.data),
+    validate: extractValidate(attempt.validate.data),
+    review: extractReview(attempt.review.data),
+  }));
+  const latestAttempt = selectLatestLoopAttempt(attempts);
+  const implement = latestAttempt?.implement ?? null;
+  const validate = latestAttempt?.validate ?? null;
+  const review = latestAttempt?.review ?? null;
 
   const eventCount = (stream.events ?? []).length;
   const running = statusClass(activeRun?.status) === "running";
@@ -316,9 +380,11 @@ function App() {
       runsQuery.refetch(),
       researchOut.refetch(),
       planOut.refetch(),
-      implementOut.refetch(),
-      validateOut.refetch(),
-      reviewOut.refetch(),
+      ...attemptQueries.flatMap((attempt) => [
+        attempt.implement.refetch(),
+        attempt.validate.refetch(),
+        attempt.review.refetch(),
+      ]),
     ]);
   }
   async function launch() {
@@ -329,7 +395,7 @@ function App() {
         input: { prompt, tdd },
       });
       setSelectedRunId(run.runId);
-      await refresh();
+      await runsQuery.refetch();
     } finally {
       setBusy(false);
     }
@@ -386,6 +452,11 @@ function App() {
             </span>
           ) : null}
           {tdd ? <span className="badge tdd">TDD</span> : null}
+          {activeRunId ? (
+            <span className="pill">
+              Attempt {(latestAttempt?.iteration ?? 0) + 1} / {MAX_ITERATIONS}
+            </span>
+          ) : null}
         </div>
         <div className="toolbar">
           <input
@@ -507,6 +578,29 @@ function App() {
                         ) : (
                           <div className="kv">No key findings recorded.</div>
                         )}
+                        {research.files.length > 0 ? (
+                          <>
+                            <div className="kv">Files</div>
+                            <ul className="files">
+                              {research.files.map((f, i) => (
+                                <li key={i}>{f}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        {research.risks.length > 0 ? (
+                          <>
+                            <div className="kv">Risks</div>
+                            <ul className="findings">
+                              {research.risks.map((risk, i) => (
+                                <li key={i}>
+                                  <span className="dot" />
+                                  <span>{risk}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
                       </>
                     ) : null}
                   </Panel>
@@ -517,10 +611,10 @@ function App() {
                     title="Plan"
                     testId="plan-panel"
                     badge={
-                      tdd
-                        ? { text: "test-first", cls: "tdd" }
-                        : plan
-                          ? { text: "ready", cls: "ok" }
+                      plan
+                        ? { text: "ready", cls: "ok" }
+                        : tdd
+                          ? { text: "test-first option", cls: "tdd" }
                           : null
                     }
                     pending={plan === null}
@@ -541,6 +635,29 @@ function App() {
                         ) : (
                           <div className="kv">No steps in this plan.</div>
                         )}
+                        {plan.validation.length > 0 ? (
+                          <>
+                            <div className="kv">Validation</div>
+                            <ul className="findings">
+                              {plan.validation.map((v, i) => (
+                                <li key={i}>
+                                  <span className="dot" />
+                                  <span>{v}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        {plan.files.length > 0 ? (
+                          <>
+                            <div className="kv">Files</div>
+                            <ul className="files">
+                              {plan.files.map((f, i) => (
+                                <li key={i}>{f}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
                       </>
                     ) : null}
                   </Panel>
@@ -636,12 +753,14 @@ function App() {
                           : null
                       }
                       pending={review === null}
-                      pendingText="Awaiting reviewer..."
+                      pendingText="Awaiting review synthesis..."
                     >
                       {review ? (
                         <div className="reviewer-card">
                           <div className="reviewer-head">
-                            <strong>{review.reviewer}</strong>
+                            <strong>
+                              {review.reviewer || "review-synthesis"}
+                            </strong>
                             <span
                               className={
                                 "badge " + (review.approved ? "ok" : "err")
@@ -685,15 +804,17 @@ function App() {
                   {reviewerApproved && validate && validate.allPassed ? (
                     <>
                       <span className="badge ok">complete</span>
-                      <span>Validation passed and reviewers approved.</span>
+                      <span>
+                        Validation passed and review synthesis approved.
+                      </span>
                     </>
                   ) : (
                     <>
                       <span className="badge warn">
-                        awaiting reviewer approvals
+                        awaiting synthesized review
                       </span>
                       <span className="muted">
-                        Multi-reviewer approval is the final gate before
+                        The synthesized review is the final gate before
                         completion.
                       </span>
                     </>

@@ -133,7 +133,7 @@ const designSchema = z.looseObject({
         agent: z
           .string()
           .describe(
-            "agents.smart | agents.smartTool | agents.cheapFast | (none) for a function task."
+            "Named pool from agents.ts, e.g. agents.explorer, agents.plannerSynthesis, agents.engineer, agents.design, agents.review, agents.cheapFast, or (none) for a function task."
           ),
         outputs: z.array(z.string()).default([]),
       })
@@ -259,7 +259,7 @@ export default smithers((ctx) => {
 
         {/* 3 — Design the concrete workflow graph from spec + provisioning. */}
         {provision ? (
-          <Task id="design" output={outputs.design} agent={agents.smart}>
+          <Task id="design" output={outputs.design} agent={agents.design}>
             <DesignPrompt
               spec={clarify}
               provisioning={provision}

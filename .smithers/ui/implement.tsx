@@ -7,8 +7,10 @@ import {
   useGatewayRunEvents,
   useGatewayRuns,
 } from "smithers-orchestrator/gateway-react";
+import { selectLatestLoopAttempt } from "./loop-attempts";
 
 const WORKFLOW_KEY = "implement";
+const MAX_ITERATIONS = 3;
 
 type RunSummary = {
   runId: string;
@@ -86,6 +88,8 @@ type ReviewOutput = {
   approved: boolean | undefined;
   feedback: string;
   issues: ReviewIssue[];
+  disagreements?: string[];
+  synthesizedFrom?: string[];
 };
 function extractReview(value: unknown): ReviewOutput | null {
   const row = unwrapRow(value);
@@ -252,93 +256,181 @@ function App() {
   const activeRun = implementRuns.find((r) => r.runId === activeRunId);
   const stream = useGatewayRunEvents(activeRunId, { afterSeq: 0 });
 
-  const implementOut = useGatewayNodeOutput({
+  const implement0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:implement",
     iteration: 0,
   });
-  const validateOut = useGatewayNodeOutput({
+  const implement1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:implement",
+    iteration: 1,
+  });
+  const implement2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:implement",
+    iteration: 2,
+  });
+  const validate0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:validate",
     iteration: 0,
   });
-  const review0Out = useGatewayNodeOutput({
+  const validate1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:validate",
+    iteration: 1,
+  });
+  const validate2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:validate",
+    iteration: 2,
+  });
+  const review00Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:review:0",
     iteration: 0,
   });
-  const review1Out = useGatewayNodeOutput({
+  const review01Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "impl:review:1",
     iteration: 0,
   });
+  const review02Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:2",
+    iteration: 0,
+  });
+  const review0SynthesisOut = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
+    iteration: 0,
+  });
+  const review10Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:0",
+    iteration: 1,
+  });
+  const review11Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:1",
+    iteration: 1,
+  });
+  const review12Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:2",
+    iteration: 1,
+  });
+  const review1SynthesisOut = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
+    iteration: 1,
+  });
+  const review20Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:0",
+    iteration: 2,
+  });
+  const review21Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:1",
+    iteration: 2,
+  });
+  const review22Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:2",
+    iteration: 2,
+  });
+  const review2SynthesisOut = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "impl:review:synthesize",
+    iteration: 2,
+  });
 
-  const implement = useMemo(
-    () => extractImplement(implementOut.data),
-    [implementOut.data]
-  );
-  const validate = useMemo(
-    () => extractValidate(validateOut.data),
-    [validateOut.data]
-  );
-  const review0 = useMemo(
-    () => extractReview(review0Out.data),
-    [review0Out.data]
-  );
-  const review1 = useMemo(
-    () => extractReview(review1Out.data),
-    [review1Out.data]
-  );
-  const reviews = useMemo(
-    () => [review0, review1].filter((r): r is ReviewOutput => r !== null),
-    [review0, review1]
-  );
+  const attemptQueries = [
+    {
+      implement: implement0Out,
+      validate: validate0Out,
+      review: review0SynthesisOut,
+      evidence: [review00Out, review01Out, review02Out],
+    },
+    {
+      implement: implement1Out,
+      validate: validate1Out,
+      review: review1SynthesisOut,
+      evidence: [review10Out, review11Out, review12Out],
+    },
+    {
+      implement: implement2Out,
+      validate: validate2Out,
+      review: review2SynthesisOut,
+      evidence: [review20Out, review21Out, review22Out],
+    },
+  ];
+  const attempts = attemptQueries.map((attempt, iteration) => ({
+    iteration,
+    implement: extractImplement(attempt.implement.data),
+    validate: extractValidate(attempt.validate.data),
+    review: extractReview(attempt.review.data),
+    evidence: attempt.evidence
+      .map((query) => extractReview(query.data))
+      .filter((r): r is ReviewOutput => r !== null),
+  }));
+  const latestAttempt = selectLatestLoopAttempt(attempts);
+  const implement = latestAttempt?.implement ?? null;
+  const validate = latestAttempt?.validate ?? null;
+  const review = latestAttempt?.review ?? null;
+  const reviews = latestAttempt?.evidence ?? [];
 
   const eventCount = (stream.events ?? []).length;
 
   const validationPassed = validate !== null && validate.allPassed !== false;
-  const anyApproved =
-    reviews.length > 0 && reviews.some((r) => r.approved === true);
-  const anyRejected = reviews.some((r) => r.approved === false);
-  const done = validationPassed && anyApproved;
+  const reviewApproved = review !== null && review.approved === true;
+  const reviewRejected = review !== null && review.approved === false;
+  const done = validationPassed && reviewApproved;
   const blocked =
-    (validate !== null && validate.allPassed === false) ||
-    (reviews.length > 0 && anyRejected && !anyApproved);
+    (validate !== null && validate.allPassed === false) || reviewRejected;
 
   const feedbackParts: string[] = [];
   if (validate && validate.allPassed === false && validate.failingSummary) {
     feedbackParts.push("VALIDATION FAILED:\n" + validate.failingSummary);
   }
-  for (const review of reviews) {
-    if (review.approved === false) {
+  if (review?.approved === false) {
+    feedbackParts.push(
+      "REVIEW SYNTHESIS REJECTED (" +
+        (review.reviewer || "review-synthesis") +
+        "):\n" +
+        review.feedback
+    );
+    for (const issue of review.issues) {
       feedbackParts.push(
-        "REVIEWER REJECTED (" + review.reviewer + "):\n" + review.feedback
+        "  [" +
+          issue.severity +
+          "] " +
+          issue.title +
+          ": " +
+          issue.description +
+          (issue.file ? " (" + issue.file + ")" : "")
       );
-      for (const issue of review.issues) {
-        feedbackParts.push(
-          "  [" +
-            issue.severity +
-            "] " +
-            issue.title +
-            ": " +
-            issue.description +
-            (issue.file ? " (" + issue.file + ")" : "")
-        );
-      }
     }
   }
   const feedback = feedbackParts.length > 0 ? feedbackParts.join("\n\n") : null;
 
   const hasAnyOutput =
-    implement !== null || validate !== null || reviews.length > 0;
+    implement !== null ||
+    validate !== null ||
+    review !== null ||
+    reviews.length > 0;
 
   async function refresh() {
     await Promise.all([
       runsQuery.refetch(),
-      implementOut.refetch(),
-      validateOut.refetch(),
-      review0Out.refetch(),
-      review1Out.refetch(),
+      ...attemptQueries.flatMap((attempt) => [
+        attempt.implement.refetch(),
+        attempt.validate.refetch(),
+        attempt.review.refetch(),
+        ...attempt.evidence.map((query) => query.refetch()),
+      ]),
     ]);
   }
   async function launch() {
@@ -349,7 +441,7 @@ function App() {
         input: { prompt },
       });
       setSelectedRunId(run.runId);
-      await refresh();
+      await runsQuery.refetch();
     } finally {
       setBusy(false);
     }
@@ -369,9 +461,9 @@ function App() {
   const bannerIcon = done ? "✓" : blocked ? "✕" : "○";
   const bannerLabel = done ? "DONE" : blocked ? "BLOCKED" : "IN PROGRESS";
   const bannerSub = done
-    ? "Validation passed and at least one reviewer approved."
+    ? "Validation passed and review synthesis approved."
     : blocked
-      ? "Validation failed or reviewers rejected this attempt."
+      ? "Validation failed or review synthesis rejected this attempt."
       : "Iterating: implement, validate, then review.";
 
   const implDot = implement
@@ -384,7 +476,7 @@ function App() {
       ? "err"
       : "ok"
     : "pending";
-  const revDot = reviews.length === 0 ? "pending" : anyApproved ? "ok" : "err";
+  const revDot = review === null ? "pending" : reviewApproved ? "ok" : "err";
 
   return (
     <main className="shell" data-testid="implement-ui">
@@ -404,7 +496,7 @@ function App() {
             </span>
           ) : null}
           <span className="iteration" data-testid="implement-iteration">
-            Loop · up to 3 iterations
+            Attempt {(latestAttempt?.iteration ?? 0) + 1} / {MAX_ITERATIONS}
           </span>
         </div>
         <div className="toolbar">
@@ -530,13 +622,43 @@ function App() {
                 title="Review"
                 dot={revDot}
                 meta={
-                  reviews.length > 0
-                    ? reviews.length + " reviewer(s)"
-                    : "pending"
+                  review
+                    ? review.approved
+                      ? "approved"
+                      : "rejected"
+                    : reviews.length > 0
+                      ? reviews.length + " evidence lane(s)"
+                      : "pending"
                 }
-                emptyText="Waiting for reviewers to produce verdicts."
-                hasContent={reviews.length > 0}
+                emptyText="Waiting for review synthesis."
+                hasContent={review !== null || reviews.length > 0}
               >
+                {review ? (
+                  <div
+                    className="reviewer-card"
+                    data-testid="implement-review-synthesis"
+                  >
+                    <div className="reviewer-head">
+                      <span className="reviewer-name">
+                        {review.reviewer || "review-synthesis"}
+                      </span>
+                      <span
+                        className={
+                          "verdict " +
+                          (review.approved ? "approved" : "rejected")
+                        }
+                      >
+                        {review.approved ? "Approved" : "Rejected"}
+                      </span>
+                    </div>
+                    <div className="reviewer-feedback">
+                      {review.feedback || "No feedback text."}
+                    </div>
+                  </div>
+                ) : null}
+                {reviews.length > 0 ? (
+                  <div className="kv">Reviewer evidence</div>
+                ) : null}
                 <div className="reviewers">
                   {reviews.map((r, i) => (
                     <div
@@ -607,7 +729,12 @@ function App() {
                 style={{ marginTop: 16, color: "var(--muted)" }}
               >
                 <span>{eventCount} events</span>
-                {implementOut.loading || validateOut.loading ? (
+                {attemptQueries.some(
+                  (attempt) =>
+                    attempt.implement.loading ||
+                    attempt.validate.loading ||
+                    attempt.review.loading
+                ) ? (
                   <span>· refreshing…</span>
                 ) : null}
               </div>

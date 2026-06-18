@@ -1,0 +1,21 @@
+# Design Critique Synthesis
+
+Synthesize the design critiques into one bounded decision.
+Set `reviewer` to `design-synthesis`.
+
+Your job is not to average votes. Keep the strongest findings, discard scope
+expansion, and return a concise critique that helps decide whether the work is
+ready to proceed.
+
+REQUEST:
+{props.prompt}
+
+CRITIQUES:
+{props.critiques}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

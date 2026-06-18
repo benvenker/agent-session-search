@@ -25,8 +25,8 @@ Prompts go in: {props.promptsDir}
 - **One `.tsx` workflow** in `{props.workflowsDir}/<workflowName>.tsx`, importing
   `agents` from `../agents`, with `createSmithers({ input, ...outputTables })`.
 - **Prompts as `.mdx`.** Each substantive AI task renders an `.mdx` prompt from
-  `{props.promptsDir}` that ends with `REQUIRED OUTPUT:\n{props.schema}` so the
-  task's Zod output schema is injected automatically.
+  `{props.promptsDir}` that ends with `REQUIRED OUTPUT:\n{props.schema}` plus the
+  raw JSON only contract so the task's Zod output schema is injected automatically.
 - **Typed outputs.** Every `<Task>` gets a Zod `output={outputs.x}` schema. Keep
   schemas minimal — a `summary` plus the few fields downstream steps actually read.
 - **Pick the control flow deliberately:** `<Sequence>` for ordered stages,
@@ -34,9 +34,13 @@ Prompts go in: {props.promptsDir}
   paths, `<Loop>/<Ralph until maxIterations onMaxReached>` for "repeat until done".
 - **Human gates** become `<Approval>` / `<HumanTask>` nodes only where the spec
   asked for them.
-- **Agents per task:** map each task to a pool from the manifest (`agents.smart`,
-  `agents.smartTool` for file/shell work, `agents.cheapFast` for cheap checks);
-  function tasks (no agent) for pure compute / shelling out.
+- **Agents per task:** map each task to a semantic pool from the manifest:
+  `agents.explorer` for cheap context gathering, `agents.plannerSynthesis` for
+  planning/synthesis, `agents.engineer` for ordinary implementation,
+  `agents.design` for architecture/design critique or generation,
+  `agents.review` plus `agents.reviewSynthesis` for review flows, and
+  `agents.cheapFast` for cheap checks. Function tasks (no agent) are for pure
+  compute / shelling out.
 
 ## Produce
 
@@ -53,3 +57,7 @@ Make it concrete enough that the scaffolder can implement it without guessing.
 
 REQUIRED OUTPUT:
 {props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

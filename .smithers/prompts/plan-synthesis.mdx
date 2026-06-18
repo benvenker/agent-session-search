@@ -1,0 +1,31 @@
+# Plan Synthesis
+
+Produce the final practical implementation plan.
+
+Use the shared context and candidate plans. Your job is not to average the
+plans. Identify gaps, remove over-planning, preserve useful disagreements, and
+return the best executable plan.
+
+Rules:
+
+- Keep the plan scoped to the request.
+- Prefer existing project patterns.
+- Include validation and review steps.
+- Note open questions only when they would change implementation order.
+- Do not implement code.
+
+REQUEST:
+{props.prompt}
+
+SHARED CONTEXT:
+{props.context}
+
+CANDIDATE PLANS:
+{props.candidates}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

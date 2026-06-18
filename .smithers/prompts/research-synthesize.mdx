@@ -1,0 +1,26 @@
+# Research Synthesis
+
+Synthesize the probe results into one context packet for downstream planning or
+implementation.
+
+Rules:
+
+- Prefer concrete evidence over speculation.
+- Preserve useful file paths, commands, tests, symbols, and external links.
+- Call out uncertainty and open questions.
+- Do not implement code.
+- Do not write an implementation plan unless the evidence forces one obvious next
+  step.
+
+REQUEST:
+{props.prompt}
+
+PROBE RESULTS:
+{props.results}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

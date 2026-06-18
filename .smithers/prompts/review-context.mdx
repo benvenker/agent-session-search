@@ -1,0 +1,23 @@
+# Review Context
+
+Build a small shared context packet for a bounded review.
+Return ONLY the required JSON object.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.
+
+Inspect the request and current repository state enough to orient reviewers. Keep this compact and factual.
+Do not decide approval. Do not perform the full review.
+
+REQUEST:
+{props.prompt}
+
+Include:
+
+- `summary`: a concise statement of what changed or what must be reviewed.
+- `focusAreas`: the highest-risk areas reviewers should independently verify.
+- `evidence`: concrete files, commands, diffs, tests, or observations that establish the review scope.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.

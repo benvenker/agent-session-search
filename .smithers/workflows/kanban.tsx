@@ -15,10 +15,16 @@ import { z } from "zod/v4";
 import { agents } from "../agents";
 import {
   ValidationLoop,
+  buildValidationReviewGate,
   implementOutputSchema,
   validateOutputSchema,
 } from "../components/ValidationLoop";
-import { reviewOutputSchema } from "../components/Review";
+import {
+  reviewContextOutputSchema,
+  reviewFindingOutputSchema,
+  reviewOutputSchema,
+  reviewSynthesisNodeId,
+} from "../components/Review";
 import MergeTicketsPrompt from "../prompts/merge-tickets.mdx";
 
 const ticketResultSchema = z.object({
@@ -53,6 +59,8 @@ const { Workflow, Task, smithers, outputs } = createSmithers({
   tickets: ticketListSchema,
   implement: implementOutputSchema,
   validate: validateOutputSchema,
+  reviewContext: reviewContextOutputSchema,
+  reviewFinding: reviewFindingOutputSchema,
   review: reviewOutputSchema,
   ticketResult: ticketResultSchema,
   merge: mergeResultSchema,
@@ -99,47 +107,11 @@ function buildFeedback(
   ctx: any,
   slug: string
 ): { feedback: string | null; done: boolean } {
-  const validate = ctx.outputMaybe("validate", { nodeId: `${slug}:validate` });
-  const reviews = ctx.outputs.review ?? [];
-
-  // Filter reviews for this ticket's prefix
-  const ticketReviews = reviews.filter((r: any) =>
-    r.reviewer?.startsWith?.("reviewer-")
-  );
-
-  // done = false until validate has actually run AND passed, AND at least one reviewer approved
-  const hasValidated = validate !== undefined;
-  const validationPassed = hasValidated && validate.allPassed !== false;
-  const anyReviewApproved =
-    ticketReviews.length > 0 &&
-    ticketReviews.some((r: any) => r.approved === true);
-  const done = validationPassed && anyReviewApproved;
-
-  if (!hasValidated) return { feedback: null, done: false };
-
-  const parts: string[] = [];
-
-  if (!validationPassed && validate.failingSummary) {
-    parts.push(`VALIDATION FAILED:\n${validate.failingSummary}`);
-  }
-
-  for (const review of ticketReviews) {
-    if (review.approved === false) {
-      parts.push(`REVIEWER REJECTED:\n${review.feedback}`);
-      if (review.issues?.length) {
-        for (const issue of review.issues) {
-          parts.push(
-            `  [${issue.severity}] ${issue.title}: ${issue.description}${issue.file ? ` (${issue.file})` : ""}`
-          );
-        }
-      }
-    }
-  }
-
-  return {
-    feedback: parts.length > 0 ? parts.join("\n\n") : null,
-    done,
-  };
+  const gate = buildValidationReviewGate({
+    validate: ctx.latest("validate", `${slug}:validate`),
+    review: ctx.latest("review", reviewSynthesisNodeId(`${slug}:review`)),
+  });
+  return { feedback: gate.feedback, done: gate.done };
 }
 
 export default smithers((ctx) => {
@@ -174,9 +146,11 @@ export default smithers((ctx) => {
                   <ValidationLoop
                     idPrefix={ticket.slug}
                     prompt={`Implement the ticket below.\n\nTICKET FILE: .smithers/tickets/${ticket.id}\n\n${ticket.content}`}
-                    implementAgents={agents.smart}
-                    validateAgents={agents.smart}
-                    reviewAgents={agents.smart}
+                    implementAgents={agents.engineer}
+                    validateAgents={agents.cheapFast}
+                    reviewContextAgent={agents.reviewContext}
+                    reviewAgents={agents.review}
+                    reviewSynthesisAgent={agents.reviewSynthesis}
                     feedback={feedback}
                     done={done}
                     maxIterations={3}

@@ -7,7 +7,12 @@
 import { createSmithers } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import { agents } from "../agents";
-import { Review, reviewOutputSchema } from "../components/Review";
+import {
+  Review,
+  reviewContextOutputSchema,
+  reviewFindingOutputSchema,
+  reviewOutputSchema,
+} from "../components/Review";
 
 const inputSchema = z.object({
   prompt: z.string().default("Review the current repository changes."),
@@ -15,11 +20,19 @@ const inputSchema = z.object({
 
 const { Workflow, smithers } = createSmithers({
   input: inputSchema,
+  reviewContext: reviewContextOutputSchema,
+  reviewFinding: reviewFindingOutputSchema,
   review: reviewOutputSchema,
 });
 
 export default smithers((ctx) => (
   <Workflow name="review">
-    <Review idPrefix="review" prompt={ctx.input.prompt} agents={agents.smart} />
+    <Review
+      idPrefix="review"
+      prompt={ctx.input.prompt}
+      contextAgent={agents.reviewContext}
+      agents={agents.review}
+      synthesisAgent={agents.reviewSynthesis}
+    />
   </Workflow>
 ));

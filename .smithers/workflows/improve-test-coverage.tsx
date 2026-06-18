@@ -9,10 +9,16 @@ import { z } from "zod/v4";
 import { agents } from "../agents";
 import {
   ValidationLoop,
+  buildValidationReviewGate,
   implementOutputSchema,
   validateOutputSchema,
 } from "../components/ValidationLoop";
-import { reviewOutputSchema } from "../components/Review";
+import {
+  reviewContextOutputSchema,
+  reviewFindingOutputSchema,
+  reviewOutputSchema,
+  reviewSynthesisNodeId,
+} from "../components/Review";
 
 const inputSchema = z.object({
   prompt: z
@@ -24,17 +30,34 @@ const { Workflow, smithers } = createSmithers({
   input: inputSchema,
   implement: implementOutputSchema,
   validate: validateOutputSchema,
+  reviewContext: reviewContextOutputSchema,
+  reviewFinding: reviewFindingOutputSchema,
   review: reviewOutputSchema,
 });
 
-export default smithers((ctx) => (
-  <Workflow name="improve-test-coverage">
-    <ValidationLoop
-      idPrefix="improve-test-coverage"
-      prompt={ctx.input.prompt}
-      implementAgents={agents.smart}
-      validateAgents={agents.cheapFast}
-      reviewAgents={agents.smart}
-    />
-  </Workflow>
-));
+export default smithers((ctx) => {
+  const gate = buildValidationReviewGate({
+    validate: ctx.latest("validate", "improve-test-coverage:validate"),
+    review: ctx.latest(
+      "review",
+      reviewSynthesisNodeId("improve-test-coverage:review")
+    ),
+  });
+
+  return (
+    <Workflow name="improve-test-coverage">
+      <ValidationLoop
+        idPrefix="improve-test-coverage"
+        prompt={ctx.input.prompt}
+        implementAgents={agents.engineer}
+        validateAgents={agents.cheapFast}
+        reviewContextAgent={agents.reviewContext}
+        reviewAgents={agents.review}
+        reviewSynthesisAgent={agents.reviewSynthesis}
+        feedback={gate.feedback}
+        done={gate.done}
+        maxIterations={3}
+      />
+    </Workflow>
+  );
+});

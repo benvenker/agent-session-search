@@ -7,39 +7,98 @@
 /** @jsxImportSource smithers-orchestrator */
 import { createSmithers } from "smithers-orchestrator";
 import { z } from "zod/v4";
-import { agents } from "../agents";
+import { agents, plannerPanel } from "../agents";
+import {
+  PlannerPanel,
+  planCandidateOutputSchema,
+  planContextOutputSchema,
+  planOutputSchema,
+} from "../components/PlannerPanel";
+import {
+  ResearchContext,
+  researchOutputSchema,
+  researchProbeOutputSchema,
+} from "../components/ResearchContext";
 import {
   ValidationLoop,
+  buildValidationReviewGate,
   implementOutputSchema,
   validateOutputSchema,
 } from "../components/ValidationLoop";
-import { reviewOutputSchema } from "../components/Review";
-import ResearchPrompt from "../prompts/research.mdx";
-import PlanPrompt from "../prompts/plan.mdx";
-
-const researchOutputSchema = z.looseObject({
-  summary: z.string(),
-  keyFindings: z.array(z.string()).default([]),
-});
-
-const planOutputSchema = z.looseObject({
-  summary: z.string(),
-  steps: z.array(z.string()).default([]),
-});
+import {
+  reviewContextOutputSchema,
+  reviewFindingOutputSchema,
+  reviewOutputSchema,
+  reviewSynthesisNodeId,
+} from "../components/Review";
 
 const inputSchema = z.object({
   prompt: z.string().default("Implement the requested change."),
   tdd: z.boolean().default(false),
 });
 
-const { Workflow, Task, Sequence, smithers } = createSmithers({
+const { Workflow, Sequence, smithers } = createSmithers({
   input: inputSchema,
+  researchProbe: researchProbeOutputSchema,
   research: researchOutputSchema,
+  planContext: planContextOutputSchema,
+  planCandidate: planCandidateOutputSchema,
   plan: planOutputSchema,
   implement: implementOutputSchema,
   validate: validateOutputSchema,
+  reviewContext: reviewContextOutputSchema,
+  reviewFinding: reviewFindingOutputSchema,
   review: reviewOutputSchema,
 });
+
+function formatResearchForPrompt(
+  research: z.infer<typeof researchOutputSchema> | undefined
+) {
+  if (!research) return null;
+  return [
+    `RESEARCH FINDINGS:\n${research.summary}`,
+    research.keyFindings.length
+      ? `Key findings:\n${research.keyFindings.map((f) => `- ${f}`).join("\n")}`
+      : null,
+    research.files.length
+      ? `Relevant files:\n${research.files.map((f) => `- ${f}`).join("\n")}`
+      : null,
+    research.risks.length
+      ? `Risks:\n${research.risks.map((r) => `- ${r}`).join("\n")}`
+      : null,
+    research.openQuestions.length
+      ? `Open questions:\n${research.openQuestions.map((q) => `- ${q}`).join("\n")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function formatPlanForPrompt(
+  plan: z.infer<typeof planOutputSchema> | undefined
+) {
+  if (!plan) return null;
+  return [
+    `IMPLEMENTATION PLAN:\n${plan.summary}`,
+    plan.steps.length
+      ? `Steps:\n${plan.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
+      : null,
+    plan.files.length
+      ? `Files:\n${plan.files.map((f) => `- ${f}`).join("\n")}`
+      : null,
+    plan.validation.length
+      ? `Validation:\n${plan.validation.map((v) => `- ${v}`).join("\n")}`
+      : null,
+    plan.risks.length
+      ? `Risks:\n${plan.risks.map((r) => `- ${r}`).join("\n")}`
+      : null,
+    plan.openQuestions.length
+      ? `Open questions:\n${plan.openQuestions.map((q) => `- ${q}`).join("\n")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
 export default smithers((ctx) => {
   const prompt = ctx.input.prompt;
@@ -47,13 +106,13 @@ export default smithers((ctx) => {
 
   const research = ctx.outputMaybe("research", { nodeId: "research" });
   const plan = ctx.outputMaybe("plan", { nodeId: "plan" });
+  const researchPrompt = formatResearchForPrompt(research);
+  const planResultPrompt = formatPlanForPrompt(plan);
 
   // Enrich plan prompt with research findings
   const planPromptParts = [
     prompt,
-    research
-      ? `RESEARCH FINDINGS:\n${research.summary}\n\nKey findings:\n${research.keyFindings.map((f: string) => `- ${f}`).join("\n")}`
-      : null,
+    researchPrompt,
     tdd
       ? "IMPORTANT: Write tests FIRST. The plan MUST start with test steps before any implementation steps. Follow test-driven development: define expected behavior in tests, then implement to make them pass."
       : null,
@@ -63,12 +122,8 @@ export default smithers((ctx) => {
   // Enrich implement prompt with both research and plan
   const implementPrompt = [
     prompt,
-    research
-      ? `RESEARCH FINDINGS:\n${research.summary}\n\nKey findings:\n${research.keyFindings.map((f: string) => `- ${f}`).join("\n")}`
-      : null,
-    plan
-      ? `IMPLEMENTATION PLAN:\n${plan.summary}\n\nSteps:\n${plan.steps.map((s: string, i: number) => `${i + 1}. ${s}`).join("\n")}`
-      : null,
+    researchPrompt,
+    planResultPrompt,
     tdd
       ? "IMPORTANT: Follow the plan's test-first approach. Write or update tests before implementing production code."
       : null,
@@ -76,55 +131,35 @@ export default smithers((ctx) => {
     .filter(Boolean)
     .join("\n\n---\n");
 
-  // Validation loop feedback
-  const validate = ctx.outputMaybe("validate", { nodeId: "impl:validate" });
-  const reviews = ctx.outputs.review ?? [];
-
-  const hasValidated = validate !== undefined;
-  const validationPassed = hasValidated && validate.allPassed !== false;
-  const anyApproved =
-    reviews.length > 0 && reviews.some((r: any) => r.approved === true);
-  const done = validationPassed && anyApproved;
-
-  const feedbackParts: string[] = [];
-  if (validate && !validationPassed && validate.failingSummary) {
-    feedbackParts.push(`VALIDATION FAILED:\n${validate.failingSummary}`);
-  }
-  for (const review of reviews) {
-    if (review.approved === false) {
-      feedbackParts.push(`REVIEWER REJECTED:\n${review.feedback}`);
-      if (review.issues?.length) {
-        for (const issue of review.issues) {
-          feedbackParts.push(
-            `  [${issue.severity}] ${issue.title}: ${issue.description}${issue.file ? ` (${issue.file})` : ""}`
-          );
-        }
-      }
-    }
-  }
-  const feedback = feedbackParts.length > 0 ? feedbackParts.join("\n\n") : null;
+  const gate = buildValidationReviewGate({
+    validate: ctx.latest("validate", "impl:validate"),
+    review: ctx.latest("review", reviewSynthesisNodeId("impl:review")),
+  });
 
   return (
     <Workflow name="research-plan-implement">
       <Sequence>
-        <Task
-          id="research"
-          output={researchOutputSchema}
-          agent={agents.smartTool}
-        >
-          <ResearchPrompt prompt={prompt} />
-        </Task>
-        <Task id="plan" output={planOutputSchema} agent={agents.smart}>
-          <PlanPrompt prompt={planPrompt} />
-        </Task>
+        <ResearchContext
+          prompt={prompt}
+          probeAgent={agents.explorer}
+          synthesisAgent={agents.explorerSynthesis}
+        />
+        <PlannerPanel
+          prompt={planPrompt}
+          contextAgent={agents.explorer}
+          candidates={plannerPanel}
+          synthesisAgent={agents.plannerSynthesis}
+        />
         <ValidationLoop
           idPrefix="impl"
           prompt={implementPrompt}
-          implementAgents={agents.smart}
+          implementAgents={agents.engineer}
           validateAgents={agents.cheapFast}
-          reviewAgents={agents.smart}
-          feedback={feedback}
-          done={done}
+          reviewContextAgent={agents.reviewContext}
+          reviewAgents={agents.review}
+          reviewSynthesisAgent={agents.reviewSynthesis}
+          feedback={gate.feedback}
+          done={gate.done}
           maxIterations={3}
         />
       </Sequence>

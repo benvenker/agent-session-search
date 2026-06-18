@@ -1,0 +1,21 @@
+# Plan Context Probe
+
+Gather the minimum context needed to plan the request below.
+
+Do not implement code. Do not write the plan. Find concrete evidence that should
+shape a plan: files, interfaces, tests, prior plans, constraints, risks, and
+conventions.
+Set `perspective` to a short name for this probe.
+
+REQUEST:
+{props.prompt}
+
+PROBE:
+{props.probe}
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

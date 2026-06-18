@@ -7,26 +7,28 @@
 import { createSmithers } from "smithers-orchestrator";
 import { z } from "zod/v4";
 import { agents } from "../agents";
-import ResearchPrompt from "../prompts/research.mdx";
-
-const researchOutputSchema = z.looseObject({
-  summary: z.string(),
-  keyFindings: z.array(z.string()).default([]),
-});
+import {
+  ResearchContext,
+  researchOutputSchema,
+  researchProbeOutputSchema,
+} from "../components/ResearchContext";
 
 const inputSchema = z.object({
   prompt: z.string().default("Research the given topic."),
 });
 
-const { Workflow, Task, smithers } = createSmithers({
+const { Workflow, smithers } = createSmithers({
   input: inputSchema,
+  researchProbe: researchProbeOutputSchema,
   research: researchOutputSchema,
 });
 
 export default smithers((ctx) => (
   <Workflow name="research">
-    <Task id="research" output={researchOutputSchema} agent={agents.smartTool}>
-      <ResearchPrompt prompt={ctx.input.prompt} />
-    </Task>
+    <ResearchContext
+      prompt={ctx.input.prompt}
+      probeAgent={agents.explorer}
+      synthesisAgent={agents.explorerSynthesis}
+    />
   </Workflow>
 ));

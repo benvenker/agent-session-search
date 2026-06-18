@@ -74,7 +74,8 @@ function extractReview(index: number, value: unknown): ReviewRow | null {
   }));
   return {
     index,
-    reviewer: reviewer ?? "reviewer-" + (index + 1),
+    reviewer:
+      reviewer ?? (index >= 0 ? "reviewer-" + (index + 1) : "review-synthesis"),
     approved: row.approved === true,
     feedback: asString(row.feedback) ?? "",
     issues,
@@ -114,9 +115,11 @@ const styles = [
   ".verdict { display:flex; align-items:center; gap:18px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:18px; }",
   ".verdict.approved { box-shadow:inset 4px 0 0 var(--ok); }",
   ".verdict.blocked { box-shadow:inset 4px 0 0 var(--err); }",
+  ".verdict.pending { box-shadow:inset 4px 0 0 var(--muted); }",
   ".verdict-mark { font-size:34px; line-height:1; }",
   ".verdict.approved .verdict-mark { color:var(--ok); }",
   ".verdict.blocked .verdict-mark { color:var(--err); }",
+  ".verdict.pending .verdict-mark { color:var(--muted); }",
   ".verdict-body { flex:1; }",
   ".verdict-headline { font-size:16px; font-weight:600; margin-bottom:4px; }",
   ".verdict-sub { color:var(--muted); font-size:12px; }",
@@ -217,6 +220,11 @@ function App() {
     nodeId: "review:5",
     iteration: 0,
   });
+  const synthesisOut = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "review:synthesize",
+    iteration: 0,
+  });
   const nodeQueries = [n0, n1, n2, n3, n4, n5];
 
   const reviews = useMemo(() => {
@@ -229,11 +237,21 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n0.data, n1.data, n2.data, n3.data, n4.data, n5.data]);
 
-  const approvedCount = reviews.filter((r) => r.approved).length;
-  const allApproved = reviews.length > 0 && approvedCount === reviews.length;
-  const allIssues = reviews.flatMap((r) =>
-    r.issues.map((it) => ({ ...it, reviewer: r.reviewer }))
+  const synthesis = useMemo(
+    () => extractReview(-1, synthesisOut.data),
+    [synthesisOut.data]
   );
+  const approvedCount = reviews.filter((r) => r.approved).length;
+  const verdictState = synthesis
+    ? synthesis.approved
+      ? "approved"
+      : "blocked"
+    : "pending";
+  const allIssues = synthesis
+    ? synthesis.issues.map((it) => ({ ...it, reviewer: synthesis.reviewer }))
+    : reviews.flatMap((r) =>
+        r.issues.map((it) => ({ ...it, reviewer: r.reviewer }))
+      );
   const sevCounts = SEVERITIES.reduce(
     (acc, s) => {
       acc[s] = allIssues.filter((it) => it.severity === s).length;
@@ -250,6 +268,7 @@ function App() {
     await Promise.all([
       runsQuery.refetch(),
       ...nodeQueries.map((q) => q.refetch()),
+      synthesisOut.refetch(),
     ]);
   }
   async function launch() {
@@ -333,21 +352,27 @@ function App() {
 
       <div className="main">
         <div className="content">
-          {reviews.length > 0 ? (
+          {synthesis !== null || reviews.length > 0 ? (
             <>
               <div
-                className={"verdict " + (allApproved ? "approved" : "blocked")}
+                className={"verdict " + verdictState}
                 data-testid="review-verdict"
               >
-                <span className="verdict-mark">{allApproved ? "✓" : "✗"}</span>
+                <span className="verdict-mark">
+                  {synthesis ? (synthesis.approved ? "✓" : "✗") : "..."}
+                </span>
                 <div className="verdict-body">
                   <div className="verdict-headline">
-                    {allApproved
-                      ? "Approved by all reviewers"
-                      : "Blocked — not all reviewers approved"}
+                    {synthesis
+                      ? synthesis.approved
+                        ? "Approved by review synthesis"
+                        : "Blocked by review synthesis"
+                      : "Awaiting review synthesis"}
                   </div>
                   <div className="verdict-sub">
-                    {approvedCount} of {reviews.length} reviewers approved
+                    {synthesis
+                      ? synthesis.feedback || "Final synthesized verdict."
+                      : `${approvedCount} of ${reviews.length} reviewers approved`}
                   </div>
                   <div className="approval-bar">
                     <span
@@ -476,19 +501,22 @@ function App() {
 
               <div className="section-head" style={{ color: "var(--muted)" }}>
                 {eventCount} events
-                {nodeQueries.some((q) => q.loading) ? " · refreshing…" : ""}
+                {nodeQueries.some((q) => q.loading) || synthesisOut.loading
+                  ? " · refreshing…"
+                  : ""}
               </div>
             </>
           ) : (
             <div className="empty" data-testid="review-empty">
               <div>
-                {activeRunId ? "Waiting for reviewers…" : "No review runs yet."}
+                {activeRunId
+                  ? "Waiting for review synthesis…"
+                  : "No review runs yet."}
               </div>
               <div className="desc">
                 Launch a review to have the code changes examined by reviewers
-                in parallel. Each reviewer reports an approve/deny verdict,
-                written feedback, and a list of issues by severity. The verdict
-                above turns green only when every reviewer approves.
+                in parallel. Reviewer lanes provide evidence; the synthesis
+                produces the final approve/deny verdict.
               </div>
               <button
                 className="button primary"

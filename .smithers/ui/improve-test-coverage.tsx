@@ -7,8 +7,10 @@ import {
   useGatewayRunEvents,
   useGatewayRuns,
 } from "smithers-orchestrator/gateway-react";
+import { selectLatestLoopAttempt } from "./loop-attempts";
 
 const WORKFLOW_KEY = "improve-test-coverage";
+const MAX_ITERATIONS = 3;
 
 type RunSummary = {
   runId: string;
@@ -220,31 +222,67 @@ function App() {
   const runStatusClass = statusClass(activeRun?.status);
 
   const stream = useGatewayRunEvents(activeRunId, { afterSeq: 0 });
-  const implementOut = useGatewayNodeOutput({
+  const implement0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "improve-test-coverage:implement",
     iteration: 0,
   });
-  const validateOut = useGatewayNodeOutput({
+  const implement1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:implement",
+    iteration: 1,
+  });
+  const implement2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:implement",
+    iteration: 2,
+  });
+  const validate0Out = useGatewayNodeOutput({
     runId: activeRunId,
     nodeId: "improve-test-coverage:validate",
     iteration: 0,
   });
-  const reviewOut = useGatewayNodeOutput({
+  const validate1Out = useGatewayNodeOutput({
     runId: activeRunId,
-    nodeId: "improve-test-coverage:review:0",
+    nodeId: "improve-test-coverage:validate",
+    iteration: 1,
+  });
+  const validate2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:validate",
+    iteration: 2,
+  });
+  const review0Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:review:synthesize",
     iteration: 0,
   });
+  const review1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:review:synthesize",
+    iteration: 1,
+  });
+  const review2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "improve-test-coverage:review:synthesize",
+    iteration: 2,
+  });
 
-  const implement = useMemo(
-    () => extractImplement(implementOut.data),
-    [implementOut.data]
-  );
-  const validate = useMemo(
-    () => extractValidate(validateOut.data),
-    [validateOut.data]
-  );
-  const review = useMemo(() => extractReview(reviewOut.data), [reviewOut.data]);
+  const attemptQueries = [
+    { implement: implement0Out, validate: validate0Out, review: review0Out },
+    { implement: implement1Out, validate: validate1Out, review: review1Out },
+    { implement: implement2Out, validate: validate2Out, review: review2Out },
+  ];
+  const attempts = attemptQueries.map((attempt, iteration) => ({
+    iteration,
+    implement: extractImplement(attempt.implement.data),
+    validate: extractValidate(attempt.validate.data),
+    review: extractReview(attempt.review.data),
+  }));
+  const latestAttempt = selectLatestLoopAttempt(attempts);
+  const implement = latestAttempt?.implement ?? null;
+  const validate = latestAttempt?.validate ?? null;
+  const review = latestAttempt?.review ?? null;
   const eventCount = (stream.events ?? []).length;
 
   const implementDone = implement !== null;
@@ -260,9 +298,11 @@ function App() {
   async function refresh() {
     await Promise.all([
       runsQuery.refetch(),
-      implementOut.refetch(),
-      validateOut.refetch(),
-      reviewOut.refetch(),
+      ...attemptQueries.flatMap((attempt) => [
+        attempt.implement.refetch(),
+        attempt.validate.refetch(),
+        attempt.review.refetch(),
+      ]),
     ]);
   }
   async function launch() {
@@ -273,7 +313,7 @@ function App() {
         input: { prompt },
       });
       setSelectedRunId(run.runId);
-      await refresh();
+      await runsQuery.refetch();
     } finally {
       setBusy(false);
     }
@@ -332,9 +372,7 @@ function App() {
             >
               {runStatusClass === "finished"
                 ? "complete"
-                : runStatusClass === "running"
-                  ? "running (max 3)"
-                  : "iteration / 3"}
+                : `attempt ${(latestAttempt?.iteration ?? 0) + 1} / ${MAX_ITERATIONS}`}
             </span>
           ) : null}
         </div>
@@ -490,12 +528,12 @@ function App() {
                   className="card"
                   data-testid="improve-test-coverage-review"
                 >
-                  <h2>Reviewer Issues</h2>
+                  <h2>Review Synthesis</h2>
                   {review ? (
                     <div className="reviewer">
                       <div className="reviewer-head">
                         <span className="reviewer-name">
-                          {review.reviewer ?? "reviewer-1"}
+                          {review.reviewer ?? "review-synthesis"}
                         </span>
                         {review.approved !== undefined ? (
                           <span
@@ -542,12 +580,14 @@ function App() {
                           className="inline-empty"
                           data-testid="improve-test-coverage-issues-empty"
                         >
-                          No issues raised by this reviewer.
+                          No issues raised by the review synthesis.
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="inline-empty">Waiting for review…</div>
+                    <div className="inline-empty">
+                      Waiting for review synthesis…
+                    </div>
                   )}
                 </div>
               </div>
@@ -557,9 +597,12 @@ function App() {
                 data-testid="improve-test-coverage-meta"
               >
                 <span>{eventCount} events</span>
-                {implementOut.loading ||
-                validateOut.loading ||
-                reviewOut.loading ? (
+                {attemptQueries.some(
+                  (attempt) =>
+                    attempt.implement.loading ||
+                    attempt.validate.loading ||
+                    attempt.review.loading
+                ) ? (
                   <span>· refreshing…</span>
                 ) : null}
               </div>

@@ -7,6 +7,7 @@ import {
   useGatewayRunEvents,
   useGatewayRuns,
 } from "smithers-orchestrator/gateway-react";
+import { selectLatestLoopAttempt } from "./loop-attempts";
 
 const WORKFLOW_KEY = "debug";
 const MAX_ITERATIONS = 3;
@@ -220,6 +221,11 @@ function IterationPanels(props: { runId: string; iteration: number }) {
     nodeId: "debug:review:2",
     iteration,
   });
+  const reviewSynthesis = useGatewayNodeOutput({
+    runId,
+    nodeId: "debug:review:synthesize",
+    iteration,
+  });
 
   const implement = useMemo(
     () => extractImplement(implementOut.data),
@@ -236,6 +242,10 @@ function IterationPanels(props: { runId: string; iteration: number }) {
         (r): r is ReviewOutput => r !== null
       ),
     [review0.data, review1.data, review2.data]
+  );
+  const review = useMemo(
+    () => extractReview(reviewSynthesis.data),
+    [reviewSynthesis.data]
   );
 
   return (
@@ -315,60 +325,82 @@ function IterationPanels(props: { runId: string; iteration: number }) {
 
       <div className="panel" data-testid="debug-review-panel">
         <div className="panel-head">
-          <h3>Reviewers · attempt {iteration + 1}</h3>
-          <span className="pill">
-            {reviews.length} reviewer{reviews.length === 1 ? "" : "s"}
-          </span>
+          <h3>Review Synthesis · attempt {iteration + 1}</h3>
+          {review ? (
+            <span className={"badge " + (review.approved ? "ok" : "err")}>
+              {review.approved ? "approved" : "rejected"}
+            </span>
+          ) : (
+            <span className="pill">
+              {reviews.length} evidence lane{reviews.length === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
-        {reviews.length > 0 ? (
-          <div className="reviewers">
-            {reviews.map((r, i) => (
-              <div
-                className="reviewer-card"
-                key={i}
-                data-testid="debug-reviewer-card"
-              >
-                <div className="reviewer-head">
-                  <span
-                    className="reviewer-name"
-                    data-testid="debug-reviewer-name"
-                  >
-                    {r.reviewer}
-                  </span>
-                  <span className={"badge " + (r.approved ? "ok" : "err")}>
-                    {r.approved ? "approved" : "rejected"}
-                  </span>
-                </div>
-                <div
-                  className="reviewer-feedback"
-                  data-testid="debug-reviewer-feedback"
-                >
-                  {r.feedback}
-                </div>
-                {r.issues.length > 0 ? (
-                  <ul className="issues" data-testid="debug-reviewer-issues">
-                    {r.issues.map((issue, j) => (
-                      <li className={"issue " + issue.severity} key={j}>
-                        <strong>[{issue.severity}]</strong> {issue.title}
-                        {issue.file ? " · " + issue.file : ""}
-                        {issue.description ? " — " + issue.description : ""}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div
-                    className="sub-empty"
-                    data-testid="debug-reviewer-issues-empty"
-                  >
-                    No issues raised.
-                  </div>
-                )}
-              </div>
-            ))}
+        {review ? (
+          <div className="reviewer-card" data-testid="debug-review-synthesis">
+            <div className="reviewer-head">
+              <span className="reviewer-name">
+                {review.reviewer || "review-synthesis"}
+              </span>
+              <span className={"badge " + (review.approved ? "ok" : "err")}>
+                {review.approved ? "approved" : "rejected"}
+              </span>
+            </div>
+            <div className="reviewer-feedback">{review.feedback}</div>
           </div>
+        ) : null}
+        {reviews.length > 0 ? (
+          <>
+            <div className="section-head">Reviewer evidence</div>
+            <div className="reviewers">
+              {reviews.map((r, i) => (
+                <div
+                  className="reviewer-card"
+                  key={i}
+                  data-testid="debug-reviewer-card"
+                >
+                  <div className="reviewer-head">
+                    <span
+                      className="reviewer-name"
+                      data-testid="debug-reviewer-name"
+                    >
+                      {r.reviewer}
+                    </span>
+                    <span className={"badge " + (r.approved ? "ok" : "err")}>
+                      {r.approved ? "approved" : "rejected"}
+                    </span>
+                  </div>
+                  <div
+                    className="reviewer-feedback"
+                    data-testid="debug-reviewer-feedback"
+                  >
+                    {r.feedback}
+                  </div>
+                  {r.issues.length > 0 ? (
+                    <ul className="issues" data-testid="debug-reviewer-issues">
+                      {r.issues.map((issue, j) => (
+                        <li className={"issue " + issue.severity} key={j}>
+                          <strong>[{issue.severity}]</strong> {issue.title}
+                          {issue.file ? " · " + issue.file : ""}
+                          {issue.description ? " — " + issue.description : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div
+                      className="sub-empty"
+                      data-testid="debug-reviewer-issues-empty"
+                    >
+                      No issues raised.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="sub-empty" data-testid="debug-review-empty">
-            Waiting for reviewers on this attempt…
+            Waiting for review synthesis on this attempt…
           </div>
         )}
       </div>
@@ -381,7 +413,9 @@ function App() {
     runIdFromUrl()
   );
   const [prompt, setPrompt] = useState("Reproduce and fix the reported bug.");
-  const [iteration, setIteration] = useState(0);
+  const [selectedIteration, setSelectedIteration] = useState<number | null>(
+    null
+  );
   const [busy, setBusy] = useState(false);
   const runsQuery = useGatewayRuns({ filter: { limit: 20 } });
   const actions = useGatewayActions();
@@ -396,10 +430,75 @@ function App() {
   const activeRunId = selectedRunId ?? runIdFromUrl() ?? debugRuns[0]?.runId;
   const activeRun = debugRuns.find((r) => r.runId === activeRunId);
   const stream = useGatewayRunEvents(activeRunId, { afterSeq: 0 });
+  const implement0Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:implement",
+    iteration: 0,
+  });
+  const implement1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:implement",
+    iteration: 1,
+  });
+  const implement2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:implement",
+    iteration: 2,
+  });
+  const validate0Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:validate",
+    iteration: 0,
+  });
+  const validate1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:validate",
+    iteration: 1,
+  });
+  const validate2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:validate",
+    iteration: 2,
+  });
+  const review0Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:review:synthesize",
+    iteration: 0,
+  });
+  const review1Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:review:synthesize",
+    iteration: 1,
+  });
+  const review2Out = useGatewayNodeOutput({
+    runId: activeRunId,
+    nodeId: "debug:review:synthesize",
+    iteration: 2,
+  });
+  const attemptQueries = [
+    { implement: implement0Out, validate: validate0Out, review: review0Out },
+    { implement: implement1Out, validate: validate1Out, review: review1Out },
+    { implement: implement2Out, validate: validate2Out, review: review2Out },
+  ];
+  const attempts = attemptQueries.map((attempt, iteration) => ({
+    iteration,
+    implement: extractImplement(attempt.implement.data),
+    validate: extractValidate(attempt.validate.data),
+    review: extractReview(attempt.review.data),
+  }));
+  const latestAttempt = selectLatestLoopAttempt(attempts);
+  const iteration = selectedIteration ?? latestAttempt?.iteration ?? 0;
   const eventCount = (stream.events ?? []).length;
 
   async function refresh() {
-    await runsQuery.refetch();
+    await Promise.all([
+      runsQuery.refetch(),
+      ...attemptQueries.flatMap((attempt) => [
+        attempt.implement.refetch(),
+        attempt.validate.refetch(),
+        attempt.review.refetch(),
+      ]),
+    ]);
   }
   async function launch() {
     setBusy(true);
@@ -409,8 +508,8 @@ function App() {
         input: { prompt },
       });
       setSelectedRunId(run.runId);
-      setIteration(0);
-      await refresh();
+      setSelectedIteration(null);
+      await runsQuery.refetch();
     } finally {
       setBusy(false);
     }
@@ -499,7 +598,7 @@ function App() {
                         "iter-tab" + (i === iteration ? " active" : "")
                       }
                       data-testid={"debug-iter-" + i}
-                      onClick={() => setIteration(i)}
+                      onClick={() => setSelectedIteration(i)}
                     >
                       <span className="iter-label">Attempt {i + 1}</span>
                       <span className="iter-dots">
@@ -548,7 +647,7 @@ function App() {
               data-testid={"debug-run-" + r.runId}
               onClick={() => {
                 setSelectedRunId(r.runId);
-                setIteration(0);
+                setSelectedIteration(null);
               }}
             >
               <span className="mono">{shortRunId(r.runId)}</span>

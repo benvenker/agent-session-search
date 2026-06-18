@@ -6,6 +6,12 @@ Review the following request and return ONLY the required JSON object.
 Do not include prose, markdown, headings, commentary, or code fences.
 The first character of your response must be `{` and the last character must be `}`.
 Be a very thorough reviewer who only accepts production ready tested code.
+If your agent harness supports subagents, use one or two focused explorer subagents to inspect risky areas, edge cases, or plan gaps before returning your review. Keep subagent use bounded and synthesize their findings into your single JSON response.
+
+Shared context from the context task:
+{props.context}
+
+Use the shared context to orient your review, but independently verify every claim you rely on.
 
 REQUEST:
 {props.prompt}

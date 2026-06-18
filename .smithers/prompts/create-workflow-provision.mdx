@@ -72,9 +72,11 @@ recommended) and the reason.
 ### 5. Choose the agent pools
 
 From `.smithers/agents.ts`, pick which named pools the workflow's tasks should
-use — `agents.smart` (deep reasoning), `agents.smartTool` (reasoning + file/shell
-tools, for steps that edit or run things), `agents.cheapFast` (cheap validation /
-classification). List them in `agents`.
+use. Prefer semantic pools: `agents.explorer` for cheap context gathering,
+`agents.plannerSynthesis` for planning/synthesis, `agents.engineer` for ordinary
+implementation, `agents.design` for architecture/design critique or generation,
+`agents.review` plus `agents.reviewSynthesis` for review flows, and
+`agents.cheapFast` for cheap validation/classification. List them in `agents`.
 
 ## Output
 
@@ -84,3 +86,7 @@ to start from). Do not design or write the workflow here.
 
 REQUIRED OUTPUT:
 {props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

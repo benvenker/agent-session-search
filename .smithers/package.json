@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "check:contracts": "bun scripts/check-contracts.ts",
     "gateway": "bun ./gateway.ts",
     "workflow:list": "smithers workflow list",
     "workflow:run": "smithers workflow run",

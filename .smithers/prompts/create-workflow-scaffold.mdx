@@ -39,11 +39,17 @@ own `.mdx` file, one per prompt named in the design.
    matching the design's `graphShape`. Gate later stages on earlier outputs with
    `ctx.outputMaybe("table", { nodeId })`, exactly like the existing workflows.
 6. **Prompts** — author each `.mdx` from the design's `prompts` list. Pass props
-   from the task and end every prompt with:
+   from the task and end every prompt with the schema block and raw JSON contract:
+
    ```
    REQUIRED OUTPUT:
    {props.schema}
+
+   Return ONLY raw JSON matching the required output schema.
+   Do not include prose, markdown, headings, commentary, or code fences.
+   The first character of your response must be `{` and the last character must be `}`.
    ```
+
 7. **Agents** — only add a new provider/pool to `../agents.ts` if the design
    truly needs one that doesn't exist; otherwise reuse the existing pools.
 8. **Skills** — if the design relies on a worker skill the provisioning step
@@ -60,3 +66,7 @@ Return a `workflowName` and the full list of `filesWritten` (path + kind).
 
 REQUIRED OUTPUT:
 {props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.
