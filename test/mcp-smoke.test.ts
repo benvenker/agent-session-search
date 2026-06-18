@@ -89,13 +89,7 @@ describe("MCP search_sessions smoke path", () => {
       command: process.execPath,
       args: ["--import", "tsx", "src/server.ts"],
       cwd: process.cwd(),
-      env: stringEnv({
-        ...process.env,
-        AGENT_SESSION_SEARCH_CONFIG: configPath,
-        AGENT_SESSION_SEARCH_FFF_DB_DIR: db,
-        AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS: "10",
-        AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS: "25",
-      }),
+      env: fixtureSearchEnv(configPath, db),
       stderr: "pipe",
     });
     const client = new Client({
@@ -149,6 +143,101 @@ describe("MCP search_sessions smoke path", () => {
       await client.close();
     }
   });
+
+  it("returns structured JSON errors for invalid group follow-ups", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-mcp-"));
+    const root = join(tmp, "sessions");
+    const db = join(tmp, "fff-db");
+    const configPath = join(tmp, "config.json");
+    await mkdir(root);
+    await mkdir(db);
+    for (let index = 1; index <= 7; index += 1) {
+      await writeFile(
+        join(root, `session-${index}.jsonl`),
+        `before\nauth token timeout group candidate ${index}\n`
+      );
+    }
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "smoke", path: root, include: ["*.jsonl"] }],
+      })
+    );
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", "src/server.ts"],
+      cwd: process.cwd(),
+      env: fixtureSearchEnv(configPath, db),
+      stderr: "pipe",
+    });
+    const client = new Client({
+      name: "agent-session-search-followup-errors",
+      version: "0.1.0",
+    });
+
+    try {
+      await client.connect(transport);
+      const firstPage = await eventuallyCallSearchSessions(client, {
+        query: "auth token timeout",
+        sources: ["smoke"],
+        resultsDisplayMode: "candidates",
+        maxResultsPerSource: 3,
+      });
+      const exactGroup = (firstPage as any).results.find(
+        (group: any) => group.id === "exact_or_structured"
+      );
+      const followup = exactGroup?.more?.groupCandidates;
+
+      expect(followup).toMatchObject({
+        query: "auth token timeout",
+        sources: ["smoke"],
+        resultsDisplayMode: "candidates",
+        offset: 3,
+        limit: 3,
+      });
+
+      const editedMode = await callSearchSessionsJson(client, {
+        ...groupCandidatesShorthand(followup),
+        resultsDisplayMode: "evidence",
+      });
+      expect(editedMode.output).toMatchObject({ isError: true });
+      expect(editedMode.body).toMatchObject({
+        error: {
+          code: "invalid_group_followup",
+          invalidField: "resultsDisplayMode",
+          message:
+            'Invalid group follow-up: group candidate shorthand must use resultsDisplayMode: "candidates".',
+          correctedShape: {
+            groupCandidates: {
+              resultsDisplayMode: "candidates",
+            },
+          },
+        },
+      });
+
+      const tamperedFingerprint = await callSearchSessionsJson(client, {
+        ...groupCandidatesShorthand(followup),
+        fingerprint: "gcf1:tampered",
+      });
+      expect(tamperedFingerprint.output).toMatchObject({ isError: true });
+      expect(tamperedFingerprint.body).toMatchObject({
+        error: {
+          code: "invalid_group_followup",
+          invalidField: "groupCandidates.fingerprint",
+          message:
+            "Invalid group follow-up: groupCandidates must be copied exactly from the server-prepared payload.",
+          correctedShape: {
+            groupCandidates: {
+              resultsDisplayMode: "candidates",
+            },
+          },
+        },
+      });
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 async function eventuallyCallSearchSessions(
@@ -175,6 +264,30 @@ async function callSearchSessions(
     name: "search_sessions",
     arguments: input,
   });
+  return JSON.parse(toolText(output)) as {
+    query: string;
+    expandedPatterns: string[];
+    searchedSources: unknown[];
+    warnings: unknown[];
+    results: unknown[];
+  };
+}
+
+async function callSearchSessionsJson(
+  client: Client,
+  input: Record<string, unknown>
+) {
+  const output = await client.callTool({
+    name: "search_sessions",
+    arguments: input,
+  });
+  return {
+    output,
+    body: JSON.parse(toolText(output)) as unknown,
+  };
+}
+
+function toolText(output: unknown) {
   const content = (
     output as { content?: Array<{ type: string; text?: string }> }
   ).content;
@@ -185,13 +298,45 @@ async function callSearchSessions(
   if (!text) {
     throw new Error("search_sessions did not return text content");
   }
-  return JSON.parse(text) as {
-    query: string;
-    expandedPatterns: string[];
-    searchedSources: unknown[];
-    warnings: unknown[];
-    results: unknown[];
+  return text;
+}
+
+function groupCandidatesShorthand(followup: any): Record<string, unknown> {
+  return {
+    query: followup.query,
+    ...(followup.queries ? { queries: followup.queries } : {}),
+    ...(followup.operationalContext !== undefined
+      ? { operationalContext: followup.operationalContext }
+      : {}),
+    ...(followup.sources ? { sources: followup.sources } : {}),
+    resultsDisplayMode: followup.resultsDisplayMode,
+    ...(followup.paths ? { paths: followup.paths } : {}),
+    ...(followup.maxPatterns !== undefined
+      ? { maxPatterns: followup.maxPatterns }
+      : {}),
+    ...(followup.maxResultsPerSource !== undefined
+      ? { maxResultsPerSource: followup.maxResultsPerSource }
+      : {}),
+    ...(followup.context !== undefined ? { context: followup.context } : {}),
+    planFingerprint: followup.planFingerprint,
+    fingerprint: followup.fingerprint,
+    group: followup.group,
+    offset: followup.offset,
+    limit: followup.limit,
   };
+}
+
+function fixtureSearchEnv(
+  configPath: string,
+  db: string
+): Record<string, string> {
+  return stringEnv({
+    ...process.env,
+    AGENT_SESSION_SEARCH_CONFIG: configPath,
+    AGENT_SESSION_SEARCH_FFF_DB_DIR: db,
+    AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS: "10",
+    AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS: "25",
+  });
 }
 
 function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {

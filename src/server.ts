@@ -9,7 +9,11 @@ import type { SessionSearch } from "./types.js";
 import { searchOptionsFromEnv } from "./env.js";
 import { mcpSearchSessionsDescription } from "./help.js";
 import { packageVersion } from "./package-info.js";
-import { runSearchSessionsTool, searchSessionsInputSchema } from "./tool.js";
+import {
+  runSearchSessionsTool,
+  SearchSessionsInputError,
+  searchSessionsInputSchema,
+} from "./tool.js";
 import { killTrackedChildProcesses } from "./child-process-cleanup.js";
 
 export function createServer(
@@ -26,12 +30,42 @@ export function createServer(
     description: mcpSearchSessionsDescription(),
     parameters: searchSessionsInputSchema,
     execute: async (input) => {
-      const result = await runSearchSessionsTool(search, input);
-      return JSON.stringify(result, null, 2);
+      try {
+        const result = await runSearchSessionsTool(search, input);
+        return JSON.stringify(result, null, 2);
+      } catch (error) {
+        if (error instanceof SearchSessionsInputError) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  searchSessionsErrorPayload(error),
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw error;
+      }
     },
   });
 
   return server;
+}
+
+function searchSessionsErrorPayload(error: SearchSessionsInputError) {
+  return {
+    error: {
+      code: error.code,
+      invalidField: error.invalidField,
+      message: error.message,
+      correctedShape: error.correctedShape,
+    },
+  };
 }
 
 export async function main() {
