@@ -1,0 +1,22 @@
+# CE Work Implementation
+
+Use `[$ce-work](/home/ben/.agents/skills/ce-work/SKILL.md)` for this implementation. Read the skill and apply its implementation discipline before changing code.
+
+This Smithers workflow owns review, retry, and final shipping. Do not run `ce-work`'s review, fix-application, commit, PR, or shipping phases from this implementation step unless the workflow prompt explicitly asks for them. Stop after the focused implementation and verification report.
+
+You are running in a fresh Smithers agent session for this workflow iteration. Treat any previous review findings below as the required carry-forward context for this retry.
+
+REQUEST:
+{props.prompt}
+
+PREVIOUS REVIEW FINDINGS:
+{props.previousReviewFeedback || "None."}
+
+Implement the requested change in the current repository. Keep the change focused, protect unrelated workspace dirt, and run the relevant verification commands before returning.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

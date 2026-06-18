@@ -16,6 +16,8 @@ const schemaBoundPrompts = [
   "prompts/review-synthesis.mdx",
   "prompts/implement.mdx",
   "prompts/validate.mdx",
+  "prompts/ce-work-implement.mdx",
+  "prompts/ce-code-review.mdx",
   "prompts/route-task-classify.mdx",
   "prompts/route-task-execute.mdx",
   "prompts/route-task-recommend.mdx",

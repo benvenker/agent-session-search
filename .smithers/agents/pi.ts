@@ -88,6 +88,11 @@ export const PiGlm51 = createOpenRouterPiAgent(
   undefined,
   "high"
 );
+export const PiGlm52 = createOpenRouterPiAgent(
+  "z-ai/glm-5.2",
+  undefined,
+  "high"
+);
 export const PiQwenCoderPlus = createOpenRouterPiAgent("qwen/qwen3-coder-plus");
 export const PiDeepSeekV4Pro = createOpenRouterPiAgent(
   "deepseek/deepseek-v4-pro",

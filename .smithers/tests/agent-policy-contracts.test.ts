@@ -17,6 +17,19 @@ describe("agent policy contracts", () => {
     expect(source).not.toMatch(/agents\.planner\[[01]\]/);
   });
 
+  test("cheap execution uses GLM 5.2 through OpenRouter", () => {
+    const agentsSource = read("agents.ts");
+    const piSource = read("agents/pi.ts");
+
+    expect(piSource).toContain("export const PiGlm52");
+    expect(piSource).toContain('"z-ai/glm-5.2"');
+    expect(agentsSource).toContain("glm52: PiGlm52");
+    expect(agentsSource).toContain("cheapExecution: [providers.glm52]");
+    expect(agentsSource).toContain(
+      'glm52: createOpenRouterPiAgent(\n      "z-ai/glm-5.2"'
+    );
+  });
+
   test("workflow files do not import providers directly", () => {
     const workflowSources = [
       "workflows/plan.tsx",

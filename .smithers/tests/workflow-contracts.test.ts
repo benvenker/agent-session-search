@@ -96,6 +96,45 @@ describe("workflow source contracts", () => {
     }
   });
 
+  test("CE work review loop invokes CE skills and carries review feedback into retries", () => {
+    const workflow = read("workflows/ce-work-review-loop.tsx");
+    const implementPrompt = read("prompts/ce-work-implement.mdx");
+    const reviewPrompt = read("prompts/ce-code-review.mdx");
+
+    expect(workflow).toContain('<Loop\n        id="ce-work-review-loop:loop"');
+    expect(workflow).toContain('ctx.latest("ceReview"');
+    expect(workflow).toContain(
+      'verdict: z\n    .enum(["Ready to merge", "Ready with fixes", "Not ready"])'
+    );
+    expect(workflow).toContain(
+      "confidence: z.union([z.number(), z.string()]).optional()"
+    );
+    expect(workflow).toContain("const jsonValueSchema");
+    expect(workflow).toContain(
+      "triage_groups: z.array(jsonValueSchema).default([])"
+    );
+    expect(workflow).not.toContain("z.array(z.unknown())");
+    expect(workflow).not.toContain("z.record(");
+    expect(workflow).toContain(
+      'return review.status === "complete" && review.verdict === "Ready to merge";'
+    );
+    expect(workflow).toContain('previousReviewFeedback={feedback ?? ""}');
+    expect(workflow).toContain('onMaxReached="return-last"');
+    expect(implementPrompt).toContain(
+      "[$ce-work](/home/ben/.agents/skills/ce-work/SKILL.md)"
+    );
+    expect(implementPrompt).toContain(
+      "Do not run `ce-work`'s review, fix-application, commit, PR, or shipping phases"
+    );
+    expect(reviewPrompt).toContain(
+      "[$ce-code-review](/home/ben/.agents/skills/ce-code-review/SKILL.md)"
+    );
+    expect(reviewPrompt).toContain("mode:agent");
+    expect(reviewPrompt).toContain(
+      "fresh Smithers agent session for this workflow iteration"
+    );
+  });
+
   test("review panel is a strict tuple without fallback backfilling", () => {
     const source = read("components/Review.tsx");
     expect(source).toContain(

@@ -1,0 +1,24 @@
+# CE Code Review
+
+Use `[$ce-code-review](/home/ben/.agents/skills/ce-code-review/SKILL.md) mode:agent` for this review. Read the skill and follow its `mode:agent` contract before deciding whether to approve.
+
+You are running in a fresh Smithers agent session for this workflow iteration. Review the current repository changes, the original request, the implementation report, and any prior review findings carried into this iteration.
+
+REQUEST:
+{props.prompt}
+
+IMPLEMENTATION REPORT:
+{props.implementation}
+
+PREVIOUS REVIEW FINDINGS:
+{props.previousReviewFeedback || "None."}
+
+Prioritize correctness bugs, behavioral regressions, missing tests, unsafe error handling, and any mismatch with the requested behavior. Run the review in report-only `mode:agent`, do not apply fixes from the review step, and return exactly one JSON object following the skill's `mode:agent` output contract.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+The JSON must be the raw object from `ce-code-review mode:agent`.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.
