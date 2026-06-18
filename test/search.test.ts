@@ -983,6 +983,108 @@ describe("createSessionSearch", () => {
     }
   });
 
+  it("demotes Codex child sessions of the current caller", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    const currentSessionId = "019edc70-1cd3-7943-8304-ad9f2c240996";
+    const childSessionId = "019edc70-aaaa-7aaa-aaaa-aaaaaaaaaaaa";
+    const childPath = join(
+      codexRoot,
+      `rollout-2026-06-18T20-31-00-${childSessionId}.jsonl`
+    );
+    const historicalPath = join(codexRoot, "historical.jsonl");
+    await mkdir(codexRoot);
+    await writeSessionFile(
+      childPath,
+      `${JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: childSessionId,
+          parent_thread_id: currentSessionId,
+          source: {
+            subagent: {
+              thread_spawn: {
+                parent_thread_id: currentSessionId,
+              },
+            },
+          },
+        },
+      })}\n`,
+      30 * 60 * 1000
+    );
+    await touchFile(historicalPath, 3 * 60 * 60 * 1000);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const previousThreadId = process.env.CODEX_THREAD_ID;
+    process.env.CODEX_THREAD_ID = currentSessionId;
+    try {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  ...Array.from({ length: 12 }, (_, index) => ({
+                    source: source.name,
+                    root: source.root,
+                    path: childPath,
+                    line: index + 1,
+                    content: `child current echo ${index + 1}`,
+                    pattern: input.patterns[0],
+                  })),
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path: historicalPath,
+                    line: 1,
+                    content: "historical answer",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        debug: true,
+      });
+      const canonicalCodexRoot = await realpath(codexRoot);
+
+      expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual(
+        [
+          join(canonicalCodexRoot, "historical.jsonl"),
+          join(
+            canonicalCodexRoot,
+            `rollout-2026-06-18T20-31-00-${childSessionId}.jsonl`
+          ),
+        ]
+      );
+      expect(result.debug?.ranking?.candidates[1]).toMatchObject({
+        sessionId: childSessionId,
+        isCurrentSession: true,
+      });
+    } finally {
+      if (previousThreadId === undefined) {
+        delete process.env.CODEX_THREAD_ID;
+      } else {
+        process.env.CODEX_THREAD_ID = previousThreadId;
+      }
+    }
+  });
+
   it("demotes an explicit caller session for any matching source", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const claudeRoot = join(tmp, "claude");

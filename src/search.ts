@@ -1001,7 +1001,7 @@ async function orderCandidates(
         projectPoints: projectScore,
         score:
           recencyScore * RECENCY_SCORE_WEIGHT + densityScore + projectScore,
-        current: isCurrentSessionCandidate(candidate, currentSession),
+        current: await isCurrentSessionCandidate(candidate, currentSession),
       };
     })
   );
@@ -1428,16 +1428,86 @@ function densityPoints(hitCount: number) {
   return Math.min(Math.log2(hitCount + 1), 4);
 }
 
-function isCurrentSessionCandidate(
+async function isCurrentSessionCandidate(
   candidate: SearchCandidate,
   currentSession: CallerSession | undefined
 ) {
-  return (
-    currentSession !== undefined &&
-    candidate.source === currentSession.source &&
-    candidate.sessionId !== undefined &&
-    candidate.sessionId === currentSession.sessionId
+  if (
+    currentSession === undefined ||
+    candidate.source !== currentSession.source ||
+    candidate.sessionId === undefined
+  ) {
+    return false;
+  }
+  if (candidate.sessionId === currentSession.sessionId) {
+    return true;
+  }
+  return codexCandidateHasParentThread(candidate, currentSession.sessionId);
+}
+
+async function codexCandidateHasParentThread(
+  candidate: SearchCandidate,
+  callerSessionId: string
+) {
+  if (candidate.source !== "codex") {
+    return false;
+  }
+
+  const prefix = await readFilePrefix(
+    candidate.path,
+    SESSION_METADATA_MAX_BYTES
   );
+  if (!prefix) {
+    return false;
+  }
+
+  const lines = prefix.split(/\r?\n/).slice(0, SESSION_METADATA_MAX_LINES);
+  for (const line of lines) {
+    const record = parseJsonObject(line.trim());
+    if (!record) {
+      continue;
+    }
+    if (codexMetadataParentThreadId(record) === callerSessionId) {
+      return true;
+    }
+    const payload = record.payload;
+    if (
+      payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      codexMetadataParentThreadId(payload as Record<string, unknown>) ===
+        callerSessionId
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function codexMetadataParentThreadId(record: Record<string, unknown>) {
+  const direct = record.parent_thread_id;
+  if (typeof direct === "string") {
+    return direct;
+  }
+
+  const source = record.source;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return undefined;
+  }
+  const subagent = (source as Record<string, unknown>).subagent;
+  if (!subagent || typeof subagent !== "object" || Array.isArray(subagent)) {
+    return undefined;
+  }
+  const threadSpawn = (subagent as Record<string, unknown>).thread_spawn;
+  if (
+    !threadSpawn ||
+    typeof threadSpawn !== "object" ||
+    Array.isArray(threadSpawn)
+  ) {
+    return undefined;
+  }
+  const nested = (threadSpawn as Record<string, unknown>).parent_thread_id;
+  return typeof nested === "string" ? nested : undefined;
 }
 
 function currentSessionForInput(
