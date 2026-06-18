@@ -123,7 +123,7 @@ describe("package build and tarball", () => {
     expect(installOutput).toContain(
       "agent-session-search uses fff-mcp for fast file searching, but it's not installed."
     );
-    expect(installOutput).toContain("Recommended stable FFF MCP: v0.9.4");
+    expect(installOutput).toContain("Recommended stable FFF MCP: v0.9.5");
     expect(installOutput).toContain(
       "Install FFF with: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
     );
@@ -188,7 +188,7 @@ describe("package build and tarball", () => {
       "version: fff-mcp 9.9.9-package-test"
     );
     expect(installedDoctorResult.stdout).toContain(
-      "recommended stable FFF MCP: v0.9.4"
+      "recommended stable FFF MCP: v0.9.5"
     );
     expect(installedDoctorResult.stdout).toContain("smoke: skipped");
     expect(installedDoctorResult.stdout).toContain("multi_grep: skipped");

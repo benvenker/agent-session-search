@@ -9,6 +9,7 @@ The CLI uses the same search library and result shape as the MCP server. The ins
 ```bash
 agent-session-search "auth token timeout" --json
 agent-session-search "global search" --source codex --source claude --json
+agent-session-search --json --group-candidates @payload.json
 agent-session-search "auth token timeout" --json --evidence --path /absolute/session.jsonl
 agent-session-search "auth token timeout" --json --candidates --debug
 ```
@@ -25,6 +26,7 @@ Options:
 | `--cwd <path>`                         | Add cwd to `operationalContext`.                                                                                |
 | `--branch <name>`                      | Add branch to `operationalContext`.                                                                             |
 | `--reason <text>`                      | Add reason to `operationalContext`.                                                                             |
+| `--group-candidates <json\|@file\|->`  | Replay a server-prepared `more.groupCandidates` payload to expand one candidate group.                          |
 | `--mode <candidates\|evidence\|debug>` | Select result detail. Defaults to `candidates`, unless `--debug` is used alone.                                 |
 | `--candidates`                         | Return candidate groups with compact session-level leads. Combine with `--debug` for ranking diagnostics.       |
 | `--evidence`                           | Return evidence groups or focused evidence hits.                                                                |
@@ -32,6 +34,14 @@ Options:
 | `--path <path>`                        | Restrict evidence to a canonical session path. Repeatable. This does not imply `--evidence`.                    |
 | `--max-patterns <n>`                   | Limit expanded literal patterns.                                                                                |
 | `--max-results <n>`                    | Limit results per source. Alias: `--max-results-per-source`. Must be a positive integer.                        |
+
+For group expansion in the CLI, save the exact `more.groupCandidates` object from a candidate group and pass it back unchanged:
+
+```bash
+agent-session-search --json --group-candidates @payload.json
+```
+
+Use `-` instead of `@payload.json` to read the payload JSON from stdin.
 
 `--path` is normally used with `--evidence`. Path-restricted evidence bypasses the default unscoped evidence cap, but an explicit `--max-results` still applies.
 
@@ -49,6 +59,7 @@ agent-session-search version
 
 ```bash
 agent-session-search capabilities --json
+agent-session-search capabilities
 agent-session-search --json --help
 ```
 
@@ -58,6 +69,7 @@ Prints the machine-readable CLI and MCP contract, including commands, modes, env
 
 ```bash
 agent-session-search sources --json
+agent-session-search sources
 ```
 
 Inspects configured source roots without running a search. Each source includes `enabled`, `status`, `include`, and warning fields, plus the config path used.

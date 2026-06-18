@@ -1,6 +1,6 @@
 {
   "target_path": "/data/projects/agent-session-search",
-  "discovered_at": "2026-05-31T17:19:37Z",
+  "discovered_at": "2026-06-18T20:47:01Z",
   "languages": ["typescript_or_javascript"],
   "binaries": [
     "agent-session-search",

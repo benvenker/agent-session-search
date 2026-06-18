@@ -11,6 +11,7 @@ import {
   parseArgs,
   searchInputFromParsedArgs,
 } from "../src/cli.js";
+import { groupCandidates } from "./support/followup.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,6 +26,8 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("agent-session-search help");
       expect(output).toContain("agent-session-search --version");
       expect(output).toContain("--json");
+      expect(output).toContain("sources [--json]");
+      expect(output).toContain("capabilities [--json]");
       expect(output).toContain("--source <source>");
       expect(output).toContain("--mode <candidates|evidence|debug>");
       expect(output).toContain("--evidence");
@@ -72,6 +75,7 @@ describe("CLI argument parsing", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await main(["capabilities", "--json"]);
+      await main(["capabilities"]);
 
       const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
         tool: string;
@@ -116,6 +120,9 @@ describe("CLI argument parsing", () => {
         code: 4,
         meaning: "upstream-failure",
       });
+      expect(JSON.parse(log.mock.calls[1]?.[0] as string)).toMatchObject({
+        tool: "agent-session-search",
+      });
     } finally {
       log.mockRestore();
     }
@@ -143,6 +150,10 @@ describe("CLI argument parsing", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await main(["sources", "--json"], {
+        ...process.env,
+        AGENT_SESSION_SEARCH_CONFIG: configPath,
+      });
+      await main(["sources"], {
         ...process.env,
         AGENT_SESSION_SEARCH_CONFIG: configPath,
       });
@@ -193,6 +204,10 @@ describe("CLI argument parsing", () => {
         root: missingRoot,
         code: "missing_root",
         message: `Configured root does not exist: ${missingRoot}`,
+      });
+      expect(JSON.parse(log.mock.calls[1]?.[0] as string)).toMatchObject({
+        command: "sources",
+        configPath,
       });
     } finally {
       log.mockRestore();
@@ -348,6 +363,78 @@ describe("CLI argument parsing", () => {
     });
   });
 
+  it("maps a copied group candidate follow-up payload to search input", () => {
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      queries: ["auth token", "timeout"],
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      maxPatterns: 3,
+      maxResultsPerSource: 5,
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 5,
+      limit: 5,
+    });
+
+    const args = parseArgs([
+      "--json",
+      "--group-candidates",
+      JSON.stringify(followup),
+    ]);
+
+    expect(args.query).toBe("auth token timeout");
+    expect(searchInputFromParsedArgs(args)).toEqual({
+      query: "auth token timeout",
+      queries: undefined,
+      operationalContext: undefined,
+      groupCandidates: followup,
+      sources: undefined,
+      resultsDisplayMode: "candidates",
+      paths: undefined,
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
+      debug: undefined,
+    });
+  });
+
+  it("rejects group candidate payloads mixed with conflicting query material", () => {
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 5,
+    });
+
+    expect(() =>
+      parseArgs([
+        "different query",
+        "--group-candidates",
+        JSON.stringify(followup),
+      ])
+    ).toThrow("query must match --group-candidates.query");
+    expect(() =>
+      parseArgs(["--group-candidates", JSON.stringify(followup), "--evidence"])
+    ).toThrow("--group-candidates must use candidates mode");
+    expect(() =>
+      parseArgs([
+        "--group-candidates",
+        JSON.stringify(followup),
+        "--source",
+        "claude",
+      ])
+    ).toThrow("--group-candidates is a complete server-prepared payload");
+  });
+
   it("supports explicit result modes and debug", () => {
     expect(
       searchInputFromParsedArgs(
@@ -379,6 +466,22 @@ describe("CLI argument parsing", () => {
         query: "auth",
         resultsDisplayMode: "candidates",
         debug: true,
+      });
+    }
+  });
+
+  it("suggests close result mode values with a copy-pasteable command", () => {
+    try {
+      parseArgs(["auth token timeout", "--mode", "canddiates"]);
+      throw new Error("expected parseArgs to reject the mistyped mode");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliParseError);
+      expect((error as Error).message).toContain("did you mean candidates?");
+      expect((error as CliParseError).suggestion).toEqual({
+        unknownOption: "canddiates",
+        suggestedOption: "candidates",
+        suggestedCommand:
+          "agent-session-search 'auth token timeout' --mode candidates",
       });
     }
   });

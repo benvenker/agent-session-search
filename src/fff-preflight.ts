@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 
 export const FFF_MCP_INSTALLER_URL =
   "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh";
-export const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.4";
+export const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.5";
 export const FFF_MCP_INSTALL_COMMAND = `curl -fsSL ${FFF_MCP_INSTALLER_URL} | bash`;
 
 type CheckFffMcpOptions = {

@@ -5,7 +5,7 @@ import { closeSync, openSync, writeSync } from "node:fs";
 const FFF_MCP_INSTALLER_URL =
   "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh";
 const FFF_MCP_INSTALL_COMMAND = `curl -fsSL ${FFF_MCP_INSTALLER_URL} | bash`;
-const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.4";
+const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.5";
 
 const result = spawnSync("fff-mcp", ["--version"], {
   encoding: "utf8",

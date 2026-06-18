@@ -122,7 +122,7 @@ describe("FFF preflight command", () => {
     expect(result.stdout).toContain("FFF MCP preflight passed.");
     expect(result.stdout).toContain(`resolved path: ${fakeFffMcp}`);
     expect(result.stdout).toContain("version: fff-mcp 9.9.9-test");
-    expect(result.stdout).toContain("recommended stable FFF MCP: v0.9.4");
+    expect(result.stdout).toContain("recommended stable FFF MCP: v0.9.5");
     expect(result.stdout).toContain("smoke: skipped");
     expect(result.stdout).toContain("multi_grep: skipped");
     expect(result.stdout).toContain("recall equivalence: skipped");
@@ -274,7 +274,7 @@ describe("FFF preflight command", () => {
       ok: false,
       command: process.execPath,
       reason: `${process.execPath} was found, but a live grep smoke test failed: known token was not found`,
-      recommendedRelease: "v0.9.4",
+      recommendedRelease: "v0.9.5",
       installCommand:
         "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
       path: "/usr/bin",

@@ -359,7 +359,7 @@ Do not pass line-context requests through `multi_grep` for this feature unless p
 - Public shape risk: changing default `resultsShape` affects clients that assume flat candidate arrays. Docs and tests should make the new grouped shape explicit.
 - Count interpretation risk: counts can mislead when caps or sampling are in play. The response must label each count's relation and expose `hasMore` conservatively.
 - Agent ergonomics risk: a technically correct grouped response can still be hard for agents if it lacks exact next actions, stable metadata, or teaching errors. Contract tests should verify the first-call, group-follow-up, and focused-evidence loop as an agent task, not only as isolated objects.
-- Version dependency: local machines may have `fff-mcp` 0.8.x even though stable 0.9.4 is current as of 2026-06-18. Required behavior should be capability-checked, not version-guessed.
+- Version dependency: local machines may have `fff-mcp` 0.8.x even though stable 0.9.5 is current as of 2026-06-18. Required behavior should be capability-checked, not version-guessed.
 
 ---
 

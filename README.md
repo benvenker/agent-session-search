@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor
 ```
 
-Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current documented stable FFF MCP release for this package is `v0.9.4`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
+Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current documented stable FFF MCP release for this package is `v0.9.5`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
 
 ## Quick Start
 
@@ -126,7 +126,13 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
 }
 ```
 
-When a promising group has more leads, pass the prepared payload back as `groupCandidates`, for example `{ "query": "auth token timeout", "groupCandidates": <more.groupCandidates> }`. Clients that support exact top-level argument echoing can also send the `more.groupCandidates` object itself; the server normalizes that shorthand. Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
+When a promising group has more leads, pass the prepared payload back as `groupCandidates`, for example `{ "query": "auth token timeout", "groupCandidates": <more.groupCandidates> }`. Clients that support exact top-level argument echoing can also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The CLI can replay the same payload:
+
+```bash
+agent-session-search --json --group-candidates @payload.json
+```
+
+Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
 
 ```bash
 agent-session-search "auth token timeout" --json --evidence \

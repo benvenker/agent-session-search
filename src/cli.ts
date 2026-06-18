@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { isEntrypoint } from "./entrypoint.js";
 import { searchOptionsFromEnv } from "./env.js";
 import {
@@ -10,7 +11,12 @@ import {
 import { packageVersion } from "./package-info.js";
 import { inspectSessionSources } from "./roots.js";
 import { createSessionSearch } from "./search.js";
-import type { ResultsDisplayMode, SearchSessionsInput } from "./types.js";
+import { SearchSessionsInputError } from "./tool.js";
+import type {
+  GroupCandidatesFollowupInput,
+  ResultsDisplayMode,
+  SearchSessionsInput,
+} from "./types.js";
 
 function usage() {
   return cliHelpText();
@@ -28,6 +34,7 @@ type ParsedArgs = {
     source: string;
     sessionId: string;
   };
+  groupCandidates?: GroupCandidatesFollowupInput;
   json: boolean;
   sources: string[];
   resultsDisplayMode?: ResultsDisplayMode;
@@ -63,6 +70,7 @@ const KNOWN_OPTIONS = [
   "--reason",
   "--caller-source",
   "--caller-session-id",
+  "--group-candidates",
   "--mode",
   "--results-display-mode",
   "--candidates",
@@ -100,6 +108,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const operationalContext: ParsedArgs["operationalContext"] = {};
   const callerSession: { source?: string; sessionId?: string } = {};
   const queryParts: string[] = [];
+  let groupCandidates: GroupCandidatesFollowupInput | undefined;
   let json = false;
   let resultsDisplayMode: ResultsDisplayMode | undefined;
   let maxPatterns: number | undefined;
@@ -175,8 +184,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--group-candidates") {
+      groupCandidates = parseGroupCandidatesArgument(argv[index + 1], arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--mode" || arg === "--results-display-mode") {
-      resultsDisplayMode = parseResultsDisplayMode(argv[index + 1], arg);
+      resultsDisplayMode = parseResultsDisplayMode(argv[index + 1], arg, argv);
       index += 1;
       continue;
     }
@@ -219,8 +233,40 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   const query = queryParts.join(" ").trim();
-  if (!query) {
+  if (!query && !groupCandidates) {
     throw inputError("query is required");
+  }
+  if (groupCandidates && query && query !== groupCandidates.query) {
+    throw inputError(
+      "query must match --group-candidates.query; run `agent-session-search --json --group-candidates @payload.json` with the exact server-prepared payload"
+    );
+  }
+  if (
+    groupCandidates &&
+    resultsDisplayMode &&
+    resultsDisplayMode !== "candidates"
+  ) {
+    throw inputError(
+      "--group-candidates must use candidates mode; remove --evidence or --mode evidence"
+    );
+  }
+  if (groupCandidates) {
+    const mixedFlags = groupCandidatesMixedFlags({
+      queries,
+      operationalContext,
+      callerSession,
+      sources,
+      paths,
+      maxPatterns,
+      maxResultsPerSource,
+    });
+    if (mixedFlags.length > 0) {
+      throw inputError(
+        `--group-candidates is a complete server-prepared payload; remove ${mixedFlags.join(
+          ", "
+        )} and run \`agent-session-search --json --group-candidates @payload.json\``
+      );
+    }
   }
   if (
     (callerSession.source === undefined) !==
@@ -232,7 +278,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return {
-    query,
+    query: query || groupCandidates?.query || "",
     queries,
     operationalContext,
     ...(callerSession.source && callerSession.sessionId
@@ -243,9 +289,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
           },
         }
       : {}),
+    ...(groupCandidates ? { groupCandidates } : {}),
     json,
     sources,
-    resultsDisplayMode,
+    resultsDisplayMode: groupCandidates ? "candidates" : resultsDisplayMode,
     paths,
     maxPatterns,
     maxResultsPerSource,
@@ -273,6 +320,84 @@ function unknownOptionError(option: string, argv: string[]) {
 
 function inputError(message: string) {
   return new CliParseError(message);
+}
+
+function parseGroupCandidatesArgument(
+  value: string | undefined,
+  option: string
+): GroupCandidatesFollowupInput {
+  if (!value) {
+    throw inputError(
+      `${option} requires a value copied from more.groupCandidates`
+    );
+  }
+
+  const raw = groupCandidatesInputText(value);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw inputError(
+      `${option} requires valid JSON copied from more.groupCandidates; use @file or - for stdin when shell quoting is awkward`
+    );
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw inputError(`${option} requires a JSON object`);
+  }
+  return parsed as GroupCandidatesFollowupInput;
+}
+
+function groupCandidatesInputText(value: string) {
+  if (value === "-") {
+    return readFileSync(0, "utf8");
+  }
+  if (value.startsWith("@")) {
+    return readFileSync(value.slice(1), "utf8");
+  }
+  return value;
+}
+
+function groupCandidatesMixedFlags({
+  queries,
+  operationalContext,
+  callerSession,
+  sources,
+  paths,
+  maxPatterns,
+  maxResultsPerSource,
+}: {
+  queries: string[];
+  operationalContext: ParsedArgs["operationalContext"];
+  callerSession: { source?: string; sessionId?: string };
+  sources: string[];
+  paths: string[];
+  maxPatterns?: number;
+  maxResultsPerSource?: number;
+}) {
+  const flags: string[] = [];
+  if (queries.length > 0) {
+    flags.push("--probe/--query");
+  }
+  if (Object.keys(operationalContext).length > 0) {
+    flags.push("--cwd/--branch/--reason");
+  }
+  if (callerSession.source || callerSession.sessionId) {
+    flags.push("--caller-source/--caller-session-id");
+  }
+  if (sources.length > 0) {
+    flags.push("--source");
+  }
+  if (paths.length > 0) {
+    flags.push("--path");
+  }
+  if (maxPatterns !== undefined) {
+    flags.push("--max-patterns");
+  }
+  if (maxResultsPerSource !== undefined) {
+    flags.push("--max-results");
+  }
+  return flags;
 }
 
 function suggestKnownOption(option: string) {
@@ -398,6 +523,7 @@ export function searchInputFromParsedArgs(
         ? args.operationalContext
         : undefined,
     ...(args.callerSession ? { callerSession: args.callerSession } : {}),
+    ...(args.groupCandidates ? { groupCandidates: args.groupCandidates } : {}),
     sources: args.sources.length > 0 ? args.sources : undefined,
     resultsDisplayMode: args.resultsDisplayMode,
     paths: args.paths.length > 0 ? args.paths : undefined,
@@ -508,7 +634,8 @@ function isRobotTriageRequest(argv: string[]) {
 
 function parseResultsDisplayMode(
   value: string | undefined,
-  option: string
+  option: string,
+  argv: string[]
 ): ResultsDisplayMode {
   if (!value) {
     throw inputError(`${option} requires a value`);
@@ -516,7 +643,31 @@ function parseResultsDisplayMode(
   if (value === "candidates" || value === "evidence" || value === "debug") {
     return value;
   }
+  const suggestedMode = suggestResultsDisplayMode(value);
+  if (suggestedMode) {
+    throw new CliParseError(
+      `${option} must be one of: candidates, evidence, debug; did you mean ${suggestedMode}?`,
+      {
+        unknownOption: value,
+        suggestedOption: suggestedMode,
+        suggestedCommand: correctedCommand(argv, value, suggestedMode),
+      }
+    );
+  }
   throw inputError(`${option} must be one of: candidates, evidence, debug`);
+}
+
+function suggestResultsDisplayMode(
+  value: string
+): ResultsDisplayMode | undefined {
+  let best: { mode: ResultsDisplayMode; distance: number } | undefined;
+  for (const mode of ["candidates", "evidence", "debug"] as const) {
+    const distance = damerauLevenshtein(value, mode);
+    if (!best || distance < best.distance) {
+      best = { mode, distance };
+    }
+  }
+  return best && best.distance <= 2 ? best.mode : undefined;
 }
 
 function parsePositiveInteger(value: string | undefined, option: string) {
@@ -535,20 +686,35 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
     const message = error instanceof Error ? error.message : String(error);
     const suggestion =
       error instanceof CliParseError ? error.suggestion : undefined;
+    const groupFollowupError =
+      error instanceof SearchSessionsInputError ? error : undefined;
     if (process.argv.slice(2).includes("--json")) {
       console.error(
         JSON.stringify(
           {
             error: {
-              code: "user_input_error",
+              code:
+                groupFollowupError?.code ??
+                (error instanceof CliParseError
+                  ? "user_input_error"
+                  : "upstream_failure"),
               message,
+              ...(groupFollowupError
+                ? {
+                    invalidField: groupFollowupError.invalidField,
+                    correctedShape: groupFollowupError.correctedShape,
+                  }
+                : {}),
               ...(suggestion
                 ? {
                     hint: suggestionHint(suggestion),
                   }
                 : {}),
               suggestedCommand:
-                suggestion?.suggestedCommand ?? "agent-session-search help",
+                suggestion?.suggestedCommand ??
+                (groupFollowupError
+                  ? "Copy the exact more.groupCandidates payload and run: agent-session-search --json --group-candidates @payload.json"
+                  : "agent-session-search help"),
             },
           },
           null,
@@ -560,8 +726,21 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
       if (suggestion) {
         console.error(`Suggested command: ${suggestion.suggestedCommand}`);
       }
+      if (groupFollowupError) {
+        console.error(`Invalid field: ${groupFollowupError.invalidField}`);
+        console.error(
+          `Corrected shape: ${JSON.stringify(groupFollowupError.correctedShape)}`
+        );
+        console.error(
+          "Suggested command: agent-session-search --json --group-candidates @payload.json"
+        );
+      }
       console.error(usage());
     }
-    process.exitCode = error instanceof CliParseError ? 1 : 4;
+    process.exitCode =
+      error instanceof CliParseError ||
+      error instanceof SearchSessionsInputError
+        ? 1
+        : 4;
   });
 }

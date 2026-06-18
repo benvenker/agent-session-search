@@ -130,9 +130,43 @@
         "regression_tests": "audit/regression_tests/",
         "handoff": "audit/HANDOFF.md"
       }
+    },
+    {
+      "pass": 5,
+      "started_at": "2026-06-18T20:20:00Z",
+      "completed_at": "2026-06-18T21:05:15Z",
+      "mode": "full",
+      "target_sha": "962e09c94470b49ae966fdd10b4c590d0ef0058d",
+      "target_branch": "main",
+      "feature_branch": null,
+      "summary": {
+        "surfaces_inventoried": 5,
+        "surfaces_scored": 5,
+        "recommendations_total": 5,
+        "recommendations_applied": 5,
+        "substantive_commits": 1,
+        "dimensions_touched": 7,
+        "ambition_bar_met": true,
+        "ambition_bar_self_prompt_run": true,
+        "median_uplift_pts": 260,
+        "regressions_count": 0,
+        "fresh_eyes_rounds": 1
+      },
+      "artifacts": {
+        "surface_inventory": "audit/surface_inventory_pass_5.jsonl",
+        "agent_surfaces": "audit/agent_surfaces_pass_5.jsonl",
+        "recommendations": "audit/recommendations_pass_5.jsonl",
+        "applied_changes": "audit/applied_changes.jsonl",
+        "ambition_bar_check": "audit/ambition_bar_check_pass_5.md",
+        "scorecard": "audit/scorecard_pass_5.md",
+        "uplift_diff": "audit/uplift_diff_pass_5.md",
+        "regression_alerts": "audit/regression_alerts_pass_5.md",
+        "regression_tests": "audit/regression_tests/",
+        "handoff": "audit/HANDOFF.md"
+      }
     }
   ],
-  "current_pass": 4,
+  "current_pass": 5,
   "pass_N+1_ready": false,
-  "next_pass_focus": "No ready agent-ergonomics beads remain. Run re-score-only after future CLI or MCP surface changes."
+  "next_pass_focus": "No ready agent-ergonomics beads remain. Re-score after future CLI/MCP surface changes, especially progressive evidence follow-up flows."
 }

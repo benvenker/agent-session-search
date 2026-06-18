@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor
 ```
 
-Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The documented stable FFF MCP release for this package is `v0.9.4`.
+Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The documented stable FFF MCP release for this package is `v0.9.5`.
 
 ## FFF `multi_grep` Falls Back
 
@@ -51,7 +51,7 @@ invalid_group_followup
 
 Cause: a `groupCandidates` payload was edited, invented, or no longer matches the top-level query, mode, paths, resolved sources, or query plan.
 
-Fix: copy `more.groupCandidates` exactly from a candidate group returned by `search_sessions`, either under the `groupCandidates` field or as the exact top-level shorthand. Do not mix in edited fields. For line evidence, copy a candidate's `more.evidence` payload instead.
+Fix: copy `more.groupCandidates` exactly from a candidate group returned by `search_sessions`, either under the `groupCandidates` field or as the exact top-level shorthand. In the CLI, save the payload JSON and run `agent-session-search --json --group-candidates @payload.json`. Do not mix in edited fields. For line evidence, copy a candidate's `more.evidence` payload instead.
 
 ## Missing Or Unreadable Roots
 
