@@ -103,8 +103,8 @@ describe("workflow source contracts", () => {
 
     expect(workflow).toContain('<Loop\n        id="ce-work-review-loop:loop"');
     expect(workflow).toContain('ctx.latest("ceReview"');
-    expect(workflow).toContain(
-      'verdict: z\n    .enum(["Ready to merge", "Ready with fixes", "Not ready"])'
+    expect(workflow).toMatch(
+      /verdict:\s*z\s*\.enum\(\["Ready to merge", "Ready with fixes", "Not ready"\]\)/
     );
     expect(workflow).toContain(
       "confidence: z.union([z.number(), z.string()]).optional()"
