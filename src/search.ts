@@ -17,7 +17,16 @@ import type {
   SearchSessionsOutput,
   ResultsShape,
   SessionSearch,
+  SourceName,
 } from "./types.js";
+import {
+  groupCandidatesFingerprint,
+  groupCandidatesFingerprintIsValid,
+  groupCandidatesPlanFingerprint,
+  stringArraysEqual,
+  type GroupCandidatesFingerprintPayload,
+} from "./followup.js";
+import { SearchSessionsInputError } from "./tool.js";
 import { open, realpath, stat } from "node:fs/promises";
 import {
   OneRootFffBackend,
@@ -100,14 +109,23 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const requestMaxResultsPerSource = effectiveInput.paths?.length
       ? effectiveInput.maxResultsPerSource
       : maxResultsPerSource;
-    const context = input.context ?? defaults.context;
+    const context = effectiveInput.context ?? defaults.context;
     const patternPlans = expandPatternPlans(effectiveInput, searchConfig);
-    const expandedPatterns =
+    const searchedPatternPlans =
       maxPatterns === undefined
-        ? patternPlans.map((plan) => plan.pattern)
-        : patternPlans.map((plan) => plan.pattern).slice(0, maxPatterns);
+        ? patternPlans
+        : patternPlans.slice(0, maxPatterns);
+    validateGroupCandidatesPlan(
+      effectiveInput,
+      searchedPatternPlans,
+      groupCandidatesPlanFingerprint(
+        searchedPatternPlans,
+        resolvedRoots.sources
+      )
+    );
+    const expandedPatterns = searchedPatternPlans.map((plan) => plan.pattern);
     const queryByPattern = new Map(
-      patternPlans.map((plan) => [plan.pattern, plan.query])
+      searchedPatternPlans.map((plan) => [plan.pattern, plan.query])
     );
     const searchedSources = resolvedRoots.sources.map((source) => ({
       ...source,
@@ -184,7 +202,17 @@ export class CoordinatedSessionSearch implements SessionSearch {
       effectiveInput,
       resultsDisplayMode,
       requestMaxResultsPerSource,
-      patternPlans
+      searchedPatternPlans,
+      {
+        searchedSources: searchedSources.map((source) => source.name),
+        planFingerprint: groupCandidatesPlanFingerprint(
+          searchedPatternPlans,
+          resolvedRoots.sources
+        ),
+        ...(maxPatterns !== undefined ? { maxPatterns } : {}),
+        ...(maxResultsPerSource !== undefined ? { maxResultsPerSource } : {}),
+        ...(context !== undefined ? { context } : {}),
+      }
     );
     const shouldIncludeDebug =
       effectiveInput.debug || resultsDisplayMode === "debug";
@@ -425,7 +453,8 @@ async function shapeResults(
   input: SearchSessionsInput,
   resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"],
   maxResultsPerSource: number | undefined,
-  patternPlans: PatternPlan[]
+  patternPlans: PatternPlan[],
+  continuationState: GroupCandidatesContinuationState
 ): Promise<{
   results: SearchSessionsOutput["results"];
   resultsShape: ResultsShape;
@@ -439,11 +468,18 @@ async function shapeResults(
       input,
       patternPlans,
       limit: candidateGroupLeadLimit(input, maxResultsPerSource),
+      continuationState,
     });
     return {
       results: grouped,
       resultsShape: "candidate_groups",
-      ...(input.debug ? { rankingDebug: { candidates: ranking } } : {}),
+      ...(input.debug
+        ? {
+            rankingDebug: {
+              candidates: rankingDebugForDisplayedLeads(ranking, grouped),
+            },
+          }
+        : {}),
     };
   }
 
@@ -465,39 +501,50 @@ async function toCandidates(
   input: SearchSessionsInput
 ): Promise<{
   candidates: SearchCandidate[];
-  ranking: SearchCandidateRankingDebug[];
+  ranking: RankedCandidate[];
 }> {
-  const candidates = new Map<string, SearchCandidate>();
+  const candidates = new Map<string, CandidateAccumulator>();
 
   for (const result of results) {
     const key = `${result.source}\0${result.path}`;
     const existing = candidates.get(key);
     if (existing) {
-      existing.hitCount += candidateHitCountIncrement(result);
-      addUniqueValues(existing.matchedPatterns, resultPatterns(result));
-      addUniqueValues(existing.matchedQueries, resultQueries(result));
+      existing.candidate.hitCount += 1;
+      existing.patternMatchCount += candidatePatternMatchCount(result);
+      addUniqueValues(
+        existing.candidate.matchedPatterns,
+        resultPatterns(result)
+      );
+      addUniqueValues(existing.candidate.matchedQueries, resultQueries(result));
       if (
         result.line !== undefined &&
-        (existing.line === undefined || result.line < existing.line)
+        (existing.candidate.line === undefined ||
+          result.line < existing.candidate.line)
       ) {
-        existing.line = result.line;
-        existing.preview = truncateUtf8(result.content, PREVIEW_MAX_BYTES);
+        existing.candidate.line = result.line;
+        existing.candidate.preview = truncateUtf8(
+          result.content,
+          PREVIEW_MAX_BYTES
+        );
       }
       continue;
     }
 
     const sessionId = sessionIdFromPath(result.path);
     candidates.set(key, {
-      source: result.source,
-      root: result.root,
-      path: result.path,
-      ...(sessionId ? { sessionId } : {}),
-      line: result.line,
-      preview: truncateUtf8(result.content, PREVIEW_MAX_BYTES),
-      hitCount: candidateHitCountIncrement(result),
-      matchedQueries: resultQueries(result),
-      matchedPatterns: resultPatterns(result),
-      more: evidenceFollowup(input, result.source, result.path),
+      candidate: {
+        source: result.source,
+        root: result.root,
+        path: result.path,
+        ...(sessionId ? { sessionId } : {}),
+        line: result.line,
+        preview: truncateUtf8(result.content, PREVIEW_MAX_BYTES),
+        hitCount: 1,
+        matchedQueries: resultQueries(result),
+        matchedPatterns: resultPatterns(result),
+        more: evidenceFollowup(input, result.source, result.path),
+      },
+      patternMatchCount: candidatePatternMatchCount(result),
     });
   }
 
@@ -507,7 +554,7 @@ async function toCandidates(
   );
 }
 
-function candidateHitCountIncrement(result: SearchResult) {
+function candidatePatternMatchCount(result: SearchResult) {
   return Math.max(resultPatterns(result).length, 1);
 }
 
@@ -536,6 +583,7 @@ type CandidateGroupsInput = {
   input: SearchSessionsInput;
   patternPlans: PatternPlan[];
   limit: number;
+  continuationState: GroupCandidatesContinuationState;
 };
 
 function toCandidateGroups({
@@ -544,6 +592,7 @@ function toCandidateGroups({
   input,
   patternPlans,
   limit,
+  continuationState,
 }: CandidateGroupsInput): CandidateGroup[] {
   const patternByLiteral = new Map(
     patternPlans.map((plan) => [plan.pattern, plan])
@@ -577,7 +626,12 @@ function toCandidateGroups({
   }
 
   const groups: CandidateGroup[] = [];
-  for (const group of MATCH_GROUPS) {
+  const groupsToBuild = input.groupCandidates
+    ? MATCH_GROUPS.filter(
+        (group) => group.id === input.groupCandidates?.group.id
+      )
+    : MATCH_GROUPS;
+  for (const group of groupsToBuild) {
     const groupCandidates = assigned.get(group.id) ?? [];
     if (groupCandidates.length === 0) {
       continue;
@@ -614,19 +668,31 @@ function toCandidateGroups({
       ...(hasMore
         ? {
             more: {
-              groupCandidates: groupFollowup(input, group, patternIds, {
-                offset: offset + shown.length,
-                limit,
-              }),
+              groupCandidates: groupFollowup(
+                input,
+                group,
+                patternIds,
+                {
+                  offset: offset + shown.length,
+                  limit,
+                },
+                continuationState
+              ),
             },
           }
         : {}),
     });
   }
-  return input.groupCandidates
-    ? groups.filter((group) => group.id === input.groupCandidates?.group.id)
-    : groups;
+  return groups;
 }
+
+type GroupCandidatesContinuationState = {
+  searchedSources: SourceName[];
+  planFingerprint: string;
+  maxPatterns?: number;
+  maxResultsPerSource?: number;
+  context?: number;
+};
 
 function groupMembershipsForCandidate(
   hits: SearchResult[],
@@ -720,18 +786,79 @@ function patternIdsForGroup(
     .map((plan) => plan.id);
 }
 
+function validateGroupCandidatesPlan(
+  input: SearchSessionsInput,
+  patternPlans: PatternPlan[],
+  planFingerprint: string
+) {
+  const followup = input.groupCandidates;
+  if (!followup) {
+    return;
+  }
+
+  if (!groupCandidatesFingerprintIsValid(followup)) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.fingerprint",
+      "Invalid group follow-up: groupCandidates must be copied exactly from the server-prepared payload."
+    );
+  }
+
+  const group = MATCH_GROUPS.find((item) => item.id === followup.group.id);
+  if (!group) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.group.id",
+      "Invalid group follow-up: groupCandidates.group.id does not match a known candidate group."
+    );
+  }
+  if (followup.group.priority !== group.priority) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.group.priority",
+      "Invalid group follow-up: groupCandidates.group.priority does not match the current query plan."
+    );
+  }
+
+  const expectedPatternIds = patternIdsForGroup(group.id, patternPlans);
+  if (!stringArraysEqual(followup.group.patternIds, expectedPatternIds)) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.group.patternIds",
+      "Invalid group follow-up: groupCandidates.group.patternIds do not match the current query plan."
+    );
+  }
+
+  if (followup.planFingerprint !== planFingerprint) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.planFingerprint",
+      "Invalid group follow-up: groupCandidates.planFingerprint no longer matches the current query plan or resolved sources. Re-run the original search and use the new server-prepared payload."
+    );
+  }
+}
+
 function groupFollowup(
   input: SearchSessionsInput,
   group: MatchGroupDefinition,
   patternIds: string[],
-  page: { offset: number; limit: number }
+  page: { offset: number; limit: number },
+  continuationState: GroupCandidatesContinuationState
 ): GroupCandidatesFollowupInput {
-  return {
+  const payload: GroupCandidatesFingerprintPayload = {
     query: input.query,
     ...(input.queries ? { queries: input.queries } : {}),
-    ...(input.sources ? { sources: input.sources } : {}),
+    ...(input.operationalContext !== undefined
+      ? { operationalContext: input.operationalContext }
+      : {}),
+    sources: continuationState.searchedSources,
     resultsDisplayMode: "candidates",
     ...(input.paths ? { paths: input.paths } : {}),
+    ...(continuationState.maxPatterns !== undefined
+      ? { maxPatterns: continuationState.maxPatterns }
+      : {}),
+    ...(continuationState.maxResultsPerSource !== undefined
+      ? { maxResultsPerSource: continuationState.maxResultsPerSource }
+      : {}),
+    ...(continuationState.context !== undefined
+      ? { context: continuationState.context }
+      : {}),
+    planFingerprint: continuationState.planFingerprint,
     group: {
       id: group.id,
       priority: group.priority,
@@ -739,6 +866,10 @@ function groupFollowup(
     },
     offset: page.offset,
     limit: page.limit,
+  };
+  return {
+    ...payload,
+    fingerprint: groupCandidatesFingerprint(payload),
   };
 }
 
@@ -814,6 +945,8 @@ type CandidateProjectSignals = {
 
 type RankedCandidate = {
   candidate: SearchCandidate;
+  patternMatchCount: number;
+  rank: number;
   originalIndex: number;
   mtimeMs?: number;
   recencyBucket: RankingRecencyBucket;
@@ -825,19 +958,24 @@ type RankedCandidate = {
   current: boolean;
 };
 
+type CandidateAccumulator = {
+  candidate: SearchCandidate;
+  patternMatchCount: number;
+};
+
 async function orderCandidates(
-  candidates: SearchCandidate[],
+  candidates: CandidateAccumulator[],
   projectSignals: ProjectSignals
 ): Promise<{
   candidates: SearchCandidate[];
-  ranking: SearchCandidateRankingDebug[];
+  ranking: RankedCandidate[];
 }> {
   const ranked = await Promise.all(
-    candidates.map(async (candidate, originalIndex) => {
+    candidates.map(async ({ candidate, patternMatchCount }, originalIndex) => {
       const mtimeMs = await candidateMtimeMs(candidate.path);
       const recencyBucket = recencyBucketForMtime(mtimeMs);
       const recencyScore = recencyPoints(recencyBucket);
-      const densityScore = densityPoints(candidate.hitCount);
+      const densityScore = densityPoints(patternMatchCount);
       const projectMatch = await projectMatchForCandidate(
         candidate,
         projectSignals
@@ -845,6 +983,8 @@ async function orderCandidates(
       const projectScore = projectPoints(projectMatch);
       return {
         candidate,
+        patternMatchCount,
+        rank: 0,
         originalIndex,
         mtimeMs,
         recencyBucket,
@@ -860,9 +1000,12 @@ async function orderCandidates(
   );
 
   ranked.sort(compareRankedCandidates);
+  ranked.forEach((candidate, index) => {
+    candidate.rank = index + 1;
+  });
   return {
     candidates: ranked.map((rank) => rank.candidate),
-    ranking: ranked.map(toCandidateRankingDebug),
+    ranking: ranked,
   };
 }
 
@@ -870,24 +1013,41 @@ function compareRankedCandidates(a: RankedCandidate, b: RankedCandidate) {
   return (
     Number(a.current) - Number(b.current) ||
     b.score - a.score ||
+    b.patternMatchCount - a.patternMatchCount ||
     b.candidate.hitCount - a.candidate.hitCount ||
     (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) ||
     a.originalIndex - b.originalIndex
   );
 }
 
+function rankingDebugForDisplayedLeads(
+  ranking: RankedCandidate[],
+  groups: CandidateGroup[]
+) {
+  const displayed = new Set(
+    groups.flatMap((group) =>
+      group.leads.map((lead) => candidateKey(lead.source, lead.path))
+    )
+  );
+  return ranking
+    .filter((rank) =>
+      displayed.has(candidateKey(rank.candidate.source, rank.candidate.path))
+    )
+    .map(toCandidateRankingDebug);
+}
+
 function toCandidateRankingDebug(
-  ranked: RankedCandidate,
-  index: number
+  ranked: RankedCandidate
 ): SearchCandidateRankingDebug {
   return {
-    rank: index + 1,
+    rank: ranked.rank,
     source: ranked.candidate.source,
     path: ranked.candidate.path,
     ...(ranked.candidate.sessionId
       ? { sessionId: ranked.candidate.sessionId }
       : {}),
     hitCount: ranked.candidate.hitCount,
+    patternMatchCount: ranked.patternMatchCount,
     originalIndex: ranked.originalIndex,
     isCurrentSession: ranked.current,
     ...(ranked.mtimeMs !== undefined ? { mtimeMs: ranked.mtimeMs } : {}),
@@ -1379,19 +1539,25 @@ function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
   if (!input.groupCandidates) {
     return input;
   }
+  const followup = input.groupCandidates;
   return {
-    ...input,
-    query: input.groupCandidates.query,
-    ...(input.groupCandidates.queries
-      ? { queries: input.groupCandidates.queries }
-      : { queries: undefined }),
-    ...(input.groupCandidates.sources
-      ? { sources: input.groupCandidates.sources }
-      : { sources: undefined }),
+    query: followup.query,
+    ...(followup.queries ? { queries: followup.queries } : {}),
+    ...(followup.operationalContext !== undefined
+      ? { operationalContext: followup.operationalContext }
+      : {}),
+    ...(followup.sources ? { sources: followup.sources } : {}),
     resultsDisplayMode: "candidates",
-    ...(input.groupCandidates.paths
-      ? { paths: input.groupCandidates.paths }
-      : { paths: undefined }),
+    groupCandidates: followup,
+    ...(followup.paths ? { paths: followup.paths } : {}),
+    ...(followup.maxPatterns !== undefined
+      ? { maxPatterns: followup.maxPatterns }
+      : {}),
+    ...(followup.maxResultsPerSource !== undefined
+      ? { maxResultsPerSource: followup.maxResultsPerSource }
+      : {}),
+    ...(followup.context !== undefined ? { context: followup.context } : {}),
+    ...(input.debug !== undefined ? { debug: input.debug } : {}),
   };
 }
 
@@ -1409,7 +1575,7 @@ function searchMetadata({
   unscopedEvidenceDefaultCap: number | undefined;
 }): SearchSessionsOutput["metadata"] {
   return {
-    contractVersion: "progressive-evidence-groups.v1",
+    contractVersion: "progressive-evidence-groups.v2",
     backend: summarizeBackendMetadata(backendMetadata),
     limits: {
       ...(maxPatterns !== undefined ? { maxPatterns } : {}),

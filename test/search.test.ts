@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSessionSearch } from "../src/search.js";
+import { groupCandidates } from "./support/followup.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -115,7 +116,7 @@ describe("createSessionSearch", () => {
     expect(result.resultsDisplayMode).toBe("candidates");
     expect(result.resultsShape).toBe("candidate_groups");
     expect(result.metadata).toMatchObject({
-      contractVersion: "progressive-evidence-groups.v1",
+      contractVersion: "progressive-evidence-groups.v2",
       backend: { mode: "custom" },
       limits: { candidateGroupLeadLimit: 5 },
       countSemantics: {
@@ -164,6 +165,358 @@ describe("createSessionSearch", () => {
         },
       },
     ]);
+  });
+
+  it("counts candidate hitCount as physical hits while ranking on pattern density", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "multi-pattern.jsonl"),
+                  line: 8,
+                  content: "one physical hit matched two adjacent probes",
+                  patterns: [input.patterns[1], input.patterns[2]],
+                },
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "single-pattern.jsonl"),
+                  line: 2,
+                  content: "one physical hit matched one exact probe",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      debug: true,
+    });
+    const canonicalCodexRoot = await realpath(codexRoot);
+    const multiPatternPath = join(canonicalCodexRoot, "multi-pattern.jsonl");
+    const multiPatternLead = candidateLeads(result).find(
+      (candidate) => candidate.path === multiPatternPath
+    );
+    const multiPatternDebug = result.debug?.ranking?.candidates.find(
+      (candidate) => candidate.path === multiPatternPath
+    );
+
+    expect(multiPatternLead).toMatchObject({
+      path: multiPatternPath,
+      hitCount: 1,
+      matchedPatterns: ["auth token", "token timeout"],
+    });
+    expect(multiPatternDebug).toMatchObject({
+      path: multiPatternPath,
+      hitCount: 1,
+      patternMatchCount: 2,
+    });
+    expect(multiPatternDebug?.densityPoints).toBeCloseTo(Math.log2(3));
+  });
+
+  it("rejects group candidate follow-ups whose group no longer matches the query plan", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search() {
+            throw new Error("search should not run for invalid follow-ups");
+          },
+        };
+      },
+    });
+
+    await expect(
+      search.searchSessions({
+        query: "auth token timeout",
+        groupCandidates: groupCandidates({
+          query: "auth token timeout",
+          sources: ["codex"],
+          resultsDisplayMode: "candidates",
+          group: {
+            id: "exact_or_structured",
+            priority: 1,
+            patternIds: ["p1"],
+          },
+          offset: 0,
+          limit: 5,
+        }) as any,
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.group.priority",
+    });
+
+    await expect(
+      search.searchSessions({
+        query: "auth token timeout",
+        groupCandidates: groupCandidates({
+          query: "auth token timeout",
+          sources: ["codex"],
+          resultsDisplayMode: "candidates",
+          group: {
+            id: "exact_or_structured",
+            priority: 0,
+            patternIds: ["p999"],
+          },
+          offset: 0,
+          limit: 5,
+        }) as any,
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.group.patternIds",
+    });
+  });
+
+  it("limits candidate debug ranking to displayed group leads", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: Array.from({ length: 8 }, (_, index) => ({
+                source: source.name,
+                root: source.root,
+                path: join(source.root, `candidate-${index + 1}.jsonl`),
+                line: 1,
+                content: `candidate ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      debug: true,
+    });
+    const exactGroup = result.results[0] as any;
+
+    expect(exactGroup.assignedCandidateCount).toEqual({
+      value: 8,
+      relation: "eq",
+    });
+    expect(exactGroup.shownLeadCount).toBe(5);
+    expect(exactGroup.more?.groupCandidates.fingerprint).toMatch(/^gcf1:/);
+    expect(result.debug?.ranking?.candidates).toHaveLength(5);
+    expect(
+      result.debug?.ranking?.candidates.map((entry) => entry.path)
+    ).toEqual(exactGroup.leads.map((lead: any) => lead.path));
+
+    const nextPage = await search.searchSessions({
+      query: "auth token timeout",
+      groupCandidates: exactGroup.more.groupCandidates,
+      debug: true,
+    });
+
+    expect(
+      nextPage.debug?.ranking?.candidates.map((entry) => entry.rank)
+    ).toEqual([6, 7, 8]);
+  });
+
+  it("replays server-prepared group follow-ups with the original effective search state", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot, include: ["*.jsonl"] },
+          { name: "claude", path: claudeRoot, include: ["*.jsonl"] },
+        ],
+      })
+    );
+
+    const calls: unknown[] = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push({ source: source.name, input });
+            return {
+              warnings: [],
+              results: Array.from({ length: 6 }, (_, index) => ({
+                source: source.name,
+                root: source.root,
+                path: join(source.root, `candidate-${index + 1}.jsonl`),
+                line: 1,
+                content: `${source.name} candidate ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxPatterns: 3,
+      maxResultsPerSource: 6,
+      context: 2,
+      operationalContext: { repo: "agent-session-search" },
+    });
+    const exactGroup = firstPage.results[0] as any;
+
+    expect(exactGroup.more.groupCandidates).toMatchObject({
+      query: "auth token timeout",
+      sources: ["codex", "claude"],
+      maxPatterns: 3,
+      maxResultsPerSource: 6,
+      context: 2,
+      operationalContext: { repo: "agent-session-search" },
+      offset: 6,
+      limit: 6,
+    });
+
+    calls.length = 0;
+    await search.searchSessions({
+      query: "auth token timeout",
+      groupCandidates: exactGroup.more.groupCandidates,
+    });
+
+    expect(calls).toEqual([
+      {
+        source: "codex",
+        input: {
+          patterns: AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3,
+          maxResults: undefined,
+          context: 2,
+          include: ["*.jsonl"],
+        },
+      },
+      {
+        source: "claude",
+        input: {
+          patterns: AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3,
+          maxResults: undefined,
+          context: 2,
+          include: ["*.jsonl"],
+        },
+      },
+    ]);
+  });
+
+  it("rejects group follow-ups when the resolved source plan changes", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot, include: ["*.jsonl"] }],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: Array.from({ length: 8 }, (_, index) => ({
+                source: source.name,
+                root: source.root,
+                path: join(source.root, `candidate-${index + 1}.jsonl`),
+                line: 1,
+                content: `candidate ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxResultsPerSource: 5,
+    });
+    const exactGroup = firstPage.results[0] as any;
+
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot, include: ["sessions/*.jsonl"] },
+        ],
+      })
+    );
+
+    await expect(
+      search.searchSessions({
+        query: "auth token timeout",
+        groupCandidates: exactGroup.more.groupCandidates,
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.planFingerprint",
+    });
   });
 
   it("fans out one query across multiple selected roots and returns grouped evidence", async () => {
@@ -223,7 +576,7 @@ describe("createSessionSearch", () => {
       resultsShape: "evidence_groups",
       expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
       metadata: {
-        contractVersion: "progressive-evidence-groups.v1",
+        contractVersion: "progressive-evidence-groups.v2",
         backend: { mode: "custom" },
         limits: {
           maxResultsPerSource: 20,
@@ -1449,6 +1802,7 @@ describe("createSessionSearch", () => {
         source: "codex",
         path: join(canonicalCodexRoot, "missing-a.jsonl"),
         hitCount: 1,
+        patternMatchCount: 1,
         originalIndex: 0,
         isCurrentSession: false,
         recencyBucket: "older_or_missing",
@@ -1457,12 +1811,25 @@ describe("createSessionSearch", () => {
         projectMatch: "none",
         projectPoints: 0,
         score: 1,
+        strongestGroup: {
+          id: "exact_or_structured",
+          priority: 0,
+          patternIds: ["p1"],
+        },
+        groupMemberships: [
+          {
+            id: "exact_or_structured",
+            priority: 0,
+            patternIds: ["p1"],
+          },
+        ],
       },
       {
         rank: 2,
         source: "codex",
         path: join(canonicalCodexRoot, "missing-b.jsonl"),
         hitCount: 1,
+        patternMatchCount: 1,
         originalIndex: 1,
         isCurrentSession: false,
         recencyBucket: "older_or_missing",
@@ -1471,6 +1838,18 @@ describe("createSessionSearch", () => {
         projectMatch: "none",
         projectPoints: 0,
         score: 1,
+        strongestGroup: {
+          id: "exact_or_structured",
+          priority: 0,
+          patternIds: ["p1"],
+        },
+        groupMemberships: [
+          {
+            id: "exact_or_structured",
+            priority: 0,
+            patternIds: ["p1"],
+          },
+        ],
       },
     ]);
   });

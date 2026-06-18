@@ -94,7 +94,7 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
   "resultsDisplayMode": "candidates",
   "resultsShape": "candidate_groups",
   "metadata": {
-    "contractVersion": "progressive-evidence-groups.v1",
+    "contractVersion": "progressive-evidence-groups.v2",
     "backend": { "mode": "multi_grep" }
   },
   "results": [
@@ -102,7 +102,22 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
       "id": "exact_or_structured",
       "assignedCandidateCount": { "value": 3, "relation": "eq" },
       "hasMore": true,
-      "more": { "groupCandidates": { "resultsDisplayMode": "candidates" } },
+      "more": {
+        "groupCandidates": {
+          "query": "auth token timeout",
+          "sources": ["codex"],
+          "resultsDisplayMode": "candidates",
+          "planFingerprint": "gcp1:server-prepared",
+          "fingerprint": "gcf1:server-prepared",
+          "group": {
+            "id": "exact_or_structured",
+            "priority": 0,
+            "patternIds": ["p1"]
+          },
+          "offset": 5,
+          "limit": 5
+        }
+      },
       "leads": [
         { "path": "/absolute/session.jsonl", "more": { "evidence": {} } }
       ]
@@ -111,7 +126,7 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
 }
 ```
 
-Echo `more.groupCandidates` back to `search_sessions` first when a promising group has more leads. Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
+When a promising group has more leads, pass the prepared payload back as `groupCandidates`, for example `{ "query": "auth token timeout", "groupCandidates": <more.groupCandidates> }`. Clients that support exact top-level argument echoing can also send the `more.groupCandidates` object itself; the server normalizes that shorthand. Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
 
 ```bash
 agent-session-search "auth token timeout" --json --evidence \

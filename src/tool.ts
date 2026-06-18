@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  groupCandidatesFingerprint,
+  groupCandidatesFingerprintIsValid,
+  stringArraysEqual,
+} from "./followup.js";
 import type { SearchSessionsInput, SessionSearch } from "./types.js";
 
 const matchGroupIdSchema = z.enum([
@@ -13,9 +18,15 @@ const groupCandidatesFollowupSchema = z
   .object({
     query: z.string().min(1),
     queries: z.array(z.string().min(1)).optional(),
+    operationalContext: z.unknown().optional(),
     sources: z.union([z.array(z.string()), z.literal("all")]).optional(),
     resultsDisplayMode: z.literal("candidates"),
     paths: z.array(z.string().min(1)).optional(),
+    maxPatterns: z.number().int().positive().optional(),
+    maxResultsPerSource: z.number().int().positive().optional(),
+    context: z.number().int().min(0).optional(),
+    planFingerprint: z.string().min(1),
+    fingerprint: z.string().min(1),
     group: z
       .object({
         id: matchGroupIdSchema,
@@ -97,6 +108,42 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Include query expansion and diagnostics. Candidate-mode debug responses also include ranking explanations."
     ),
+  planFingerprint: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Continuation shorthand only: copied from more.groupCandidates.planFingerprint when echoing that payload at the top level."
+    ),
+  fingerprint: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Continuation shorthand only: copied from more.groupCandidates.fingerprint when echoing that payload at the top level."
+    ),
+  group: groupCandidatesFollowupSchema.shape.group
+    .optional()
+    .describe(
+      "Continuation shorthand only: copied from more.groupCandidates.group when echoing that payload at the top level."
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      "Continuation shorthand only: copied from more.groupCandidates.offset when echoing that payload at the top level."
+    ),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .max(50)
+    .optional()
+    .describe(
+      "Continuation shorthand only: copied from more.groupCandidates.limit when echoing that payload at the top level."
+    ),
 });
 
 export type SearchSessionsToolInput = z.infer<typeof searchSessionsInputSchema>;
@@ -112,15 +159,28 @@ export class SearchSessionsInputError extends Error {
     this.invalidField = invalidField;
     this.correctedShape = {
       query: "<same query as the top-level request>",
-      sources: ["<same source names as the original response>"],
-      resultsDisplayMode: "candidates",
-      group: {
-        id: "exact_or_structured",
-        priority: 0,
-        patternIds: ["p1"],
+      groupCandidates: {
+        query: "<same query as the top-level request>",
+        operationalContext:
+          "<same operationalContext value as the server-prepared payload, when present>",
+        sources: ["<same source names as the original response>"],
+        resultsDisplayMode: "candidates",
+        maxPatterns:
+          "<same maxPatterns value as the server-prepared payload, when present>",
+        maxResultsPerSource:
+          "<same maxResultsPerSource value as the server-prepared payload, when present>",
+        context:
+          "<same context value as the server-prepared payload, when present>",
+        planFingerprint: "<server-prepared plan fingerprint>",
+        fingerprint: "<server-prepared fingerprint>",
+        group: {
+          id: "exact_or_structured",
+          priority: 0,
+          patternIds: ["p1"],
+        },
+        offset: 0,
+        limit: 10,
       },
-      offset: 0,
-      limit: 10,
     };
   }
 }
@@ -128,8 +188,9 @@ export class SearchSessionsInputError extends Error {
 export function parseSearchSessionsInput(
   input: SearchSessionsToolInput
 ): SearchSessionsInput {
-  validateGroupCandidatesFollowup(input);
-  return input as SearchSessionsInput;
+  const normalized = normalizeGroupCandidatesShorthand(input);
+  validateGroupCandidatesFollowup(normalized);
+  return stripContinuationShorthand(normalized) as SearchSessionsInput;
 }
 
 export async function runSearchSessionsTool(
@@ -155,6 +216,66 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
     );
   }
   if (
+    input.queries !== undefined &&
+    !stringArraysEqual(input.queries, followup.queries ?? [])
+  ) {
+    throw new SearchSessionsInputError(
+      "queries",
+      "Invalid group follow-up: top-level queries must match groupCandidates.queries from the server-prepared payload."
+    );
+  }
+  if (
+    input.sources !== undefined &&
+    !sourcesEqual(input.sources, followup.sources)
+  ) {
+    throw new SearchSessionsInputError(
+      "sources",
+      "Invalid group follow-up: top-level sources must match groupCandidates.sources from the server-prepared payload."
+    );
+  }
+  if (
+    input.operationalContext !== undefined &&
+    groupCandidatesFingerprint({
+      ...followup,
+      operationalContext: input.operationalContext,
+    }) !== followup.fingerprint
+  ) {
+    throw new SearchSessionsInputError(
+      "operationalContext",
+      "Invalid group follow-up: top-level operationalContext must match groupCandidates.operationalContext from the server-prepared payload."
+    );
+  }
+  if (
+    input.maxPatterns !== undefined &&
+    input.maxPatterns !== followup.maxPatterns
+  ) {
+    throw new SearchSessionsInputError(
+      "maxPatterns",
+      "Invalid group follow-up: top-level maxPatterns must match groupCandidates.maxPatterns from the server-prepared payload."
+    );
+  }
+  if (
+    input.maxResultsPerSource !== undefined &&
+    input.maxResultsPerSource !== followup.maxResultsPerSource
+  ) {
+    throw new SearchSessionsInputError(
+      "maxResultsPerSource",
+      "Invalid group follow-up: top-level maxResultsPerSource must match groupCandidates.maxResultsPerSource from the server-prepared payload."
+    );
+  }
+  if (input.context !== undefined && input.context !== followup.context) {
+    throw new SearchSessionsInputError(
+      "context",
+      "Invalid group follow-up: top-level context must match groupCandidates.context from the server-prepared payload."
+    );
+  }
+  if (!groupCandidatesFingerprintIsValid(followup)) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.fingerprint",
+      "Invalid group follow-up: groupCandidates must be copied exactly from the server-prepared payload."
+    );
+  }
+  if (
     input.resultsDisplayMode !== undefined &&
     input.resultsDisplayMode !== "candidates"
   ) {
@@ -163,10 +284,111 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
       'Invalid group follow-up: group candidate expansion must use resultsDisplayMode: "candidates".'
     );
   }
-  if (input.paths !== undefined) {
+  if (
+    input.paths !== undefined &&
+    !stringArraysEqual(input.paths, followup.paths ?? [])
+  ) {
     throw new SearchSessionsInputError(
       "paths",
       "Invalid group follow-up: use groupCandidates.paths from the server-prepared payload instead of a top-level paths field."
     );
   }
+}
+
+function normalizeGroupCandidatesShorthand(
+  input: SearchSessionsToolInput
+): SearchSessionsToolInput {
+  if (input.groupCandidates) {
+    return input;
+  }
+
+  const hasShorthand =
+    input.planFingerprint !== undefined ||
+    input.fingerprint !== undefined ||
+    input.group !== undefined ||
+    input.offset !== undefined ||
+    input.limit !== undefined;
+  if (!hasShorthand) {
+    return input;
+  }
+
+  if (
+    input.resultsDisplayMode !== undefined &&
+    input.resultsDisplayMode !== "candidates"
+  ) {
+    throw new SearchSessionsInputError(
+      "resultsDisplayMode",
+      'Invalid group follow-up: group candidate shorthand must use resultsDisplayMode: "candidates".'
+    );
+  }
+
+  if (
+    input.planFingerprint === undefined ||
+    input.fingerprint === undefined ||
+    input.group === undefined ||
+    input.offset === undefined ||
+    input.limit === undefined
+  ) {
+    throw new SearchSessionsInputError(
+      "groupCandidates",
+      "Invalid group follow-up: pass a complete more.groupCandidates payload either under groupCandidates or as the top-level shorthand."
+    );
+  }
+
+  return {
+    ...input,
+    resultsDisplayMode: "candidates",
+    groupCandidates: {
+      query: input.query,
+      ...(input.queries ? { queries: input.queries } : {}),
+      ...(input.operationalContext !== undefined
+        ? { operationalContext: input.operationalContext }
+        : {}),
+      ...(input.sources ? { sources: input.sources } : {}),
+      resultsDisplayMode: "candidates",
+      ...(input.paths ? { paths: input.paths } : {}),
+      ...(input.maxPatterns !== undefined
+        ? { maxPatterns: input.maxPatterns }
+        : {}),
+      ...(input.maxResultsPerSource !== undefined
+        ? { maxResultsPerSource: input.maxResultsPerSource }
+        : {}),
+      ...(input.context !== undefined ? { context: input.context } : {}),
+      planFingerprint: input.planFingerprint,
+      fingerprint: input.fingerprint,
+      group: input.group,
+      offset: input.offset,
+      limit: input.limit,
+    },
+  };
+}
+
+function stripContinuationShorthand(input: SearchSessionsToolInput) {
+  const {
+    planFingerprint: _planFingerprint,
+    fingerprint: _fingerprint,
+    group: _group,
+    offset: _offset,
+    limit: _limit,
+    ...searchInput
+  } = input;
+  return searchInput;
+}
+
+function sourcesEqual(
+  left: SearchSessionsToolInput["sources"],
+  right: SearchSessionsToolInput["sources"]
+) {
+  if (left === right) {
+    return true;
+  }
+  if (
+    left === "all" ||
+    right === "all" ||
+    left === undefined ||
+    right === undefined
+  ) {
+    return false;
+  }
+  return stringArraysEqual(left, right);
 }

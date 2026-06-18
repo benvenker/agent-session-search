@@ -74,9 +74,15 @@ export type GroupMembership = {
 export type GroupCandidatesFollowupInput = {
   query: string;
   queries?: string[];
+  operationalContext?: unknown;
   sources?: SourceName[] | "all";
   resultsDisplayMode: "candidates";
   paths?: string[];
+  maxPatterns?: number;
+  maxResultsPerSource?: number;
+  context?: number;
+  planFingerprint: string;
+  fingerprint: string;
   group: {
     id: MatchGroupId;
     priority: number;
@@ -143,7 +149,7 @@ export type SearchBackendMetadata = {
 };
 
 export type SearchSessionsMetadata = {
-  contractVersion: "progressive-evidence-groups.v1";
+  contractVersion: "progressive-evidence-groups.v2";
   backend: SearchBackendMetadata;
   limits: {
     maxPatterns?: number;
@@ -201,6 +207,7 @@ export type SearchCandidateRankingDebug = {
   path: string;
   sessionId?: string;
   hitCount: number;
+  patternMatchCount: number;
   originalIndex: number;
   isCurrentSession: boolean;
   mtimeMs?: number;

@@ -124,7 +124,7 @@ export function cliCapabilities(version: string) {
       },
     ],
     contract: {
-      version: "progressive-evidence-groups.v1",
+      version: "progressive-evidence-groups.v2",
       metadata:
         "Search responses include backend mode, limits, and count semantics.",
       backendModes: [
@@ -137,7 +137,7 @@ export function cliCapabilities(version: string) {
         multi_grep_fallback:
           "Sequential grep is being used because multi_grep was unavailable, failed, or did not pass recall-equivalence gating.",
         invalid_group_followup:
-          "Copy the server-prepared more.groupCandidates payload exactly.",
+          "Copy the server-prepared more.groupCandidates payload exactly; it includes continuation and query-plan fingerprints.",
       },
     },
     env: [
@@ -211,7 +211,7 @@ export function robotTriage(version: string) {
       defaultMode: "candidates",
       resultShape: "candidate_groups",
       groupFollowUp:
-        "Use a group more.groupCandidates payload to expand one candidate group.",
+        "Use a group more.groupCandidates payload under groupCandidates, or echo that payload exactly, to expand one candidate group.",
       evidenceFollowUp:
         "Use the selected candidate more.evidence payload for focused line evidence.",
       configEnv: "AGENT_SESSION_SEARCH_CONFIG",
@@ -265,6 +265,6 @@ export function mcpSearchSessionsDescription() {
     "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
     "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
     "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
-    'The default `resultsDisplayMode` is `candidates` with `resultsShape: "candidate_groups"`: static match groups ordered from exact/structured evidence through looser fallbacks. Expand a group by echoing its `more.groupCandidates` payload, then use a candidate `more.evidence` object when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.',
+    'The default `resultsDisplayMode` is `candidates` with `resultsShape: "candidate_groups"`: static match groups ordered from exact/structured evidence through looser fallbacks. Expand a group by passing its `more.groupCandidates` payload under `groupCandidates`, or by echoing that payload exactly when your MCP client supports top-level shorthand, then use a candidate `more.evidence` object when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.',
   ].join(" ");
 }

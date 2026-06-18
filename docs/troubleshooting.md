@@ -49,9 +49,9 @@ Symptom:
 invalid_group_followup
 ```
 
-Cause: a `groupCandidates` payload was edited, invented, or no longer matches the top-level query, mode, paths, or group discriminator.
+Cause: a `groupCandidates` payload was edited, invented, or no longer matches the top-level query, mode, paths, resolved sources, or query plan.
 
-Fix: copy `more.groupCandidates` exactly from a candidate group returned by `search_sessions`. Do not add a top-level `paths` field; use the server-prepared payload's `paths` when present. For line evidence, copy a candidate's `more.evidence` payload instead.
+Fix: copy `more.groupCandidates` exactly from a candidate group returned by `search_sessions`, either under the `groupCandidates` field or as the exact top-level shorthand. Do not mix in edited fields. For line evidence, copy a candidate's `more.evidence` payload instead.
 
 ## Missing Or Unreadable Roots
 

@@ -132,7 +132,7 @@ describe("MCP search_sessions smoke path", () => {
           path: join(canonicalRoot, "session.jsonl"),
           line: 2,
           preview: "auth token timeout smoke",
-          hitCount: 3,
+          hitCount: 1,
           matchedQueries: ["timeout smoke"],
           matchedPatterns: ["timeout smoke", "timeout", "smoke"],
           more: {
