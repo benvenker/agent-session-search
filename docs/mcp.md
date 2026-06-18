@@ -49,7 +49,11 @@ Fields:
 
 ### Candidates
 
-Default mode. Results are compact session-level candidates grouped by `source` and canonical `path`.
+Default mode. `resultsShape` is `candidate_groups`. Results are ordered static match groups; each group contains compact session-level candidate leads grouped by `source` and canonical `path`.
+
+Top-level `metadata` includes `contractVersion`, backend mode, limits, and count semantics. Backend mode is one of `multi_grep`, `sequential_grep`, `sequential_grep_fallback`, or `custom`; fallback responses include `metadata.backend.fallbackReason`.
+
+Candidate groups include `id`, `priority`, `label`, `guidance`, `patternIds`, `assignedCandidateCount`, `hitCount`, `shownLeadCount`, `hasMore`, and `leads`. Counts use `{ "value": number, "relation": "eq" | "gte" }` so callers can tell exact counts from lower bounds. Empty groups are omitted.
 
 Each candidate includes:
 
@@ -61,7 +65,11 @@ Each candidate includes:
 - `hitCount`
 - `matchedQueries`
 - `matchedPatterns`
+- `strongestGroup`
+- `groupMemberships`
 - `more.evidence`
+
+When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Echo it to request the next bounded page for that group before spending context on line-level evidence.
 
 `more.evidence` is a prepared follow-up payload for the same tool. It carries `query`, optional `queries`, `sources`, `resultsDisplayMode: "evidence"`, and `paths`. It does not preserve `operationalContext`, `context`, `debug`, or caps.
 
@@ -107,6 +115,7 @@ Warnings are structured and non-fatal unless all attempted sources fail. Common 
 - `unknown_source`
 - `no_sources_selected`
 - `broad_evidence_capped`
+- `multi_grep_fallback`
 - `all_sources_failed`
 
 Missing or unreadable roots are normal on machines that do not use every supported agent. The search continues across readable roots.

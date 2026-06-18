@@ -77,6 +77,8 @@ You do not need to re-declare built-ins to add a new source.
 
 The current backend treats `context` as reserved. FFF results remain bounded matching lines rather than surrounding-line reads.
 
+Broad candidate discovery uses FFF `multi_grep` only when the installed backend advertises it and a recall-equivalence smoke check matches the sequential `grep` union. If that gate fails, search remains correct on sequential `grep` and response metadata reports the fallback reason.
+
 ## Environment Variables
 
 All environment variables are optional.

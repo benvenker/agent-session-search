@@ -1,3 +1,5 @@
+import type { MatchGroupId, PatternPlan, PatternProvenance } from "./types.js";
+
 export type QuerySynonyms = Record<string, string[]>;
 
 export function rewriteQueryPatterns(
@@ -7,23 +9,125 @@ export function rewriteQueryPatterns(
     synonyms?: QuerySynonyms;
   } = {}
 ) {
-  const patterns = [
-    ...extractCommands(query),
-    ...extractQuotedPhrases(query),
-    ...extractErrorFragments(query),
-    ...extractPackageNames(query),
-    ...extractFilePaths(query),
-    ...extractPullRequestIds(query),
-    ...extractIds(query),
-    ...extractSymbolVariants(query),
-    ...expandSynonyms(query, options.synonyms ?? {}),
-  ];
-  const expandedPatterns = uniquePatterns(patterns);
+  const patterns = buildPatternPlanDrafts(query, options).filter(
+    (plan) => plan.provenance !== "adjacent_terms"
+  );
   const fallbackPatterns =
-    expandedPatterns.length > 0 ? expandedPatterns : [query];
+    patterns.length > 0 ? patterns.map((plan) => plan.pattern) : [query];
   return options.maxPatterns === undefined
     ? fallbackPatterns
     : fallbackPatterns.slice(0, options.maxPatterns);
+}
+
+export function planQueryPatterns(
+  query: string,
+  options: {
+    maxPatterns?: number;
+    synonyms?: QuerySynonyms;
+  } = {}
+): PatternPlan[] {
+  const plans = buildPatternPlanDrafts(query, options).map((plan, index) => ({
+    id: `p${index + 1}`,
+    query,
+    ...plan,
+  }));
+  const fallbackPlans =
+    plans.length > 0
+      ? plans
+      : [
+          {
+            id: "p1",
+            query,
+            pattern: query,
+            provenance: "full_phrase" as const,
+            initialGroup: "exact_or_structured" as const,
+          },
+        ];
+  return options.maxPatterns === undefined
+    ? fallbackPlans
+    : fallbackPlans.slice(0, options.maxPatterns);
+}
+
+type PatternPlanDraft = Omit<PatternPlan, "id" | "query">;
+
+function buildPatternPlanDrafts(
+  query: string,
+  options: {
+    synonyms?: QuerySynonyms;
+  } = {}
+) {
+  const structuredPatterns = [
+    ...patternsWithProvenance(extractCommands(query), "command"),
+    ...patternsWithProvenance(extractQuotedPhrases(query), "quoted_phrase"),
+    ...patternsWithProvenance(extractErrorFragments(query), "error_fragment"),
+    ...patternsWithProvenance(extractPackageNames(query), "package_name"),
+    ...patternsWithProvenance(extractFilePaths(query), "file_path"),
+    ...patternsWithProvenance(
+      extractPullRequestIds(query),
+      "pull_request_reference"
+    ),
+    ...patternsWithProvenance(extractIds(query), "id"),
+    ...patternsWithProvenance(extractSymbolVariants(query), "symbol_variant"),
+    ...patternsWithGroup(
+      expandSynonyms(query, options.synonyms ?? {}),
+      "configured_synonym",
+      "loose_fallback"
+    ),
+  ];
+  const naturalTerms = extractNaturalLanguageTerms(query);
+  const naturalTermsInOrder = extractNaturalLanguageTermsInOrder(query);
+  const patterns = [
+    ...structuredPatterns,
+    ...(structuredPatterns.length === 0 && naturalTerms.length > 1
+      ? [
+          {
+            pattern: query.trim(),
+            provenance: "full_phrase" as const,
+            initialGroup: "exact_or_structured" as const,
+          },
+          ...adjacentTermWindows(naturalTermsInOrder),
+        ]
+      : []),
+    ...patternsWithGroup(naturalTerms, "natural_term", "distinctive_term"),
+  ];
+  return uniquePatternPlans(patterns);
+}
+
+function patternsWithProvenance(
+  patterns: string[],
+  provenance: PatternProvenance
+): PatternPlanDraft[] {
+  return patternsWithGroup(patterns, provenance, "exact_or_structured");
+}
+
+function patternsWithGroup(
+  patterns: string[],
+  provenance: PatternProvenance,
+  initialGroup: MatchGroupId
+): PatternPlanDraft[] {
+  return patterns
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+    .map((pattern) => ({
+      pattern,
+      provenance,
+      initialGroup,
+    }));
+}
+
+function adjacentTermWindows(terms: string[]): PatternPlanDraft[] {
+  if (terms.length < 3) {
+    return [];
+  }
+  const windows: string[] = [];
+  for (let index = 0; index < terms.length - 1; index += 1) {
+    windows.push(`${terms[index]} ${terms[index + 1]}`);
+  }
+  return patternsWithGroup(
+    windows,
+    "adjacent_terms",
+    "phrase_or_adjacent_terms"
+  );
 }
 
 function extractCommands(query: string) {
@@ -143,6 +247,43 @@ function expandSynonyms(query: string, synonyms: QuerySynonyms) {
   return patterns;
 }
 
+function extractNaturalLanguageTerms(query: string) {
+  return uniquePatterns(extractNaturalLanguageTermsInOrder(query)).sort(
+    compareTermSpecificity
+  );
+}
+
+function extractNaturalLanguageTermsInOrder(query: string) {
+  const strippedQuery = stripStructuredFragments(query);
+  return [...strippedQuery.matchAll(/\b[A-Za-z0-9][A-Za-z0-9_-]{2,}\b/g)]
+    .map((match) => match[0])
+    .filter((term) => !STOP_WORDS.has(term.toLowerCase()));
+}
+
+function stripStructuredFragments(query: string) {
+  return [
+    /`[^`]+`/g,
+    /"[^"]+"|'[^']+'/g,
+    /\b(?:[A-Z][A-Za-z]+Error|Error):\s+[^.;\n]+/g,
+    /(?:^|\s)(@[\w.-]+\/[\w.-]+)(?=$|\s|[),.;:])/g,
+    /(?:^|\s)(?:~|\.{1,2}|\/)?[\w.-]+(?:\/[\w.-]+)+(?=$|\s|[),.;:])/g,
+    /#[0-9]+\b|\bbd-[a-z0-9]+\b|\b(?:PR|pr)-?[0-9]+\b/g,
+    /\b(?:PR|pr|pull request)\s*#?\s*[0-9]+\b/g,
+  ].reduce((value, pattern) => value.replace(pattern, " "), query);
+}
+
+function compareTermSpecificity(a: string, b: string) {
+  return termSpecificityScore(b) - termSpecificityScore(a);
+}
+
+function termSpecificityScore(term: string) {
+  return (
+    term.length +
+    (term.includes("-") || term.includes("_") ? 5 : 0) +
+    (/\d/.test(term) ? 2 : 0)
+  );
+}
+
 function uniquePatterns(patterns: string[]) {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -155,6 +296,55 @@ function uniquePatterns(patterns: string[]) {
   }
   return unique;
 }
+
+function uniquePatternPlans(patterns: PatternPlanDraft[]) {
+  const seen = new Set<string>();
+  const unique: PatternPlanDraft[] = [];
+  for (const pattern of patterns) {
+    if (seen.has(pattern.pattern)) {
+      continue;
+    }
+    seen.add(pattern.pattern);
+    unique.push(pattern);
+  }
+  return unique;
+}
+
+const STOP_WORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "also",
+  "and",
+  "around",
+  "before",
+  "bug",
+  "check",
+  "code",
+  "did",
+  "does",
+  "find",
+  "for",
+  "from",
+  "get",
+  "how",
+  "into",
+  "issue",
+  "near",
+  "please",
+  "problem",
+  "search",
+  "should",
+  "that",
+  "the",
+  "this",
+  "through",
+  "use",
+  "what",
+  "when",
+  "where",
+  "with",
+]);
 
 function queryContainsTerm(query: string, term: string) {
   const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

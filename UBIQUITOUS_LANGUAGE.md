@@ -40,17 +40,20 @@
 
 ## Result Model
 
-| Term                   | Definition                                                                                                       | Aliases to avoid                        |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| **Candidate**          | A compact session-level result returned by default so the caller can choose which session to inspect.            | search result, lead, file hit           |
-| **Preview**            | The short text shown on a candidate from its earliest or representative match.                                   | snippet, excerpt, content               |
-| **Evidence**           | More detailed matched content returned when the caller follows up on one or more candidates.                     | context, details, full file             |
-| **Evidence Follow-Up** | A server-prepared `more.evidence` payload that the caller can echo to request evidence for a selected candidate. | continuation, next call, browse request |
-| **Evidence Group**     | An unscoped evidence result grouped by source and path with representative snippets.                             | grouped result, session summary         |
-| **Evidence Hit**       | A path-restricted raw-ish matched result with line, content, query, and pattern metadata.                        | raw result, line match                  |
-| **Snippet**            | A small matched text sample included in an evidence group.                                                       | excerpt, preview, context               |
-| **Result Shape**       | The structural form of `results`, such as candidates, evidence groups, or evidence hits.                         | display mode, output type               |
-| **Result Cap**         | A maximum number of backend hits considered or returned for a source.                                            | limit, page size, max results           |
+| Term                   | Definition                                                                                                                        | Aliases to avoid                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **Candidate**          | A compact session-level result returned by default so the caller can choose which session to inspect.                             | search result, lead, file hit           |
+| **Match Group**        | A static priority bucket derived from pattern provenance and match coverage, such as exact structured evidence or loose fallback. | relevance score, dynamic rank           |
+| **Candidate Group**    | The default rendered group containing match-group metadata, counts, representative candidate leads, and optional group follow-up. | result page, ranked bucket              |
+| **Preview**            | The short text shown on a candidate from its earliest or representative match.                                                    | snippet, excerpt, content               |
+| **Evidence**           | More detailed matched content returned when the caller follows up on one or more candidates.                                      | context, details, full file             |
+| **Evidence Follow-Up** | A server-prepared `more.evidence` payload that the caller can echo to request evidence for a selected candidate.                  | continuation, next call, browse request |
+| **Group Follow-Up**    | A server-prepared `more.groupCandidates` payload that expands one candidate group through the same tool.                          | cursor, second tool, backend page       |
+| **Evidence Group**     | An unscoped evidence result grouped by source and path with representative snippets.                                              | grouped result, session summary         |
+| **Evidence Hit**       | A path-restricted raw-ish matched result with line, content, query, and pattern metadata.                                         | raw result, line match                  |
+| **Snippet**            | A small matched text sample included in an evidence group.                                                                        | excerpt, preview, context               |
+| **Result Shape**       | The structural form of `results`, such as candidates, evidence groups, or evidence hits.                                          | display mode, output type               |
+| **Result Cap**         | A maximum number of backend hits considered or returned for a source.                                                             | limit, page size, max results           |
 
 ## CLI Ergonomics
 

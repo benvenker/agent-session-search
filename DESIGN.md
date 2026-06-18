@@ -89,7 +89,9 @@ type SearchSessionsInput = {
 
 Set `query` to a concise recall task. Put short literal probes planned by the calling agent in `queries`. Put cwd, branch, repo, and the reason for recall in `operationalContext`; that context explains the search without becoming search text.
 
-The default mode is `candidates`. A candidate includes `source`, `root`, canonical `path`, `preview`, match metadata, and a server-prepared `more.evidence` payload that can be echoed back to the same tool.
+The default mode is `candidates` and returns `resultsShape: "candidate_groups"`. Candidate groups are static match groups ordered from exact/structured evidence through loose fallback evidence. Each non-empty group includes count structures, `hasMore`, compact candidate leads, and an optional server-prepared `more.groupCandidates` payload that can be echoed back to the same `search_sessions` tool for the next bounded page of that group. A candidate includes `source`, `root`, canonical `path`, `preview`, match metadata, group memberships, and a server-prepared `more.evidence` payload for focused evidence.
+
+Every search response includes `metadata.contractVersion`, backend mode, limit settings, and count semantics. The FFF backend may use `multi_grep` for broad literal OR discovery only after a recall-equivalence probe proves it matches the sequential `grep` union. Otherwise the response reports `sequential_grep_fallback` with a fallback reason while keeping sequential grep as the authoritative search path.
 
 Candidate ranking happens inside `search_sessions` before normal candidate output is returned. The ranking inputs are bucketed file `mtime`, capped hit density, project matches from `operationalContext` and session metadata, and Codex current-session demotion when `process.env.CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`. Normal candidate results do not include scores. Candidate-mode debug requests include `debug.ranking.candidates` with the rank, internal score components, project match, recency bucket, and current-session flag.
 

@@ -12,7 +12,9 @@ import type { SourceName } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 export const FFF_MCP_INSTALLER_URL =
-  "https://dmtrkovalenko.dev/install-fff-mcp.sh";
+  "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh";
+export const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.4";
+export const FFF_MCP_INSTALL_COMMAND = `curl -fsSL ${FFF_MCP_INSTALLER_URL} | bash`;
 
 type CheckFffMcpOptions = {
   command?: string;
@@ -29,13 +31,19 @@ type CheckFffMcpResult =
       command: string;
       resolvedPath?: string;
       version: string;
+      recommendedRelease: string;
+      installCommand: string;
       path: string;
       smoke: "passed" | "skipped";
+      multiGrep: "supported" | "fallback" | "skipped";
+      recallEquivalence: "passed" | "failed" | "skipped";
     }
   | {
       ok: false;
       command: string;
       reason: string;
+      recommendedRelease: string;
+      installCommand: string;
       path: string;
     };
 
@@ -46,6 +54,8 @@ type FffSmokeInput = {
 type FffSmokeResult =
   | {
       ok: true;
+      multiGrep: "supported" | "fallback";
+      recallEquivalence: "passed" | "failed";
     }
   | {
       ok: false;
@@ -99,6 +109,7 @@ export async function checkFffMcp(
     const { stdout, stderr } = await execFileAsync(command, ["--version"], {
       env,
     });
+    let smokeResult: Extract<FffSmokeResult, { ok: true }> | undefined;
     if (!options.skipSmoke) {
       const smoke = await (options.smoke ?? runFffSmokeTest)({ command });
       if (!smoke.ok) {
@@ -106,9 +117,12 @@ export async function checkFffMcp(
           ok: false,
           command,
           reason: `${command} was found, but a live grep smoke test failed: ${smoke.reason}`,
+          recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+          installCommand: FFF_MCP_INSTALL_COMMAND,
           path,
         };
       }
+      smokeResult = smoke;
     }
 
     return {
@@ -116,8 +130,14 @@ export async function checkFffMcp(
       command,
       resolvedPath: await findOnPath(command, path),
       version: `${stdout}${stderr}`.trim(),
+      recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+      installCommand: FFF_MCP_INSTALL_COMMAND,
       path,
       smoke: options.skipSmoke ? "skipped" : "passed",
+      multiGrep: options.skipSmoke ? "skipped" : smokeResult!.multiGrep,
+      recallEquivalence: options.skipSmoke
+        ? "skipped"
+        : smokeResult!.recallEquivalence,
     };
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -125,6 +145,8 @@ export async function checkFffMcp(
         ok: false,
         command,
         reason: `${command} was not found on PATH`,
+        recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+        installCommand: FFF_MCP_INSTALL_COMMAND,
         path,
       };
     }
@@ -186,9 +208,13 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`resolved path: ${result.resolvedPath}`);
     }
     console.log(`version: ${result.version || "unknown"}`);
+    console.log(`recommended stable FFF MCP: ${result.recommendedRelease}`);
     console.log(
       `smoke: ${result.smoke === "passed" ? "live grep passed" : "skipped"}`
     );
+    console.log(`multi_grep: ${result.multiGrep}`);
+    console.log(`recall equivalence: ${result.recallEquivalence}`);
+    console.log(`upgrade command: ${result.installCommand}`);
     console.log(`PATH: ${result.path}`);
     if (options.reapOrphans) {
       printReapOrphansResult(await reapOrphanFffMcpProcesses());
@@ -202,7 +228,8 @@ export async function main(argv = process.argv.slice(2)) {
   console.error(`PATH: ${result.path}`);
   console.error("");
   console.error("Install FFF MCP with the official installer:");
-  console.error(`  curl -L ${FFF_MCP_INSTALLER_URL} | bash`);
+  console.error(`  ${result.installCommand}`);
+  console.error(`Recommended stable release: ${result.recommendedRelease}`);
   console.error("Review the installer before running it if desired:");
   console.error(`  ${FFF_MCP_INSTALLER_URL}`);
   process.exitCode = 3;
@@ -402,7 +429,10 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
       emptyResultRetryAttempts: 10,
       emptyResultRetryDelayMs: 50,
     });
-    const output = await backend.search({ patterns: [token], maxResults: 1 });
+    const output = await backend.search({
+      patterns: [token, "doctor-smoke-token"],
+      maxResults: 2,
+    });
     const foundToken = output.results.some((result) =>
       result.content.includes(token)
     );
@@ -412,7 +442,12 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
         reason: `searched a temporary file for ${token}, but FFF returned ${output.results.length} result(s)`,
       };
     }
-    return { ok: true };
+    const promoted = output.backend?.mode === "multi_grep";
+    return {
+      ok: true,
+      multiGrep: promoted ? "supported" : "fallback",
+      recallEquivalence: promoted ? "passed" : "failed",
+    };
   } catch (error) {
     return {
       ok: false,

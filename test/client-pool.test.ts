@@ -63,4 +63,60 @@ describe("createFffBackendPool", () => {
 
     expect(closeCount).toBe(1);
   });
+
+  it("forwards optional multi_grep capabilities through pooled backends", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-pool-"));
+    const root = join(tmp, "codex");
+    await mkdir(root);
+
+    const calls: unknown[] = [];
+    const pool = createFffBackendPool({
+      async createClient(): Promise<FffClient> {
+        return {
+          async grep(input) {
+            calls.push({ tool: "grep", ...input });
+            return {
+              content: [
+                { type: "text", text: "session.jsonl\n 1: alpha beta" },
+              ],
+              isError: false,
+            };
+          },
+          async multiGrep(input) {
+            calls.push({ tool: "multi_grep", ...input });
+            return {
+              content: [
+                { type: "text", text: "session.jsonl\n 1: alpha beta" },
+              ],
+              isError: false,
+            };
+          },
+          async listTools() {
+            calls.push({ tool: "list_tools" });
+            return ["grep", "multi_grep"];
+          },
+        };
+      },
+    });
+
+    try {
+      const backend = await pool.createBackend({
+        name: "codex",
+        root: await realpath(root),
+        include: ["*.jsonl"],
+        status: "ok",
+      });
+      const result = await backend.search({ patterns: ["alpha", "beta"] });
+
+      expect(result.backend).toEqual({ mode: "multi_grep" });
+      expect(calls.map((call) => (call as any).tool)).toEqual([
+        "grep",
+        "grep",
+        "list_tools",
+        "multi_grep",
+      ]);
+    } finally {
+      await pool.close();
+    }
+  });
 });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { runSearchSessionsTool } from "../src/tool.js";
+import {
+  SearchSessionsInputError,
+  runSearchSessionsTool,
+  searchSessionsInputSchema,
+} from "../src/tool.js";
 import type { SessionSearch } from "../src/types.js";
 
 describe("search_sessions tool boundary", () => {
@@ -21,6 +25,18 @@ describe("search_sessions tool boundary", () => {
                 ? "evidence_hits"
                 : "candidates",
           expandedPatterns: [input.query],
+          metadata: {
+            contractVersion: "progressive-evidence-groups.v1",
+            backend: { mode: "custom" },
+            limits: {},
+            countSemantics: {
+              relation: "eq means exact; gte means lower bound",
+              assignedCandidateCount:
+                "canonical candidates assigned to the group before lead slicing",
+              hitCount: "physical matched lines, not pattern-line pairs",
+              shownLeadCount: "leads included in this response",
+            },
+          },
           searchedSources: [],
           warnings: [],
           results: [],
@@ -66,9 +82,92 @@ describe("search_sessions tool boundary", () => {
       resultsDisplayMode: "evidence",
       resultsShape: "evidence_hits",
       expandedPatterns: ["auth token timeout"],
+      metadata: {
+        contractVersion: "progressive-evidence-groups.v1",
+        backend: { mode: "custom" },
+        limits: {},
+        countSemantics: {
+          relation: "eq means exact; gte means lower bound",
+          assignedCandidateCount:
+            "canonical candidates assigned to the group before lead slicing",
+          hitCount: "physical matched lines, not pattern-line pairs",
+          shownLeadCount: "leads included in this response",
+        },
+      },
       searchedSources: [],
       warnings: [],
       results: [],
     });
+  });
+
+  it("accepts the structured group candidate follow-up shape", () => {
+    const parsed = searchSessionsInputSchema.parse({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      groupCandidates: {
+        query: "auth token timeout",
+        sources: ["codex"],
+        resultsDisplayMode: "candidates",
+        group: {
+          id: "exact_or_structured",
+          priority: 0,
+          patternIds: ["p1"],
+        },
+        offset: 3,
+        limit: 10,
+      },
+    });
+
+    expect(parsed.groupCandidates).toMatchObject({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 3,
+      limit: 10,
+    });
+  });
+
+  it("rejects inconsistent group follow-ups with a teaching error", async () => {
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+
+    await expect(
+      runSearchSessionsTool(search, {
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        groupCandidates: {
+          query: "different query",
+          sources: ["codex"],
+          resultsDisplayMode: "candidates",
+          group: {
+            id: "exact_or_structured",
+            priority: 0,
+            patternIds: ["p1"],
+          },
+          offset: 0,
+          limit: 10,
+        },
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.query",
+      correctedShape: {
+        resultsDisplayMode: "candidates",
+        group: {
+          id: "exact_or_structured",
+          priority: 0,
+          patternIds: ["p1"],
+        },
+        offset: 0,
+        limit: 10,
+      },
+    } satisfies Partial<SearchSessionsInputError>);
   });
 });

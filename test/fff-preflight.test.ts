@@ -90,7 +90,9 @@ describe("FFF preflight command", () => {
 
     const output = `${result.stdout}\n${result.stderr}`;
     expect(output).toContain("fff-mcp was not found on PATH");
-    expect(output).toContain("https://dmtrkovalenko.dev/install-fff-mcp.sh");
+    expect(output).toContain(
+      "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh"
+    );
     expect(output).toContain("Review the installer before running it");
     expect(output).not.toContain("npm install");
   }, 60_000);
@@ -120,7 +122,13 @@ describe("FFF preflight command", () => {
     expect(result.stdout).toContain("FFF MCP preflight passed.");
     expect(result.stdout).toContain(`resolved path: ${fakeFffMcp}`);
     expect(result.stdout).toContain("version: fff-mcp 9.9.9-test");
+    expect(result.stdout).toContain("recommended stable FFF MCP: v0.9.4");
     expect(result.stdout).toContain("smoke: skipped");
+    expect(result.stdout).toContain("multi_grep: skipped");
+    expect(result.stdout).toContain("recall equivalence: skipped");
+    expect(result.stdout).toContain(
+      "upgrade command: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
+    );
     expect(result.stdout).toContain(`PATH: ${fakeBin}`);
   }, 60_000);
 
@@ -266,6 +274,9 @@ describe("FFF preflight command", () => {
       ok: false,
       command: process.execPath,
       reason: `${process.execPath} was found, but a live grep smoke test failed: known token was not found`,
+      recommendedRelease: "v0.9.4",
+      installCommand:
+        "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
       path: "/usr/bin",
     });
   });

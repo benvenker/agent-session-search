@@ -1,6 +1,36 @@
 import { z } from "zod";
 import type { SearchSessionsInput, SessionSearch } from "./types.js";
 
+const matchGroupIdSchema = z.enum([
+  "exact_or_structured",
+  "phrase_or_adjacent_terms",
+  "multi_term_coverage",
+  "distinctive_term",
+  "loose_fallback",
+]);
+
+const groupCandidatesFollowupSchema = z
+  .object({
+    query: z.string().min(1),
+    queries: z.array(z.string().min(1)).optional(),
+    sources: z.union([z.array(z.string()), z.literal("all")]).optional(),
+    resultsDisplayMode: z.literal("candidates"),
+    paths: z.array(z.string().min(1)).optional(),
+    group: z
+      .object({
+        id: matchGroupIdSchema,
+        priority: z.number().int().min(0),
+        patternIds: z.array(z.string().min(1)).min(1),
+      })
+      .strict(),
+    offset: z.number().int().min(0),
+    limit: z.number().int().positive().max(50),
+  })
+  .strict()
+  .describe(
+    "Server-prepared payload copied from a candidate group more.groupCandidates field. Do not invent this payload; echo it exactly to request more leads for one group."
+  );
+
 export const searchSessionsInputSchema = z.object({
   query: z
     .string()
@@ -32,6 +62,7 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Result detail level. Use candidates first, evidence with a candidate more.evidence follow-up, and debug only for diagnostics. Evidence without paths is grouped by path and capped by default."
     ),
+  groupCandidates: groupCandidatesFollowupSchema.optional(),
   paths: z
     .array(z.string().min(1))
     .optional()
@@ -70,9 +101,34 @@ export const searchSessionsInputSchema = z.object({
 
 export type SearchSessionsToolInput = z.infer<typeof searchSessionsInputSchema>;
 
+export class SearchSessionsInputError extends Error {
+  readonly code = "invalid_group_followup";
+  readonly invalidField: string;
+  readonly correctedShape: Record<string, unknown>;
+
+  constructor(invalidField: string, message: string) {
+    super(message);
+    this.name = "SearchSessionsInputError";
+    this.invalidField = invalidField;
+    this.correctedShape = {
+      query: "<same query as the top-level request>",
+      sources: ["<same source names as the original response>"],
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 10,
+    };
+  }
+}
+
 export function parseSearchSessionsInput(
   input: SearchSessionsToolInput
 ): SearchSessionsInput {
+  validateGroupCandidatesFollowup(input);
   return input as SearchSessionsInput;
 }
 
@@ -84,4 +140,33 @@ export async function runSearchSessionsTool(
     searchSessionsInputSchema.parse(input)
   );
   return search.searchSessions(parsed);
+}
+
+function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
+  const followup = input.groupCandidates;
+  if (!followup) {
+    return;
+  }
+
+  if (followup.query !== input.query) {
+    throw new SearchSessionsInputError(
+      "groupCandidates.query",
+      "Invalid group follow-up: groupCandidates.query must match the top-level query copied from the server-prepared payload."
+    );
+  }
+  if (
+    input.resultsDisplayMode !== undefined &&
+    input.resultsDisplayMode !== "candidates"
+  ) {
+    throw new SearchSessionsInputError(
+      "resultsDisplayMode",
+      'Invalid group follow-up: group candidate expansion must use resultsDisplayMode: "candidates".'
+    );
+  }
+  if (input.paths !== undefined) {
+    throw new SearchSessionsInputError(
+      "paths",
+      "Invalid group follow-up: use groupCandidates.paths from the server-prepared payload instead of a top-level paths field."
+    );
+  }
 }

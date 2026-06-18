@@ -2,13 +2,23 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { SearchResult, SearchWarning, SourceName } from "./types.js";
+import type {
+  SearchBackendMetadata,
+  SearchResult,
+  SearchWarning,
+  SourceName,
+} from "./types.js";
 import { trackChildProcessPid } from "./child-process-cleanup.js";
 import { DetachedStdioClientTransport } from "./detached-stdio-transport.js";
 import { pathMatchesInclude } from "./roots.js";
 
 export type FffGrepInput = {
   query: string;
+  maxResults?: number;
+};
+
+export type FffMultiGrepInput = {
+  patterns: string[];
   maxResults?: number;
 };
 
@@ -24,6 +34,8 @@ export type FffToolResult = {
 
 export type FffClient = {
   grep(input: FffGrepInput): Promise<FffToolResult>;
+  multiGrep?(input: FffMultiGrepInput): Promise<FffToolResult>;
+  listTools?(): Promise<string[]>;
   close?(): Promise<void>;
 };
 
@@ -55,6 +67,7 @@ export type OneRootFffSearchInput = {
 export type OneRootFffSearchOutput = {
   warnings: SearchWarning[];
   results: SearchResult[];
+  backend?: SearchBackendMetadata;
 };
 
 const DEFAULT_EMPTY_RESULT_RETRY_ATTEMPTS = 3;
@@ -62,6 +75,10 @@ const DEFAULT_EMPTY_RESULT_RETRY_DELAY_MS = 100;
 
 export class OneRootFffBackend {
   private hasCompletedSearch = false;
+  private multiGrepStatus:
+    | { state: "unknown" }
+    | { state: "unsupported"; reason: string }
+    | { state: "supported" } = { state: "unknown" };
 
   constructor(private readonly options: OneRootFffBackendOptions) {}
 
@@ -70,6 +87,27 @@ export class OneRootFffBackend {
   }
 
   async search(input: OneRootFffSearchInput): Promise<OneRootFffSearchOutput> {
+    if (this.canAttemptMultiGrep(input)) {
+      return this.searchWithGatedMultiGrep(input);
+    }
+
+    const fallbackReason =
+      input.patterns.length > 1 && !this.options.client.multiGrep
+        ? "multi_grep_unavailable"
+        : undefined;
+    const sequential = await this.searchSequential(input);
+    return {
+      ...sequential,
+      backend: {
+        mode: fallbackReason ? "sequential_grep_fallback" : "sequential_grep",
+        ...(fallbackReason ? { fallbackReason } : {}),
+      },
+    };
+  }
+
+  private async searchSequential(
+    input: OneRootFffSearchInput
+  ): Promise<OneRootFffSearchOutput> {
     const results: SearchResult[] = [];
     const warnings: SearchWarning[] = [];
     const deferBackendCap = shouldDeferBackendCap(input);
@@ -89,12 +127,175 @@ export class OneRootFffBackend {
       const filteredResults = output.results.filter((result) =>
         resultMatchesSearchInput(result, this.options.root, input)
       );
-      results.push(
-        ...filteredResults.slice(0, remainingResults(results, input.maxResults))
+      mergeSearchResults(
+        results,
+        filteredResults.slice(0, remainingResults(results, input.maxResults))
       );
     }
 
     return { warnings, results };
+  }
+
+  private canAttemptMultiGrep(input: OneRootFffSearchInput) {
+    return (
+      input.patterns.length > 1 &&
+      input.context === undefined &&
+      this.options.client.multiGrep !== undefined
+    );
+  }
+
+  private async searchWithGatedMultiGrep(
+    input: OneRootFffSearchInput
+  ): Promise<OneRootFffSearchOutput> {
+    if (this.multiGrepStatus.state === "unsupported") {
+      const sequential = await this.searchSequential(input);
+      return {
+        ...sequential,
+        warnings: [
+          ...sequential.warnings,
+          this.multiGrepFallbackWarning(this.multiGrepStatus.reason),
+        ],
+        backend: {
+          mode: "sequential_grep_fallback",
+          fallbackReason: this.multiGrepStatus.reason,
+        },
+      };
+    }
+
+    if (this.multiGrepStatus.state === "supported") {
+      const multi = await this.searchMultiGrep(input);
+      if (multi.warnings.length === 0) {
+        return {
+          warnings: [],
+          results: multi.results,
+          backend: { mode: "multi_grep" },
+        };
+      }
+
+      const reason = multi.warnings[0]?.code ?? "multi_grep_failed";
+      this.multiGrepStatus = { state: "unsupported", reason };
+      const sequential = await this.searchSequential(input);
+      return {
+        ...sequential,
+        warnings: [
+          ...sequential.warnings,
+          ...multi.warnings,
+          this.multiGrepFallbackWarning(reason),
+        ],
+        backend: {
+          mode: "sequential_grep_fallback",
+          fallbackReason: reason,
+        },
+      };
+    }
+
+    const sequential = await this.searchSequential(input);
+    const multi = await this.searchMultiGrep(input);
+    if (multi.warnings.length > 0) {
+      const reason = multi.warnings[0]?.code ?? "multi_grep_failed";
+      this.multiGrepStatus = { state: "unsupported", reason };
+      return {
+        ...sequential,
+        warnings: [
+          ...sequential.warnings,
+          ...multi.warnings,
+          this.multiGrepFallbackWarning(reason),
+        ],
+        backend: {
+          mode: "sequential_grep_fallback",
+          fallbackReason: reason,
+        },
+      };
+    }
+
+    if (
+      this.multiGrepStatus.state === "unknown" &&
+      !isRecallEquivalent(sequential.results, multi.results)
+    ) {
+      const reason = "multi_grep_recall_probe_failed";
+      this.multiGrepStatus = { state: "unsupported", reason };
+      return {
+        ...sequential,
+        warnings: [
+          ...sequential.warnings,
+          this.multiGrepFallbackWarning(reason),
+        ],
+        backend: {
+          mode: "sequential_grep_fallback",
+          fallbackReason: reason,
+        },
+      };
+    }
+
+    this.multiGrepStatus = { state: "supported" };
+    return {
+      warnings: sequential.warnings,
+      results: multi.results,
+      backend: { mode: "multi_grep" },
+    };
+  }
+
+  private async searchMultiGrep(
+    input: OneRootFffSearchInput
+  ): Promise<OneRootFffSearchOutput> {
+    try {
+      if (this.multiGrepStatus.state === "unknown") {
+        const tools = await this.options.client.listTools?.();
+        if (tools && !tools.includes("multi_grep")) {
+          return {
+            warnings: [
+              this.warning(
+                "multi_grep_unavailable",
+                "FFF backend does not advertise multi_grep."
+              ),
+            ],
+            results: [],
+          };
+        }
+      }
+
+      const response = await withTimeout(
+        this.options.client.multiGrep!({
+          patterns: input.patterns,
+          maxResults: input.maxResults,
+        }),
+        this.options.timeoutMs,
+        input.patterns.join(" OR ")
+      );
+
+      if (response.isError) {
+        return {
+          warnings: [
+            this.warning(
+              "multi_grep_backend_error",
+              responseText(response) || "FFF multi_grep reported an error."
+            ),
+          ],
+          results: [],
+        };
+      }
+
+      return {
+        warnings: [],
+        results: this.normalizeMultiGrepResponse(input.patterns, response)
+          .filter((result) =>
+            resultMatchesSearchInput(result, this.options.root, input)
+          )
+          .slice(0, input.maxResults),
+      };
+    } catch (error) {
+      return {
+        warnings: [
+          this.warning(
+            errorCode(error) === "fff_backend_timeout"
+              ? "multi_grep_backend_timeout"
+              : "multi_grep_backend_error",
+            errorMessage(error)
+          ),
+        ],
+        results: [],
+      };
+    }
   }
 
   private async searchPattern(
@@ -200,6 +401,66 @@ export class OneRootFffBackend {
 
     return results;
   }
+
+  private normalizeMultiGrepResponse(
+    patterns: string[],
+    response: FffToolResult
+  ): SearchResult[] {
+    const text = responseText(response);
+
+    if (!text) {
+      return [];
+    }
+
+    const results: SearchResult[] = [];
+    let currentPath: string | undefined;
+
+    for (const line of text.split(/\r?\n/)) {
+      if (!line || line.startsWith("→ ")) {
+        continue;
+      }
+
+      const match = /^ (\d+): (.*)$/.exec(line);
+      if (!match) {
+        currentPath = line;
+        continue;
+      }
+
+      if (!currentPath) {
+        continue;
+      }
+
+      const matchedPatterns = patterns.filter((pattern) =>
+        match[2].includes(pattern)
+      );
+      if (matchedPatterns.length === 0) {
+        continue;
+      }
+
+      results.push({
+        source: this.options.source,
+        root: this.options.root,
+        path: normalizePath(this.options.root, currentPath),
+        line: Number(match[1]),
+        content: match[2],
+        pattern: matchedPatterns[0],
+        patterns: matchedPatterns,
+      });
+    }
+
+    return results;
+  }
+
+  private multiGrepFallbackWarning(reason: string): SearchWarning {
+    return {
+      ...this.warning(
+        "multi_grep_fallback",
+        `Using sequential grep because FFF multi_grep was not promoted: ${reason}.`
+      ),
+      recommendedAction:
+        "Sequential grep is authoritative and safe. Upgrade or configure fff-mcp only if you need multi_grep performance diagnostics.",
+    };
+  }
 }
 
 function resultMatchesSearchInput(
@@ -214,6 +475,52 @@ function resultMatchesSearchInput(
     return false;
   }
   return true;
+}
+
+function mergeSearchResults(target: SearchResult[], incoming: SearchResult[]) {
+  const byLine = new Map(
+    target.map((result) => [searchResultKey(result), result])
+  );
+  for (const result of incoming) {
+    const existing = byLine.get(searchResultKey(result));
+    if (!existing) {
+      target.push(result);
+      byLine.set(searchResultKey(result), result);
+      continue;
+    }
+    for (const pattern of result.patterns ??
+      [result.pattern].filter(isString)) {
+      addUniquePattern(existing, pattern);
+    }
+  }
+}
+
+function isRecallEquivalent(sequential: SearchResult[], multi: SearchResult[]) {
+  const multiKeys = new Set(multi.map(searchResultKey));
+  return sequential.every((result) => multiKeys.has(searchResultKey(result)));
+}
+
+function searchResultKey(result: SearchResult) {
+  return [
+    result.source,
+    result.root,
+    result.path,
+    result.line ?? "",
+    result.content,
+  ].join("\0");
+}
+
+function addUniquePattern(result: SearchResult, pattern: string) {
+  const patterns = result.patterns ?? (result.pattern ? [result.pattern] : []);
+  if (!patterns.includes(pattern)) {
+    patterns.push(pattern);
+  }
+  result.patterns = patterns;
+  result.pattern = patterns[0];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 export class FffMcpClient implements FffClient {
@@ -231,6 +538,33 @@ export class FffMcpClient implements FffClient {
         maxResults: input.maxResults,
       },
     })) as FffToolResult;
+  }
+
+  async multiGrep(input: FffMultiGrepInput): Promise<FffToolResult> {
+    return (await this.client.callTool({
+      name: "multi_grep",
+      arguments: {
+        patterns: input.patterns,
+        maxResults: input.maxResults,
+      },
+    })) as FffToolResult;
+  }
+
+  async listTools(): Promise<string[]> {
+    const listTools = (
+      this.client as McpToolClient & {
+        listTools?: () => Promise<{ tools?: Array<{ name?: string }> }>;
+      }
+    ).listTools;
+    if (!listTools) {
+      return [];
+    }
+    const result = await listTools.call(this.client);
+    return (
+      result.tools
+        ?.map((tool) => tool.name)
+        .filter((name): name is string => typeof name === "string") ?? []
+    );
   }
 
   async close(): Promise<void> {

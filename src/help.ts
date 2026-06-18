@@ -27,7 +27,7 @@ export function cliHelpText() {
     "  --reason <text>            Add search reason to operationalContext.",
     "  --mode <candidates|evidence|debug>",
     "                             Select result detail. Defaults to candidates.",
-    "  --candidates               Return compact session-level leads.",
+    "  --candidates               Return candidate groups with compact session-level leads.",
     "  --evidence                 Return matching snippets, usually with --path.",
     "  --debug                    Return query expansion and diagnostics; combine with --candidates for ranking explanations.",
     "  --path <path>              Restrict evidence to a canonical session path. Repeatable.",
@@ -102,14 +102,15 @@ export function cliCapabilities(version: string) {
         name: "doctor",
         usage:
           "agent-session-search-doctor [--skip-smoke] [--list-orphans] [--reap-orphans]",
-        output: "FFF backend setup diagnostics.",
+        output:
+          "FFF backend setup diagnostics including version, stable guidance, multi_grep support, and recall-equivalence status.",
       },
     ],
     resultModes: [
       {
         name: "candidates",
-        shape: "candidates",
-        use: "Default compact session-level leads with more.evidence follow-ups. With debug: true, includes ranking explanations under debug.ranking.candidates.",
+        shape: "candidate_groups",
+        use: "Default static match groups with compact leads, more.groupCandidates expansion payloads when more leads are available, and candidate more.evidence follow-ups. With debug: true, includes ranking explanations under debug.ranking.candidates.",
       },
       {
         name: "evidence",
@@ -122,6 +123,23 @@ export function cliCapabilities(version: string) {
         use: "Compatibility diagnostics mode for query expansion and backend behavior.",
       },
     ],
+    contract: {
+      version: "progressive-evidence-groups.v1",
+      metadata:
+        "Search responses include backend mode, limits, and count semantics.",
+      backendModes: [
+        "multi_grep",
+        "sequential_grep",
+        "sequential_grep_fallback",
+        "custom",
+      ],
+      warnings: {
+        multi_grep_fallback:
+          "Sequential grep is being used because multi_grep was unavailable, failed, or did not pass recall-equivalence gating.",
+        invalid_group_followup:
+          "Copy the server-prepared more.groupCandidates payload exactly.",
+      },
+    },
     env: [
       {
         name: "AGENT_SESSION_SEARCH_CONFIG",
@@ -191,7 +209,11 @@ export function robotTriage(version: string) {
     quickRef: {
       mcpTool: "search_sessions",
       defaultMode: "candidates",
-      evidenceFollowUp: "Use the selected candidate more.evidence payload.",
+      resultShape: "candidate_groups",
+      groupFollowUp:
+        "Use a group more.groupCandidates payload to expand one candidate group.",
+      evidenceFollowUp:
+        "Use the selected candidate more.evidence payload for focused line evidence.",
       configEnv: "AGENT_SESSION_SEARCH_CONFIG",
     },
     recommendedCommands: [
@@ -206,7 +228,8 @@ export function robotTriage(version: string) {
       "agent-session-search-doctor --list-orphans",
     ],
     commonNextSteps: [
-      "Start with candidates mode.",
+      "Start with candidates mode and inspect candidate_groups in priority order.",
+      "Expand a promising group with more.groupCandidates before focused evidence when the first leads are thin.",
       "Use focused evidence with a candidate path before broad evidence.",
       "If every source fails, use the all_sources_failed rg fallback command from warnings.",
     ],
@@ -219,6 +242,7 @@ export function doctorHelpText() {
     "       agent-session-search-doctor help",
     "",
     "Verify the FFF backend used by agent-session-search.",
+    "Reports installed version, recommended stable release guidance, multi_grep support, and recall-equivalence status without upgrading automatically.",
     "",
     "Options:",
     "  --command <bin>       Check a specific fff-mcp binary. Defaults to fff-mcp.",
@@ -241,6 +265,6 @@ export function mcpSearchSessionsDescription() {
     "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
     "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
     "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
-    "The default `resultsDisplayMode` is `candidates`: compact session-level leads grouped by source/path. Use `resultsShape` to distinguish candidates, grouped evidence, and raw evidence hits. Use a candidate `more.evidence` object as the next tool input when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.",
+    'The default `resultsDisplayMode` is `candidates` with `resultsShape: "candidate_groups"`: static match groups ordered from exact/structured evidence through looser fallbacks. Expand a group by echoing its `more.groupCandidates` payload, then use a candidate `more.evidence` object when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.',
   ].join(" ");
 }

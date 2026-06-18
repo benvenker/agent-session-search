@@ -31,16 +31,16 @@ npm install -g @benvenker/agent-session-search
 agent-session-search-doctor
 ```
 
-If `fff-mcp` is missing, the package postinstall prompts before running the FFF installer when npm has an interactive terminal. In non-interactive installs it prints the command instead.
+If `fff-mcp` is missing, the package postinstall prints non-destructive install guidance. It does not change a user-owned FFF installation.
 
 Manual FFF install:
 
 ```bash
-curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
 agent-session-search-doctor
 ```
 
-Review the installer before piping it to a shell: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
+Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current documented stable FFF MCP release for this package is `v0.9.4`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
 
 ## Quick Start
 
@@ -87,9 +87,31 @@ Use `query` for the concise recall task. Use `queries` for short literal planned
 
 ## Candidates And Evidence
 
-The default result mode is `candidates`. A candidate points to one canonical session path and includes a `more.evidence` payload.
+The default result mode is `candidates` with `resultsShape: "candidate_groups"`. Results are ordered match groups, each with counts, compact leads, and optional `more.groupCandidates` for the next page of that group.
 
-Echo that `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for the selected session:
+```json
+{
+  "resultsDisplayMode": "candidates",
+  "resultsShape": "candidate_groups",
+  "metadata": {
+    "contractVersion": "progressive-evidence-groups.v1",
+    "backend": { "mode": "multi_grep" }
+  },
+  "results": [
+    {
+      "id": "exact_or_structured",
+      "assignedCandidateCount": { "value": 3, "relation": "eq" },
+      "hasMore": true,
+      "more": { "groupCandidates": { "resultsDisplayMode": "candidates" } },
+      "leads": [
+        { "path": "/absolute/session.jsonl", "more": { "evidence": {} } }
+      ]
+    }
+  ]
+}
+```
+
+Echo `more.groupCandidates` back to `search_sessions` first when a promising group has more leads. Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
 
 ```bash
 agent-session-search "auth token timeout" --json --evidence \

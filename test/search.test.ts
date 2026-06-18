@@ -18,6 +18,30 @@ async function writeSessionFile(path: string, content: string, ageMs: number) {
   await utimes(path, time, time);
 }
 
+const AUTH_TOKEN_TIMEOUT_PATTERNS = [
+  "auth token timeout",
+  "auth token",
+  "token timeout",
+  "timeout",
+  "token",
+  "auth",
+];
+const AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3 = AUTH_TOKEN_TIMEOUT_PATTERNS.slice(
+  0,
+  3
+);
+const NOTHING_SHOULD_MATCH_PATTERNS = [
+  "nothing should match this",
+  "nothing",
+  "match",
+];
+
+function candidateLeads(result: { results: any[] }) {
+  return result.results.flatMap((entry) =>
+    Array.isArray(entry.leads) ? entry.leads : [entry]
+  );
+}
+
 describe("createSessionSearch", () => {
   it("returns compact session candidates by default", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
@@ -89,8 +113,17 @@ describe("createSessionSearch", () => {
     const canonicalOtherPath = join(canonicalCodexRoot, "other.jsonl");
 
     expect(result.resultsDisplayMode).toBe("candidates");
-    expect(result.resultsShape).toBe("candidates");
-    expect(result.results).toEqual([
+    expect(result.resultsShape).toBe("candidate_groups");
+    expect(result.metadata).toMatchObject({
+      contractVersion: "progressive-evidence-groups.v1",
+      backend: { mode: "custom" },
+      limits: { candidateGroupLeadLimit: 5 },
+      countSemantics: {
+        relation: "eq means exact; gte means lower bound",
+        hitCount: "physical matched lines, not pattern-line pairs",
+      },
+    });
+    expect(candidateLeads(result)).toMatchObject([
       {
         source: "codex",
         root: canonicalCodexRoot,
@@ -188,7 +221,23 @@ describe("createSessionSearch", () => {
       query: "auth token timeout",
       resultsDisplayMode: "evidence",
       resultsShape: "evidence_groups",
-      expandedPatterns: ["auth token timeout"],
+      expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
+      metadata: {
+        contractVersion: "progressive-evidence-groups.v1",
+        backend: { mode: "custom" },
+        limits: {
+          maxResultsPerSource: 20,
+          candidateGroupLeadLimit: 20,
+          unscopedEvidenceDefaultCap: 20,
+        },
+        countSemantics: {
+          relation: "eq means exact; gte means lower bound",
+          assignedCandidateCount:
+            "canonical candidates assigned to the group before lead slicing",
+          hitCount: "physical matched lines, not pattern-line pairs",
+          shownLeadCount: "leads included in this response",
+        },
+      },
       searchedSources: [
         {
           name: "codex",
@@ -264,7 +313,7 @@ describe("createSessionSearch", () => {
           status: "ok",
         },
         input: {
-          patterns: ["auth token timeout"],
+          patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
           maxResults: undefined,
           context: undefined,
           include: ["*.jsonl"],
@@ -278,7 +327,7 @@ describe("createSessionSearch", () => {
           status: "ok",
         },
         input: {
-          patterns: ["auth token timeout"],
+          patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
           maxResults: undefined,
           context: undefined,
           include: ["*.jsonl"],
@@ -471,9 +520,9 @@ describe("createSessionSearch", () => {
       query: "auth token timeout",
     });
     const canonicalCodexRoot = await realpath(codexRoot);
-    const candidates = result.results;
+    const candidates = candidateLeads(result);
 
-    expect(result.resultsShape).toBe("candidates");
+    expect(result.resultsShape).toBe("candidate_groups");
     expect(candidates.map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "dense-recent.jsonl"),
       join(canonicalCodexRoot, "fresh-noise.jsonl"),
@@ -551,14 +600,16 @@ describe("createSessionSearch", () => {
       });
       const canonicalCodexRoot = await realpath(codexRoot);
 
-      expect(result.results.map((candidate) => candidate.path)).toEqual([
-        join(canonicalCodexRoot, "historical.jsonl"),
-        join(
-          canonicalCodexRoot,
-          `rollout-2026-04-29T10-15-17-${currentSessionId}.jsonl`
-        ),
-      ]);
-      expect(result.results[1]).toMatchObject({
+      expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual(
+        [
+          join(canonicalCodexRoot, "historical.jsonl"),
+          join(
+            canonicalCodexRoot,
+            `rollout-2026-04-29T10-15-17-${currentSessionId}.jsonl`
+          ),
+        ]
+      );
+      expect(candidateLeads(result)[1]).toMatchObject({
         sessionId: currentSessionId,
         hitCount: 12,
       });
@@ -620,7 +671,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "missing-a.jsonl"),
       join(canonicalCodexRoot, "missing-b.jsonl"),
     ]);
@@ -685,11 +736,11 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "current-app", "session.jsonl"),
       join(canonicalCodexRoot, "other-app", "session.jsonl"),
     ]);
-    for (const candidate of result.results) {
+    for (const candidate of candidateLeads(result)) {
       expect(candidate).not.toHaveProperty("score");
       expect(candidate).not.toHaveProperty("project");
       expect(candidate).not.toHaveProperty("ranking");
@@ -770,7 +821,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "2026-05-31-a.jsonl"),
       join(canonicalCodexRoot, "2026-05-31-b.jsonl"),
     ]);
@@ -863,7 +914,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalArchiveRoot = await realpath(archiveRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(
         canonicalArchiveRoot,
         "rollout-2026-05-19T08-13-59-019e3f4c-81e2-75a0-a125-8ea2ea42dd9f.jsonl"
@@ -958,7 +1009,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalPiRoot = await realpath(piRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalPiRoot, "20260531_aaa.jsonl"),
       join(canonicalPiRoot, "20260531_bbb.jsonl"),
     ]);
@@ -1028,7 +1079,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "other-app", "session.jsonl"),
       join(canonicalCodexRoot, "current-app", "session.jsonl"),
     ]);
@@ -1090,7 +1141,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "other-app", "session.jsonl"),
       join(canonicalCodexRoot, "current-app", "session.jsonl"),
     ]);
@@ -1152,7 +1203,7 @@ describe("createSessionSearch", () => {
     });
     const canonicalCodexRoot = await realpath(codexRoot);
 
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "other-app", "session.jsonl"),
       join(canonicalCodexRoot, "node_modules", "session.jsonl"),
     ]);
@@ -1233,11 +1284,10 @@ describe("createSessionSearch", () => {
       );
 
       expect(result.resultsDisplayMode).toBe("candidates");
-      expect(result.resultsShape).toBe("candidates");
-      expect(result.results.map((candidate) => candidate.path)).toEqual([
-        canonicalHistoricalPath,
-        canonicalCurrentPath,
-      ]);
+      expect(result.resultsShape).toBe("candidate_groups");
+      expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual(
+        [canonicalHistoricalPath, canonicalCurrentPath]
+      );
       expect(result.debug?.ranking?.candidates).toHaveLength(2);
       expect(result.debug?.ranking?.candidates[0]).toMatchObject({
         rank: 1,
@@ -1331,9 +1381,9 @@ describe("createSessionSearch", () => {
     });
 
     expect(result.debug).toBeUndefined();
-    expect(result.results[0]).not.toHaveProperty("score");
-    expect(result.results[0]).not.toHaveProperty("mtimeMs");
-    expect(result.results[0]).not.toHaveProperty("ranking");
+    expect(candidateLeads(result)[0]).not.toHaveProperty("score");
+    expect(candidateLeads(result)[0]).not.toHaveProperty("mtimeMs");
+    expect(candidateLeads(result)[0]).not.toHaveProperty("ranking");
   });
 
   it("keeps malformed context and missing mtimes non-fatal in ranking debug", async () => {
@@ -1389,7 +1439,7 @@ describe("createSessionSearch", () => {
     const canonicalCodexRoot = await realpath(codexRoot);
 
     expect(result.warnings).toEqual([]);
-    expect(result.results.map((candidate) => candidate.path)).toEqual([
+    expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual([
       join(canonicalCodexRoot, "missing-a.jsonl"),
       join(canonicalCodexRoot, "missing-b.jsonl"),
     ]);
@@ -1490,7 +1540,7 @@ describe("createSessionSearch", () => {
     const canonicalOtherPath = join(canonicalCodexRoot, "session-b.jsonl");
 
     expect(result.resultsShape).toBe("evidence_groups");
-    expect(result.results).toEqual([
+    expect(candidateLeads(result)).toMatchObject([
       {
         source: "codex",
         root: canonicalCodexRoot,
@@ -1677,7 +1727,7 @@ describe("createSessionSearch", () => {
     );
 
     expect(result.resultsShape).toBe("evidence_groups");
-    expect(result.results).toEqual([
+    expect(candidateLeads(result)).toMatchObject([
       {
         source: "codex",
         root: canonicalCodexRoot,
@@ -1872,7 +1922,7 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["auth token timeout"],
+        patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
         maxResults: undefined,
         context: undefined,
         paths: [selectedPath],
@@ -1967,7 +2017,7 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["auth token timeout"],
+        patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
         maxResults: undefined,
         context: undefined,
         include,
@@ -2054,7 +2104,7 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["auth token timeout"],
+        patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
         maxResults: undefined,
         context: undefined,
         paths: [selectedPath],
@@ -2493,7 +2543,7 @@ describe("createSessionSearch", () => {
 
     expect(result).toMatchObject({
       query: "auth token timeout",
-      expandedPatterns: ["auth token timeout"],
+      expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
       searchedSources: [
         {
           name: "codex",
@@ -2892,7 +2942,7 @@ describe("createSessionSearch", () => {
         status: "ok",
       },
     ]);
-    expect(result.results).toEqual([
+    expect(candidateLeads(result)).toMatchObject([
       {
         source: "codex",
         root: canonicalCodexRoot,
@@ -3166,12 +3216,12 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["auth token timeout"],
+        patterns: AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3,
         maxResults: 2,
         context: 4,
       },
     ]);
-    expect(result.expandedPatterns).toEqual(["auth token timeout"]);
+    expect(result.expandedPatterns).toEqual(AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3);
     expect(result.resultsDisplayMode).toBe("debug");
     expect(result.resultsShape).toBe("evidence_hits");
     expect(result.results).toMatchObject([{ line: 1 }, { line: 2 }]);
@@ -3183,7 +3233,7 @@ describe("createSessionSearch", () => {
         context: 4,
         debug: true,
       },
-      expandedPatterns: ["auth token timeout"],
+      expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS_MAX_3,
     });
   });
 
@@ -3230,7 +3280,7 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["auth token timeout"],
+        patterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
         maxResults: 20,
         context: undefined,
       },
@@ -3291,7 +3341,7 @@ describe("createSessionSearch", () => {
 
     expect(calls).toEqual([
       {
-        patterns: ["nothing should match this"],
+        patterns: NOTHING_SHOULD_MATCH_PATTERNS,
         maxResults: 20,
         context: undefined,
       },
@@ -3412,7 +3462,7 @@ describe("createSessionSearch", () => {
     expect(evidence.results[0]).toMatchObject({
       content: `${"x".repeat(8_189)}...`,
     });
-    expect(candidates.results[0]).toMatchObject({
+    expect(candidateLeads(candidates)[0]).toMatchObject({
       preview: `${"x".repeat(497)}...`,
     });
   });
@@ -3453,7 +3503,7 @@ describe("createSessionSearch", () => {
         query: "auth token timeout",
         resultsDisplayMode: "debug",
       },
-      expandedPatterns: ["auth token timeout"],
+      expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
     });
   });
 

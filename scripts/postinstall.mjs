@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { closeSync, openSync, readSync, writeSync } from "node:fs";
+import { closeSync, openSync, writeSync } from "node:fs";
 
-const FFF_MCP_INSTALLER_URL = "https://dmtrkovalenko.dev/install-fff-mcp.sh";
-const FFF_MCP_INSTALL_COMMAND = `curl -L ${FFF_MCP_INSTALLER_URL} | bash`;
+const FFF_MCP_INSTALLER_URL =
+  "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh";
+const FFF_MCP_INSTALL_COMMAND = `curl -fsSL ${FFF_MCP_INSTALLER_URL} | bash`;
+const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.4";
 
 const result = spawnSync("fff-mcp", ["--version"], {
   encoding: "utf8",
@@ -22,6 +24,7 @@ function promptToInstallFffMcp() {
       [
         "agent-session-search uses fff-mcp for fast file searching, but it's not installed.",
         "",
+        `Recommended stable FFF MCP: ${RECOMMENDED_FFF_MCP_RELEASE}`,
         `Install FFF with: ${FFF_MCP_INSTALL_COMMAND}`,
         "Then verify with: agent-session-search-doctor",
         "",
@@ -36,44 +39,17 @@ function promptToInstallFffMcp() {
       [
         "agent-session-search uses fff-mcp for fast file searching, but it's not installed.",
         "",
-        "Install FFF now with this command?",
+        `Recommended stable FFF MCP: ${RECOMMENDED_FFF_MCP_RELEASE}`,
+        "Install FFF manually with:",
         `  ${FFF_MCP_INSTALL_COMMAND}`,
         "",
-        "Press Enter to run it, or Ctrl-C to skip.",
+        "Then verify with: agent-session-search-doctor",
         "",
       ].join("\n")
     );
-    readUntilEnter(tty);
   } finally {
     closeSync(tty);
   }
-
-  const install = spawnSync(
-    "bash",
-    ["-c", `set -euo pipefail; ${FFF_MCP_INSTALL_COMMAND}`],
-    {
-      stdio: "inherit",
-    }
-  );
-
-  if (install.status === 0) {
-    writeNotice("\nFFF installed. Verify with: agent-session-search-doctor\n");
-    return;
-  }
-
-  const code =
-    install.status === null
-      ? `signal ${install.signal}`
-      : `exit ${install.status}`;
-  writeNotice(
-    [
-      "",
-      `FFF install failed (${code}).`,
-      `You can retry manually with: ${FFF_MCP_INSTALL_COMMAND}`,
-      "",
-    ].join("\n")
-  );
-  process.exitCode = install.status ?? 1;
 }
 
 function openTty() {
@@ -85,16 +61,6 @@ function openTty() {
     return openSync("/dev/tty", "r+");
   } catch {
     return undefined;
-  }
-}
-
-function readUntilEnter(tty) {
-  const buffer = Buffer.alloc(1);
-  while (true) {
-    const bytesRead = readSync(tty, buffer, 0, 1, null);
-    if (bytesRead === 0 || buffer[0] === 10 || buffer[0] === 13) {
-      return;
-    }
   }
 }
 

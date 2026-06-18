@@ -7,6 +7,12 @@ import { describe, expect, it } from "vitest";
 import packageJson from "../package.json" with { type: "json" };
 
 describe("MCP search_sessions smoke path", () => {
+  function candidateLeads(result: { results: any[] }) {
+    return result.results.flatMap((entry) =>
+      Array.isArray(entry.leads) ? entry.leads : [entry]
+    );
+  }
+
   it("describes the search_sessions workflow through tool introspection", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -108,7 +114,7 @@ describe("MCP search_sessions smoke path", () => {
       expect(result).toMatchObject({
         query: "timeout smoke",
         resultsDisplayMode: "candidates",
-        expandedPatterns: ["timeout smoke"],
+        expandedPatterns: ["timeout smoke", "timeout", "smoke"],
         searchedSources: [
           {
             name: "smoke",
@@ -118,16 +124,17 @@ describe("MCP search_sessions smoke path", () => {
         ],
         warnings: [],
       });
-      expect(result.results).toEqual([
+      expect((result as any).resultsShape).toBe("candidate_groups");
+      expect(candidateLeads(result)).toMatchObject([
         {
           source: "smoke",
           root: canonicalRoot,
           path: join(canonicalRoot, "session.jsonl"),
           line: 2,
           preview: "auth token timeout smoke",
-          hitCount: 1,
+          hitCount: 3,
           matchedQueries: ["timeout smoke"],
-          matchedPatterns: ["timeout smoke"],
+          matchedPatterns: ["timeout smoke", "timeout", "smoke"],
           more: {
             evidence: {
               query: "timeout smoke",

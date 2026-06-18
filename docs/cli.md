@@ -13,7 +13,7 @@ agent-session-search "auth token timeout" --json --evidence --path /absolute/ses
 agent-session-search "auth token timeout" --json --candidates --debug
 ```
 
-Without `--json`, search output is a short human summary plus warnings. Use `--json` when you need result records.
+Without `--json`, search output is a short human summary plus warnings. Use `--json` when you need result records. Candidate mode returns `resultsShape: "candidate_groups"`: ordered match groups with compact leads, counts, `hasMore`, optional `more.groupCandidates` group expansion payloads, and per-candidate `more.evidence` payloads.
 
 Options:
 
@@ -26,7 +26,7 @@ Options:
 | `--branch <name>`                      | Add branch to `operationalContext`.                                                                             |
 | `--reason <text>`                      | Add reason to `operationalContext`.                                                                             |
 | `--mode <candidates\|evidence\|debug>` | Select result detail. Defaults to `candidates`, unless `--debug` is used alone.                                 |
-| `--candidates`                         | Return compact session-level leads. Combine with `--debug` for ranking diagnostics.                             |
+| `--candidates`                         | Return candidate groups with compact session-level leads. Combine with `--debug` for ranking diagnostics.       |
 | `--evidence`                           | Return evidence groups or focused evidence hits.                                                                |
 | `--debug`                              | Include diagnostics. Alone, this selects debug mode; use `--candidates --debug` for `debug.ranking.candidates`. |
 | `--path <path>`                        | Restrict evidence to a canonical session path. Repeatable. This does not imply `--evidence`.                    |
@@ -81,7 +81,7 @@ agent-session-search-doctor --reap-orphans
 agent-session-search-doctor --command /usr/local/bin/fff-mcp --skip-smoke
 ```
 
-Doctor verifies that `fff-mcp` is on `PATH` and runs a live smoke test unless `--skip-smoke` is set.
+Doctor verifies that `fff-mcp` is on `PATH` and runs a live smoke test unless `--skip-smoke` is set. It reports the installed version, documented stable release guidance, `multi_grep` support, recall-equivalence status, and the non-destructive upgrade command.
 
 Use `--list-orphans` before `--reap-orphans`. Reaping kills matching orphaned `fff-mcp` processes with `SIGKILL`; it does not prompt.
 

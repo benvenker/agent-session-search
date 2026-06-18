@@ -13,11 +13,45 @@ Cause: Agent Session Search delegates real search work to the external `fff-mcp`
 Fix:
 
 ```bash
-curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
 agent-session-search-doctor
 ```
 
-Review the installer first if needed: <https://dmtrkovalenko.dev/install-fff-mcp.sh>.
+Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The documented stable FFF MCP release for this package is `v0.9.4`.
+
+## FFF `multi_grep` Falls Back
+
+Symptom:
+
+```text
+multi_grep_fallback
+```
+
+Cause: `multi_grep` is absent, failed, or did not match the sequential `grep` union during the recall-equivalence probe.
+
+Fix: no action is required for correctness. Agent Session Search uses sequential `grep` as the authoritative fallback and reports the fallback reason in `metadata.backend`. Run doctor to inspect installed version, `multi_grep` support, and recall-equivalence status:
+
+```bash
+agent-session-search-doctor
+```
+
+Upgrade FFF only when you want the faster backend path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
+```
+
+## Malformed Group Follow-Up
+
+Symptom:
+
+```text
+invalid_group_followup
+```
+
+Cause: a `groupCandidates` payload was edited, invented, or no longer matches the top-level query, mode, paths, or group discriminator.
+
+Fix: copy `more.groupCandidates` exactly from a candidate group returned by `search_sessions`. Do not add a top-level `paths` field; use the server-prepared payload's `paths` when present. For line evidence, copy a candidate's `more.evidence` payload instead.
 
 ## Missing Or Unreadable Roots
 

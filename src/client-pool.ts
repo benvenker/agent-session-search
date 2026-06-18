@@ -39,6 +39,12 @@ export function createFffBackendPool(
       root: source.root,
       client: {
         grep: (input) => pooled.client.grep(input),
+        ...(pooled.client.multiGrep
+          ? { multiGrep: (input) => pooled.client.multiGrep!(input) }
+          : {}),
+        ...(pooled.client.listTools
+          ? { listTools: () => pooled.client.listTools!() }
+          : {}),
       },
       timeoutMs: options.timeoutMs,
       emptyResultRetryAttempts: options.emptyResultRetryAttempts,

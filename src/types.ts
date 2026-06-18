@@ -14,6 +14,7 @@ export type SearchSessionsInput = {
   operationalContext?: unknown;
   sources?: SourceName[] | "all";
   resultsDisplayMode?: ResultsDisplayMode;
+  groupCandidates?: GroupCandidatesFollowupInput;
   paths?: string[];
   maxPatterns?: number;
   maxResultsPerSource?: number;
@@ -22,7 +23,85 @@ export type SearchSessionsInput = {
 };
 
 export type ResultsDisplayMode = "candidates" | "evidence" | "debug";
-export type ResultsShape = "candidates" | "evidence_groups" | "evidence_hits";
+export type ResultsShape =
+  | "candidates"
+  | "candidate_groups"
+  | "evidence_groups"
+  | "evidence_hits";
+
+export type MatchGroupId =
+  | "exact_or_structured"
+  | "phrase_or_adjacent_terms"
+  | "multi_term_coverage"
+  | "distinctive_term"
+  | "loose_fallback";
+
+export type PatternProvenance =
+  | "command"
+  | "quoted_phrase"
+  | "error_fragment"
+  | "package_name"
+  | "file_path"
+  | "pull_request_reference"
+  | "id"
+  | "symbol_variant"
+  | "full_phrase"
+  | "adjacent_terms"
+  | "natural_term"
+  | "configured_synonym";
+
+export type PatternPlan = {
+  id: string;
+  query: string;
+  pattern: string;
+  provenance: PatternProvenance;
+  initialGroup: MatchGroupId;
+};
+
+export type CountRelation = "eq" | "gte";
+
+export type CountWithRelation = {
+  value: number;
+  relation: CountRelation;
+};
+
+export type GroupMembership = {
+  id: MatchGroupId;
+  priority: number;
+  patternIds: string[];
+};
+
+export type GroupCandidatesFollowupInput = {
+  query: string;
+  queries?: string[];
+  sources?: SourceName[] | "all";
+  resultsDisplayMode: "candidates";
+  paths?: string[];
+  group: {
+    id: MatchGroupId;
+    priority: number;
+    patternIds: string[];
+  };
+  offset: number;
+  limit: number;
+};
+
+export type CandidateGroup = {
+  id: MatchGroupId;
+  priority: number;
+  path?: never;
+  label: string;
+  guidance: string;
+  patternIds: string[];
+  assignedCandidateCount: CountWithRelation;
+  hitCount: CountWithRelation;
+  shownLeadCount: number;
+  hasMore: boolean;
+  leads: SearchCandidate[];
+  more?: {
+    groupCandidates: GroupCandidatesFollowupInput;
+  };
+};
 
 export type SearchedSource = {
   name: SourceName;
@@ -36,6 +115,7 @@ export type SearchWarning = {
   root?: string;
   code: string;
   message: string;
+  recommendedAction?: string;
 };
 
 export type SearchResult = {
@@ -45,8 +125,38 @@ export type SearchResult = {
   line?: number;
   content: string;
   query?: string;
+  queries?: string[];
   pattern?: string;
+  patterns?: string[];
   context?: string[];
+};
+
+export type BackendMode =
+  | "sequential_grep"
+  | "multi_grep"
+  | "sequential_grep_fallback"
+  | "custom";
+
+export type SearchBackendMetadata = {
+  mode: BackendMode;
+  fallbackReason?: string;
+};
+
+export type SearchSessionsMetadata = {
+  contractVersion: "progressive-evidence-groups.v1";
+  backend: SearchBackendMetadata;
+  limits: {
+    maxPatterns?: number;
+    maxResultsPerSource?: number;
+    candidateGroupLeadLimit?: number;
+    unscopedEvidenceDefaultCap?: number;
+  };
+  countSemantics: {
+    relation: "eq means exact; gte means lower bound";
+    assignedCandidateCount: "canonical candidates assigned to the group before lead slicing";
+    hitCount: "physical matched lines, not pattern-line pairs";
+    shownLeadCount: "leads included in this response";
+  };
 };
 
 export type SearchCandidate = {
@@ -59,6 +169,8 @@ export type SearchCandidate = {
   hitCount: number;
   matchedQueries: string[];
   matchedPatterns: string[];
+  strongestGroup?: GroupMembership;
+  groupMemberships?: GroupMembership[];
   more: {
     evidence: {
       query: string;
@@ -98,6 +210,8 @@ export type SearchCandidateRankingDebug = {
   projectMatch: RankingProjectMatch;
   projectPoints: number;
   score: number;
+  strongestGroup?: GroupMembership;
+  groupMemberships?: GroupMembership[];
 };
 
 export type SearchEvidenceSnippet = {
@@ -131,10 +245,13 @@ export type SearchSessionsOutput = {
   query: string;
   resultsDisplayMode: ResultsDisplayMode;
   resultsShape: ResultsShape;
+  metadata: SearchSessionsMetadata;
   expandedPatterns: string[];
   searchedSources: SearchedSource[];
   warnings: SearchWarning[];
-  results: Array<SearchResult | SearchCandidate | SearchEvidenceGroup>;
+  results: Array<
+    SearchResult | SearchCandidate | SearchEvidenceGroup | CandidateGroup
+  >;
   debug?: SearchSessionsDebug;
 };
 

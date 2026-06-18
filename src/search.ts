@@ -1,6 +1,12 @@
 import type {
+  CandidateGroup,
+  GroupCandidatesFollowupInput,
+  GroupMembership,
+  MatchGroupId,
+  PatternPlan,
   RankingProjectMatch,
   RankingRecencyBucket,
+  SearchBackendMetadata,
   SearchCandidate,
   SearchCandidateRankingDebug,
   SearchEvidenceGroup,
@@ -29,7 +35,7 @@ import {
   type SearchDefaultsConfig,
   type SessionRootConfig,
 } from "./roots.js";
-import { rewriteQueryPatterns } from "./query-rewriter.js";
+import { planQueryPatterns } from "./query-rewriter.js";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 export type SessionSearchBackendInput = {
@@ -66,34 +72,36 @@ export class CoordinatedSessionSearch implements SessionSearch {
   async searchSessions(
     input: SearchSessionsInput
   ): Promise<SearchSessionsOutput> {
+    const effectiveInput = effectiveSearchInput(input);
     const searchConfig = await loadSearchConfig(this.options.configPath);
     const resolvedRoots = await resolveSessionRoots({
-      sources: input.sources,
+      sources: effectiveInput.sources,
       configPath: this.options.configPath,
       config: searchConfig,
       defaultRoots: this.options.defaultRoots,
     });
     const resultsDisplayMode =
-      input.resultsDisplayMode ?? (input.debug ? "debug" : "candidates");
+      effectiveInput.resultsDisplayMode ??
+      (effectiveInput.debug ? "debug" : "candidates");
     const defaults = validatedDefaults(searchConfig.defaults);
-    const maxPatterns = input.maxPatterns ?? defaults.maxPatterns;
+    const maxPatterns = effectiveInput.maxPatterns ?? defaults.maxPatterns;
     const isUnscopedEvidenceRequest =
-      resultsDisplayMode === "evidence" && !input.paths?.length;
+      resultsDisplayMode === "evidence" && !effectiveInput.paths?.length;
     const isDefaultUnscopedEvidenceCapApplied =
       isUnscopedEvidenceRequest &&
-      input.maxResultsPerSource === undefined &&
+      effectiveInput.maxResultsPerSource === undefined &&
       defaults.maxResultsPerSource === undefined;
     const maxResultsPerSource =
-      input.maxResultsPerSource ??
+      effectiveInput.maxResultsPerSource ??
       defaults.maxResultsPerSource ??
       (isUnscopedEvidenceRequest
         ? DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE
         : undefined);
-    const requestMaxResultsPerSource = input.paths?.length
-      ? input.maxResultsPerSource
+    const requestMaxResultsPerSource = effectiveInput.paths?.length
+      ? effectiveInput.maxResultsPerSource
       : maxResultsPerSource;
     const context = input.context ?? defaults.context;
-    const patternPlans = expandPatternPlans(input, searchConfig);
+    const patternPlans = expandPatternPlans(effectiveInput, searchConfig);
     const expandedPatterns =
       maxPatterns === undefined
         ? patternPlans.map((plan) => plan.pattern)
@@ -109,6 +117,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
     const createBackend =
       this.options.createBackend ?? this.defaultBackendPool!.createBackend;
     let unscopedEvidenceCapReached = false;
+    const backendMetadata: SearchBackendMetadata[] = [];
 
     const sourceSlots = await Promise.all(
       searchedSources.map((source, index) =>
@@ -116,11 +125,12 @@ export class CoordinatedSessionSearch implements SessionSearch {
           index,
           source,
           createBackend,
-          input,
+          input: effectiveInput,
           expandedPatterns,
           requestMaxResultsPerSource,
           context,
           queryByPattern,
+          resultsDisplayMode,
           isDefaultUnscopedEvidenceCapApplied,
           maxResultsPerSource,
         })
@@ -139,6 +149,9 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
       warnings.push(...slot.warnings);
       rawResults.push(...slot.results);
+      if (slot.backend) {
+        backendMetadata.push(slot.backend);
+      }
       unscopedEvidenceCapReached =
         unscopedEvidenceCapReached || slot.unscopedEvidenceCapReached;
     }
@@ -161,20 +174,37 @@ export class CoordinatedSessionSearch implements SessionSearch {
       });
     }
 
-    const filteredResults = input.paths?.length
-      ? rawResults.filter((result) => input.paths?.includes(result.path))
+    const filteredResults = effectiveInput.paths?.length
+      ? rawResults.filter((result) =>
+          effectiveInput.paths?.includes(result.path)
+        )
       : rawResults;
     const { results, resultsShape, rankingDebug } = await shapeResults(
       filteredResults,
-      input,
-      resultsDisplayMode
+      effectiveInput,
+      resultsDisplayMode,
+      requestMaxResultsPerSource,
+      patternPlans
     );
-    const shouldIncludeDebug = input.debug || resultsDisplayMode === "debug";
+    const shouldIncludeDebug =
+      effectiveInput.debug || resultsDisplayMode === "debug";
 
     return {
-      query: input.query,
+      query: effectiveInput.query,
       resultsDisplayMode,
       resultsShape,
+      metadata: searchMetadata({
+        backendMetadata,
+        maxPatterns,
+        maxResultsPerSource,
+        candidateGroupLeadLimit: candidateGroupLeadLimit(
+          effectiveInput,
+          requestMaxResultsPerSource
+        ),
+        unscopedEvidenceDefaultCap: isDefaultUnscopedEvidenceCapApplied
+          ? DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE
+          : undefined,
+      }),
       expandedPatterns,
       searchedSources,
       warnings,
@@ -182,7 +212,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
       ...(shouldIncludeDebug
         ? {
             debug: {
-              input,
+              input: effectiveInput,
               expandedPatterns,
               ...(rankingDebug ? { ranking: rankingDebug } : {}),
             },
@@ -205,6 +235,7 @@ type SourceSearchSlotInput = {
   requestMaxResultsPerSource: number | undefined;
   context: number | undefined;
   queryByPattern: Map<string, string>;
+  resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
   isDefaultUnscopedEvidenceCapApplied: boolean;
   maxResultsPerSource: number | undefined;
 };
@@ -218,6 +249,7 @@ type SourceSearchSlotResult = {
   results: SearchResult[];
   failed: boolean;
   unscopedEvidenceCapReached: boolean;
+  backend?: SearchBackendMetadata;
 };
 
 async function searchSourceSlot({
@@ -229,6 +261,7 @@ async function searchSourceSlot({
   requestMaxResultsPerSource,
   context,
   queryByPattern,
+  resultsDisplayMode,
   isDefaultUnscopedEvidenceCapApplied,
   maxResultsPerSource,
 }: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
@@ -252,14 +285,17 @@ async function searchSourceSlot({
   let warning: string | undefined;
   let failed = false;
   let unscopedEvidenceCapReached = false;
+  let backendMetadata: SearchBackendMetadata | undefined;
 
   try {
     backend = await createBackend(source);
+    const shouldDeferCandidateCap = resultsDisplayMode === "candidates";
     const backendInput: SessionSearchBackendInput = {
       patterns: expandedPatterns,
-      maxResults: shouldDeferBackendCap(source, input)
-        ? undefined
-        : requestMaxResultsPerSource,
+      maxResults:
+        shouldDeferCandidateCap || shouldDeferBackendCap(source, input)
+          ? undefined
+          : requestMaxResultsPerSource,
       context,
     };
     if (input.paths?.length) {
@@ -270,22 +306,35 @@ async function searchSourceSlot({
     }
 
     const output = await backend.search(backendInput);
+    backendMetadata = output.backend;
     warnings.push(...output.warnings);
     const canonicalResults = await Promise.all(
       output.results.map((result) => canonicalizeSearchResult(result, source))
     );
+    const filteredCanonicalResults = canonicalResults.filter((result) =>
+      resultMatchesSourceFilters(result, source, input)
+    );
     const sourceResults = maybeCapResults(
-      canonicalResults.filter((result) =>
-        resultMatchesSourceFilters(result, source, input)
-      ),
-      requestMaxResultsPerSource
+      filteredCanonicalResults,
+      shouldDeferCandidateCap ? undefined : requestMaxResultsPerSource
     )
       .map(truncateEvidenceResult)
       .map((result) =>
-        result.pattern
+        result.pattern || result.patterns?.length
           ? {
               ...result,
-              query: queryByPattern.get(result.pattern),
+              ...(result.pattern
+                ? { query: queryByPattern.get(result.pattern) }
+                : {}),
+              ...(result.patterns?.length
+                ? {
+                    queries: uniqueStrings(
+                      result.patterns
+                        .map((pattern) => queryByPattern.get(pattern))
+                        .filter(isString)
+                    ),
+                  }
+                : {}),
             }
           : result
       );
@@ -340,6 +389,7 @@ async function searchSourceSlot({
     results,
     failed,
     unscopedEvidenceCapReached,
+    ...(backendMetadata ? { backend: backendMetadata } : {}),
   };
 }
 
@@ -373,7 +423,9 @@ async function canonicalizeSearchResult(
 async function shapeResults(
   results: SearchResult[],
   input: SearchSessionsInput,
-  resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"]
+  resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"],
+  maxResultsPerSource: number | undefined,
+  patternPlans: PatternPlan[]
 ): Promise<{
   results: SearchSessionsOutput["results"];
   resultsShape: ResultsShape;
@@ -381,9 +433,16 @@ async function shapeResults(
 }> {
   if (resultsDisplayMode === "candidates") {
     const { candidates, ranking } = await toCandidates(results, input);
+    const grouped = toCandidateGroups({
+      candidates,
+      results,
+      input,
+      patternPlans,
+      limit: candidateGroupLeadLimit(input, maxResultsPerSource),
+    });
     return {
-      results: candidates,
-      resultsShape: "candidates",
+      results: grouped,
+      resultsShape: "candidate_groups",
       ...(input.debug ? { rankingDebug: { candidates: ranking } } : {}),
     };
   }
@@ -414,9 +473,9 @@ async function toCandidates(
     const key = `${result.source}\0${result.path}`;
     const existing = candidates.get(key);
     if (existing) {
-      existing.hitCount += 1;
-      addUnique(existing.matchedPatterns, result.pattern);
-      addUnique(existing.matchedQueries, result.query);
+      existing.hitCount += candidateHitCountIncrement(result);
+      addUniqueValues(existing.matchedPatterns, resultPatterns(result));
+      addUniqueValues(existing.matchedQueries, resultQueries(result));
       if (
         result.line !== undefined &&
         (existing.line === undefined || result.line < existing.line)
@@ -435,9 +494,9 @@ async function toCandidates(
       ...(sessionId ? { sessionId } : {}),
       line: result.line,
       preview: truncateUtf8(result.content, PREVIEW_MAX_BYTES),
-      hitCount: 1,
-      matchedQueries: result.query ? [result.query] : [],
-      matchedPatterns: result.pattern ? [result.pattern] : [],
+      hitCount: candidateHitCountIncrement(result),
+      matchedQueries: resultQueries(result),
+      matchedPatterns: resultPatterns(result),
       more: evidenceFollowup(input, result.source, result.path),
     });
   }
@@ -446,6 +505,301 @@ async function toCandidates(
     Array.from(candidates.values()),
     await projectSignalsFromOperationalContext(input.operationalContext)
   );
+}
+
+function candidateHitCountIncrement(result: SearchResult) {
+  return Math.max(resultPatterns(result).length, 1);
+}
+
+function capCandidatesPerSource(
+  candidates: SearchCandidate[],
+  maxResultsPerSource: number | undefined
+) {
+  if (maxResultsPerSource === undefined) {
+    return candidates;
+  }
+
+  const counts = new Map<string, number>();
+  return candidates.filter((candidate) => {
+    const count = counts.get(candidate.source) ?? 0;
+    if (count >= maxResultsPerSource) {
+      return false;
+    }
+    counts.set(candidate.source, count + 1);
+    return true;
+  });
+}
+
+type CandidateGroupsInput = {
+  candidates: SearchCandidate[];
+  results: SearchResult[];
+  input: SearchSessionsInput;
+  patternPlans: PatternPlan[];
+  limit: number;
+};
+
+function toCandidateGroups({
+  candidates,
+  results,
+  input,
+  patternPlans,
+  limit,
+}: CandidateGroupsInput): CandidateGroup[] {
+  const patternByLiteral = new Map(
+    patternPlans.map((plan) => [plan.pattern, plan])
+  );
+  const hitsByCandidate = new Map<string, SearchResult[]>();
+  for (const result of results) {
+    const key = candidateKey(result.source, result.path);
+    const hits = hitsByCandidate.get(key);
+    if (hits) {
+      hits.push(result);
+    } else {
+      hitsByCandidate.set(key, [result]);
+    }
+  }
+
+  const assigned = new Map<MatchGroupId, SearchCandidate[]>(
+    MATCH_GROUPS.map((group) => [group.id, []])
+  );
+
+  for (const candidate of candidates) {
+    const memberships = groupMembershipsForCandidate(
+      hitsByCandidate.get(candidateKey(candidate.source, candidate.path)) ?? [],
+      patternByLiteral
+    );
+    if (memberships.length === 0) {
+      continue;
+    }
+    candidate.groupMemberships = memberships;
+    candidate.strongestGroup = memberships[0];
+    assigned.get(memberships[0].id)?.push(candidate);
+  }
+
+  const groups: CandidateGroup[] = [];
+  for (const group of MATCH_GROUPS) {
+    const groupCandidates = assigned.get(group.id) ?? [];
+    if (groupCandidates.length === 0) {
+      continue;
+    }
+    const offset =
+      input.groupCandidates?.group.id === group.id
+        ? input.groupCandidates.offset
+        : 0;
+    const shown = groupCandidates.slice(offset, offset + limit);
+    const hasMore = offset + shown.length < groupCandidates.length;
+    const patternIds = patternIdsForGroup(group.id, patternPlans);
+    groups.push({
+      id: group.id,
+      priority: group.priority,
+      label: group.label,
+      guidance: group.guidance,
+      patternIds,
+      assignedCandidateCount: {
+        value: groupCandidates.length,
+        relation: "eq",
+      },
+      hitCount: {
+        value: physicalHitCountForGroup(
+          group.id,
+          groupCandidates,
+          hitsByCandidate,
+          patternByLiteral
+        ),
+        relation: "eq",
+      },
+      shownLeadCount: shown.length,
+      hasMore,
+      leads: shown,
+      ...(hasMore
+        ? {
+            more: {
+              groupCandidates: groupFollowup(input, group, patternIds, {
+                offset: offset + shown.length,
+                limit,
+              }),
+            },
+          }
+        : {}),
+    });
+  }
+  return input.groupCandidates
+    ? groups.filter((group) => group.id === input.groupCandidates?.group.id)
+    : groups;
+}
+
+function groupMembershipsForCandidate(
+  hits: SearchResult[],
+  patternByLiteral: Map<string, PatternPlan>
+): GroupMembership[] {
+  const memberships = new Map<MatchGroupId, Set<string>>();
+  const naturalPatternIds = new Set<string>();
+
+  for (const hit of hits) {
+    for (const pattern of resultPatterns(hit)) {
+      const plan = patternByLiteral.get(pattern);
+      if (!plan) {
+        continue;
+      }
+      addMembershipPattern(memberships, plan.initialGroup, plan.id);
+      if (plan.provenance === "natural_term") {
+        naturalPatternIds.add(plan.id);
+      }
+    }
+  }
+
+  if (naturalPatternIds.size >= 2) {
+    memberships.set("multi_term_coverage", naturalPatternIds);
+  }
+
+  return Array.from(memberships.entries())
+    .map(([id, patternIds]) => ({
+      id,
+      priority: matchGroupDefinition(id).priority,
+      patternIds: Array.from(patternIds).sort(comparePatternIds),
+    }))
+    .sort((a, b) => a.priority - b.priority);
+}
+
+function addMembershipPattern(
+  memberships: Map<MatchGroupId, Set<string>>,
+  groupId: MatchGroupId,
+  patternId: string
+) {
+  const existing = memberships.get(groupId);
+  if (existing) {
+    existing.add(patternId);
+  } else {
+    memberships.set(groupId, new Set([patternId]));
+  }
+}
+
+function physicalHitCountForGroup(
+  groupId: MatchGroupId,
+  candidates: SearchCandidate[],
+  hitsByCandidate: Map<string, SearchResult[]>,
+  patternByLiteral: Map<string, PatternPlan>
+) {
+  let count = 0;
+  for (const candidate of candidates) {
+    const hits =
+      hitsByCandidate.get(candidateKey(candidate.source, candidate.path)) ?? [];
+    for (const hit of hits) {
+      if (hitMatchesGroup(hit, groupId, patternByLiteral)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function hitMatchesGroup(
+  hit: SearchResult,
+  groupId: MatchGroupId,
+  patternByLiteral: Map<string, PatternPlan>
+) {
+  if (groupId === "multi_term_coverage") {
+    return true;
+  }
+  return resultPatterns(hit).some(
+    (pattern) => patternByLiteral.get(pattern)?.initialGroup === groupId
+  );
+}
+
+function patternIdsForGroup(
+  groupId: MatchGroupId,
+  patternPlans: PatternPlan[]
+) {
+  if (groupId === "multi_term_coverage") {
+    return patternPlans
+      .filter((plan) => plan.provenance === "natural_term")
+      .map((plan) => plan.id);
+  }
+  return patternPlans
+    .filter((plan) => plan.initialGroup === groupId)
+    .map((plan) => plan.id);
+}
+
+function groupFollowup(
+  input: SearchSessionsInput,
+  group: MatchGroupDefinition,
+  patternIds: string[],
+  page: { offset: number; limit: number }
+): GroupCandidatesFollowupInput {
+  return {
+    query: input.query,
+    ...(input.queries ? { queries: input.queries } : {}),
+    ...(input.sources ? { sources: input.sources } : {}),
+    resultsDisplayMode: "candidates",
+    ...(input.paths ? { paths: input.paths } : {}),
+    group: {
+      id: group.id,
+      priority: group.priority,
+      patternIds,
+    },
+    offset: page.offset,
+    limit: page.limit,
+  };
+}
+
+function candidateGroupLeadLimit(
+  input: SearchSessionsInput,
+  maxResultsPerSource: number | undefined
+) {
+  return input.groupCandidates?.limit ?? maxResultsPerSource ?? 5;
+}
+
+function candidateKey(source: SearchResult["source"], path: string) {
+  return `${source}\0${path}`;
+}
+
+function comparePatternIds(a: string, b: string) {
+  return Number(a.slice(1)) - Number(b.slice(1));
+}
+
+type MatchGroupDefinition = {
+  id: MatchGroupId;
+  priority: number;
+  label: string;
+  guidance: string;
+};
+
+const MATCH_GROUPS: MatchGroupDefinition[] = [
+  {
+    id: "exact_or_structured",
+    priority: 0,
+    label: "Exact or structured",
+    guidance:
+      "Treat as strongest evidence and inspect first when it matches the task.",
+  },
+  {
+    id: "phrase_or_adjacent_terms",
+    priority: 1,
+    label: "Phrase or adjacent terms",
+    guidance: "Use when exact structure is absent or sparse.",
+  },
+  {
+    id: "multi_term_coverage",
+    priority: 2,
+    label: "Multi-term coverage",
+    guidance: "Prefer over repeated hits for one generic term.",
+  },
+  {
+    id: "distinctive_term",
+    priority: 3,
+    label: "Distinctive term",
+    guidance: "Use as a lead when higher groups are thin.",
+  },
+  {
+    id: "loose_fallback",
+    priority: 4,
+    label: "Loose fallback",
+    guidance: "Treat as exploratory evidence only.",
+  },
+];
+
+function matchGroupDefinition(id: MatchGroupId) {
+  return MATCH_GROUPS.find((group) => group.id === id)!;
 }
 
 type ProjectSignals = {
@@ -543,6 +897,12 @@ function toCandidateRankingDebug(
     projectMatch: ranked.projectMatch,
     projectPoints: ranked.projectPoints,
     score: ranked.score,
+    ...(ranked.candidate.strongestGroup
+      ? { strongestGroup: ranked.candidate.strongestGroup }
+      : {}),
+    ...(ranked.candidate.groupMemberships
+      ? { groupMemberships: ranked.candidate.groupMemberships }
+      : {}),
   };
 }
 
@@ -920,8 +1280,8 @@ function toEvidenceGroups(
     const existing = groups.get(key);
     if (existing) {
       existing.hitCount += 1;
-      addUnique(existing.matchedPatterns, result.pattern);
-      addUnique(existing.matchedQueries, result.query);
+      addUniqueValues(existing.matchedPatterns, resultPatterns(result));
+      addUniqueValues(existing.matchedQueries, resultQueries(result));
       addEvidenceSnippet(existing, result);
       continue;
     }
@@ -933,8 +1293,8 @@ function toEvidenceGroups(
       path: result.path,
       ...(sessionId ? { sessionId } : {}),
       hitCount: 1,
-      matchedQueries: result.query ? [result.query] : [],
-      matchedPatterns: result.pattern ? [result.pattern] : [],
+      matchedQueries: resultQueries(result),
+      matchedPatterns: resultPatterns(result),
       snippets: [],
       more: evidenceFollowup(input, result.source, result.path),
     };
@@ -979,28 +1339,145 @@ function addUnique(values: string[], value: string | undefined) {
   }
 }
 
+function addUniqueValues(values: string[], incoming: string[]) {
+  for (const value of incoming) {
+    addUnique(values, value);
+  }
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function resultPatterns(result: SearchResult) {
+  return result.patterns?.length
+    ? result.patterns
+    : result.pattern
+      ? [result.pattern]
+      : [];
+}
+
+function resultQueries(result: SearchResult) {
+  return result.queries?.length
+    ? result.queries
+    : result.query
+      ? [result.query]
+      : [];
+}
+
 function sessionIdFromPath(path: string) {
   return basename(path).match(
     /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/
   )?.[0];
 }
 
+function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
+  if (!input.groupCandidates) {
+    return input;
+  }
+  return {
+    ...input,
+    query: input.groupCandidates.query,
+    ...(input.groupCandidates.queries
+      ? { queries: input.groupCandidates.queries }
+      : { queries: undefined }),
+    ...(input.groupCandidates.sources
+      ? { sources: input.groupCandidates.sources }
+      : { sources: undefined }),
+    resultsDisplayMode: "candidates",
+    ...(input.groupCandidates.paths
+      ? { paths: input.groupCandidates.paths }
+      : { paths: undefined }),
+  };
+}
+
+function searchMetadata({
+  backendMetadata,
+  maxPatterns,
+  maxResultsPerSource,
+  candidateGroupLeadLimit,
+  unscopedEvidenceDefaultCap,
+}: {
+  backendMetadata: SearchBackendMetadata[];
+  maxPatterns: number | undefined;
+  maxResultsPerSource: number | undefined;
+  candidateGroupLeadLimit: number | undefined;
+  unscopedEvidenceDefaultCap: number | undefined;
+}): SearchSessionsOutput["metadata"] {
+  return {
+    contractVersion: "progressive-evidence-groups.v1",
+    backend: summarizeBackendMetadata(backendMetadata),
+    limits: {
+      ...(maxPatterns !== undefined ? { maxPatterns } : {}),
+      ...(maxResultsPerSource !== undefined ? { maxResultsPerSource } : {}),
+      ...(candidateGroupLeadLimit !== undefined
+        ? { candidateGroupLeadLimit }
+        : {}),
+      ...(unscopedEvidenceDefaultCap !== undefined
+        ? { unscopedEvidenceDefaultCap }
+        : {}),
+    },
+    countSemantics: {
+      relation: "eq means exact; gte means lower bound",
+      assignedCandidateCount:
+        "canonical candidates assigned to the group before lead slicing",
+      hitCount: "physical matched lines, not pattern-line pairs",
+      shownLeadCount: "leads included in this response",
+    },
+  };
+}
+
+function summarizeBackendMetadata(
+  metadata: SearchBackendMetadata[]
+): SearchBackendMetadata {
+  const fallback = metadata.find(
+    (item) => item.mode === "sequential_grep_fallback"
+  );
+  if (fallback) {
+    return fallback;
+  }
+  if (metadata.some((item) => item.mode === "multi_grep")) {
+    return { mode: "multi_grep" };
+  }
+  if (metadata.some((item) => item.mode === "sequential_grep")) {
+    return { mode: "sequential_grep" };
+  }
+  return { mode: "custom" };
+}
+
 function expandPatternPlans(input: SearchSessionsInput, config: ConfigFile) {
   const hasPlannedQueries = Boolean(input.queries?.length);
   const queries = hasPlannedQueries ? input.queries! : [input.query];
-  const plans: Array<{ query: string; pattern: string }> = [];
+  const plans: PatternPlan[] = [];
   const seen = new Set<string>();
 
   for (const query of queries) {
-    const patterns = hasPlannedQueries
-      ? [query, ...rewriteQueryPatterns(query, { synonyms: config.synonyms })]
-      : rewriteQueryPatterns(query, { synonyms: config.synonyms });
-    for (const pattern of patterns) {
-      if (seen.has(pattern)) {
+    const planned = planQueryPatterns(query, { synonyms: config.synonyms });
+    const queryPlans = hasPlannedQueries
+      ? [
+          {
+            id: "p0",
+            query,
+            pattern: query,
+            provenance: "full_phrase" as const,
+            initialGroup: "exact_or_structured" as const,
+          },
+          ...planned,
+        ]
+      : planned;
+    for (const plan of queryPlans) {
+      if (seen.has(plan.pattern)) {
         continue;
       }
-      seen.add(pattern);
-      plans.push({ query, pattern });
+      seen.add(plan.pattern);
+      plans.push({
+        ...plan,
+        id: `p${plans.length + 1}`,
+      });
     }
   }
 
