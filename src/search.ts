@@ -1,5 +1,6 @@
 import type {
   CandidateGroup,
+  CallerSession,
   GroupCandidatesFollowupInput,
   GroupMembership,
   MatchGroupId,
@@ -550,7 +551,8 @@ async function toCandidates(
 
   return orderCandidates(
     Array.from(candidates.values()),
-    await projectSignalsFromOperationalContext(input.operationalContext)
+    await projectSignalsFromOperationalContext(input.operationalContext),
+    input
   );
 }
 
@@ -846,6 +848,9 @@ function groupFollowup(
     ...(input.operationalContext !== undefined
       ? { operationalContext: input.operationalContext }
       : {}),
+    ...(input.callerSession !== undefined
+      ? { callerSession: input.callerSession }
+      : {}),
     sources: continuationState.searchedSources,
     resultsDisplayMode: "candidates",
     ...(input.paths ? { paths: input.paths } : {}),
@@ -965,11 +970,13 @@ type CandidateAccumulator = {
 
 async function orderCandidates(
   candidates: CandidateAccumulator[],
-  projectSignals: ProjectSignals
+  projectSignals: ProjectSignals,
+  input: SearchSessionsInput
 ): Promise<{
   candidates: SearchCandidate[];
   ranking: RankedCandidate[];
 }> {
+  const currentSession = currentSessionForInput(input);
   const ranked = await Promise.all(
     candidates.map(async ({ candidate, patternMatchCount }, originalIndex) => {
       const mtimeMs = await candidateMtimeMs(candidate.path);
@@ -994,7 +1001,7 @@ async function orderCandidates(
         projectPoints: projectScore,
         score:
           recencyScore * RECENCY_SCORE_WEIGHT + densityScore + projectScore,
-        current: isCurrentCodexCandidate(candidate),
+        current: isCurrentSessionCandidate(candidate, currentSession),
       };
     })
   );
@@ -1421,12 +1428,40 @@ function densityPoints(hitCount: number) {
   return Math.min(Math.log2(hitCount + 1), 4);
 }
 
-function isCurrentCodexCandidate(candidate: SearchCandidate) {
+function isCurrentSessionCandidate(
+  candidate: SearchCandidate,
+  currentSession: CallerSession | undefined
+) {
   return (
-    candidate.source === "codex" &&
+    currentSession !== undefined &&
+    candidate.source === currentSession.source &&
     candidate.sessionId !== undefined &&
-    process.env.CODEX_THREAD_ID === candidate.sessionId
+    candidate.sessionId === currentSession.sessionId
   );
+}
+
+function currentSessionForInput(
+  input: SearchSessionsInput
+): CallerSession | undefined {
+  if (input.callerSession) {
+    return input.callerSession;
+  }
+  if (
+    process.env.AGENT_SESSION_SEARCH_CALLER_SOURCE &&
+    process.env.AGENT_SESSION_SEARCH_CALLER_SESSION_ID
+  ) {
+    return {
+      source: process.env.AGENT_SESSION_SEARCH_CALLER_SOURCE,
+      sessionId: process.env.AGENT_SESSION_SEARCH_CALLER_SESSION_ID,
+    };
+  }
+  if (process.env.CODEX_THREAD_ID) {
+    return {
+      source: "codex",
+      sessionId: process.env.CODEX_THREAD_ID,
+    };
+  }
+  return undefined;
 }
 
 function toEvidenceGroups(
@@ -1545,6 +1580,9 @@ function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
     ...(followup.queries ? { queries: followup.queries } : {}),
     ...(followup.operationalContext !== undefined
       ? { operationalContext: followup.operationalContext }
+      : {}),
+    ...(followup.callerSession !== undefined
+      ? { callerSession: followup.callerSession }
       : {}),
     ...(followup.sources ? { sources: followup.sources } : {}),
     resultsDisplayMode: "candidates",

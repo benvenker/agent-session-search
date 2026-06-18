@@ -322,6 +322,32 @@ describe("CLI argument parsing", () => {
     });
   });
 
+  it("maps explicit caller session flags to search input", () => {
+    const args = parseArgs([
+      "Find prior MCP bug",
+      "--caller-source",
+      "claude",
+      "--caller-session-id",
+      "019dd9cf-08bd-7580-827e-870084b36b6b",
+    ]);
+
+    expect(searchInputFromParsedArgs(args)).toEqual({
+      query: "Find prior MCP bug",
+      queries: undefined,
+      operationalContext: undefined,
+      callerSession: {
+        source: "claude",
+        sessionId: "019dd9cf-08bd-7580-827e-870084b36b6b",
+      },
+      sources: undefined,
+      resultsDisplayMode: undefined,
+      paths: undefined,
+      maxPatterns: undefined,
+      maxResultsPerSource: undefined,
+      debug: undefined,
+    });
+  });
+
   it("supports explicit result modes and debug", () => {
     expect(
       searchInputFromParsedArgs(
@@ -388,6 +414,9 @@ describe("CLI argument parsing", () => {
     expect(() =>
       parseArgs(["auth token timeout", "--max-results", "0"])
     ).toThrow("--max-results must be a positive integer");
+    expect(() =>
+      parseArgs(["auth token timeout", "--caller-source", "codex"])
+    ).toThrow("--caller-source and --caller-session-id");
   });
 
   it("suggests close known flags without auto-correcting", () => {

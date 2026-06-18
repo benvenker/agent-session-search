@@ -416,6 +416,10 @@ describe("createSessionSearch", () => {
       maxResultsPerSource: 6,
       context: 2,
       operationalContext: { repo: "agent-session-search" },
+      callerSession: {
+        source: "claude",
+        sessionId: "019dd9cf-08bd-7580-827e-870084b36b6b",
+      },
     });
     const exactGroup = firstPage.results[0] as any;
 
@@ -426,6 +430,10 @@ describe("createSessionSearch", () => {
       maxResultsPerSource: 6,
       context: 2,
       operationalContext: { repo: "agent-session-search" },
+      callerSession: {
+        source: "claude",
+        sessionId: "019dd9cf-08bd-7580-827e-870084b36b6b",
+      },
       offset: 6,
       limit: 6,
     });
@@ -963,6 +971,87 @@ describe("createSessionSearch", () => {
         ]
       );
       expect(candidateLeads(result)[1]).toMatchObject({
+        sessionId: currentSessionId,
+        hitCount: 12,
+      });
+    } finally {
+      if (previousThreadId === undefined) {
+        delete process.env.CODEX_THREAD_ID;
+      } else {
+        process.env.CODEX_THREAD_ID = previousThreadId;
+      }
+    }
+  });
+
+  it("demotes an explicit caller session for any matching source", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    const currentSessionId = "019dd9cf-08bd-7580-827e-870084b36b6b";
+    const currentPath = join(claudeRoot, `${currentSessionId}.jsonl`);
+    const historicalPath = join(claudeRoot, "historical.jsonl");
+    await mkdir(claudeRoot);
+    await touchFile(currentPath, 30 * 60 * 1000);
+    await touchFile(historicalPath, 3 * 60 * 60 * 1000);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "claude", path: claudeRoot }],
+      })
+    );
+
+    const previousThreadId = process.env.CODEX_THREAD_ID;
+    delete process.env.CODEX_THREAD_ID;
+    try {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  ...Array.from({ length: 12 }, (_, index) => ({
+                    source: source.name,
+                    root: source.root,
+                    path: currentPath,
+                    line: index + 1,
+                    content: `current echo ${index + 1}`,
+                    pattern: input.patterns[0],
+                  })),
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path: historicalPath,
+                    line: 1,
+                    content: "historical answer",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        callerSession: {
+          source: "claude",
+          sessionId: currentSessionId,
+        },
+      });
+      const canonicalClaudeRoot = await realpath(claudeRoot);
+
+      expect(candidateLeads(result).map((candidate) => candidate.path)).toEqual(
+        [
+          join(canonicalClaudeRoot, "historical.jsonl"),
+          join(canonicalClaudeRoot, `${currentSessionId}.jsonl`),
+        ]
+      );
+      expect(candidateLeads(result)[1]).toMatchObject({
+        source: "claude",
         sessionId: currentSessionId,
         hitCount: 12,
       });

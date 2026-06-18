@@ -24,6 +24,10 @@ type ParsedArgs = {
     branch?: string;
     reason?: string;
   };
+  callerSession?: {
+    source: string;
+    sessionId: string;
+  };
   json: boolean;
   sources: string[];
   resultsDisplayMode?: ResultsDisplayMode;
@@ -57,6 +61,8 @@ const KNOWN_OPTIONS = [
   "--cwd",
   "--branch",
   "--reason",
+  "--caller-source",
+  "--caller-session-id",
   "--mode",
   "--results-display-mode",
   "--candidates",
@@ -92,6 +98,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const paths: string[] = [];
   const queries: string[] = [];
   const operationalContext: ParsedArgs["operationalContext"] = {};
+  const callerSession: { source?: string; sessionId?: string } = {};
   const queryParts: string[] = [];
   let json = false;
   let resultsDisplayMode: ResultsDisplayMode | undefined;
@@ -150,6 +157,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--caller-source") {
+      const source = argv[index + 1];
+      if (!source) {
+        throw inputError("--caller-source requires a value");
+      }
+      callerSession.source = source;
+      index += 1;
+      continue;
+    }
+    if (arg === "--caller-session-id") {
+      const sessionId = argv[index + 1];
+      if (!sessionId) {
+        throw inputError("--caller-session-id requires a value");
+      }
+      callerSession.sessionId = sessionId;
+      index += 1;
+      continue;
+    }
     if (arg === "--mode" || arg === "--results-display-mode") {
       resultsDisplayMode = parseResultsDisplayMode(argv[index + 1], arg);
       index += 1;
@@ -197,11 +222,27 @@ export function parseArgs(argv: string[]): ParsedArgs {
   if (!query) {
     throw inputError("query is required");
   }
+  if (
+    (callerSession.source === undefined) !==
+    (callerSession.sessionId === undefined)
+  ) {
+    throw inputError(
+      "--caller-source and --caller-session-id must be provided together"
+    );
+  }
 
   return {
     query,
     queries,
     operationalContext,
+    ...(callerSession.source && callerSession.sessionId
+      ? {
+          callerSession: {
+            source: callerSession.source,
+            sessionId: callerSession.sessionId,
+          },
+        }
+      : {}),
     json,
     sources,
     resultsDisplayMode,
@@ -356,6 +397,7 @@ export function searchInputFromParsedArgs(
       Object.keys(args.operationalContext).length > 0
         ? args.operationalContext
         : undefined,
+    ...(args.callerSession ? { callerSession: args.callerSession } : {}),
     sources: args.sources.length > 0 ? args.sources : undefined,
     resultsDisplayMode: args.resultsDisplayMode,
     paths: args.paths.length > 0 ? args.paths : undefined,

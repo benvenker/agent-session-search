@@ -12,6 +12,7 @@ export type SearchSessionsInput = {
   query: string;
   queries?: string[];
   operationalContext?: unknown;
+  callerSession?: CallerSession;
   sources?: SourceName[] | "all";
   resultsDisplayMode?: ResultsDisplayMode;
   groupCandidates?: GroupCandidatesFollowupInput;
@@ -20,6 +21,11 @@ export type SearchSessionsInput = {
   maxResultsPerSource?: number;
   context?: number;
   debug?: boolean;
+};
+
+export type CallerSession = {
+  source: SourceName;
+  sessionId: string;
 };
 
 export type ResultsDisplayMode = "candidates" | "evidence" | "debug";
@@ -75,6 +81,7 @@ export type GroupCandidatesFollowupInput = {
   query: string;
   queries?: string[];
   operationalContext?: unknown;
+  callerSession?: CallerSession;
   sources?: SourceName[] | "all";
   resultsDisplayMode: "candidates";
   paths?: string[];

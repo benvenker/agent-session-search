@@ -123,7 +123,19 @@ agent-session-search "auth token timeout" --json --evidence --path /absolute/ses
 
 Cause: the active session contains the search text and looks relevant.
 
-Fix: make sure `CODEX_THREAD_ID` is available to the process running Agent Session Search. When it exactly matches a Codex candidate `sessionId`, that candidate is demoted.
+Fix: pass a reliable live caller identity with the request:
+
+```json
+{
+  "query": "auth token timeout",
+  "callerSession": {
+    "source": "codex",
+    "sessionId": "019edba3-fc85-74f1-b391-ef17d86f9985"
+  }
+}
+```
+
+When `callerSession.source` and `callerSession.sessionId` exactly match a candidate, that current session is demoted for any source. For Codex-only compatibility, `CODEX_THREAD_ID` still works when it is available to the process running Agent Session Search, but long-lived MCP servers may not inherit the active Codex thread id.
 
 ## Old `fff-mcp` Children Linger
 

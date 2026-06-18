@@ -90,9 +90,13 @@ All environment variables are optional.
 | `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`           | Per-pattern FFF timeout in milliseconds. Runtime searches default to `15000`.                                 |
 | `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS` | Retry count for initially empty FFF responses.                                                                |
 | `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS` | Delay between empty-result retries.                                                                           |
-| `CODEX_THREAD_ID`                               | Demote the matching current Codex session in candidate ranking.                                               |
+| `AGENT_SESSION_SEARCH_CALLER_SOURCE`            | With `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`, demote the matching current session for any source.            |
+| `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`        | With `AGENT_SESSION_SEARCH_CALLER_SOURCE`, demote the matching current session for any source.                |
+| `CODEX_THREAD_ID`                               | Backward-compatible Codex-only current-session demotion fallback.                                             |
 
 For MCP clients, put environment variables in the server entry's `env` block. For CLI use, export them in your shell.
+
+For MCP calls where the client can identify the live caller session, prefer the request field `callerSession: { "source": "<source>", "sessionId": "<id>" }`. That is source-agnostic and works even when the MCP server process was launched without per-thread environment variables.
 
 ## MCP Client Setup
 

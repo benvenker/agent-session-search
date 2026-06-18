@@ -77,6 +77,7 @@ type SearchSessionsInput = {
   query: string;
   queries?: string[];
   operationalContext?: unknown;
+  callerSession?: { source: SourceName; sessionId: string };
   sources?: SourceName[] | "all";
   resultsDisplayMode?: "candidates" | "evidence" | "debug";
   paths?: string[];
@@ -87,13 +88,13 @@ type SearchSessionsInput = {
 };
 ```
 
-Set `query` to a concise recall task. Put short literal probes planned by the calling agent in `queries`. Put cwd, branch, repo, and the reason for recall in `operationalContext`; that context explains the search without becoming search text.
+Set `query` to a concise recall task. Put short literal probes planned by the calling agent in `queries`. Put cwd, branch, repo, and the reason for recall in `operationalContext`; that context explains the search without becoming search text. Put the live caller identity in `callerSession` only when the caller has a reliable source name and session id for itself.
 
 The default mode is `candidates` and returns `resultsShape: "candidate_groups"`. Candidate groups are static match groups ordered from exact/structured evidence through loose fallback evidence. Each non-empty group includes count structures, `hasMore`, compact candidate leads, and an optional server-prepared `more.groupCandidates` payload that can be echoed back to the same `search_sessions` tool for the next bounded page of that group. A candidate includes `source`, `root`, canonical `path`, `preview`, match metadata, group memberships, and a server-prepared `more.evidence` payload for focused evidence.
 
 Every search response includes `metadata.contractVersion`, backend mode, limit settings, and count semantics. The FFF backend may use `multi_grep` for broad literal OR discovery only after a recall-equivalence probe proves it matches the sequential `grep` union. Otherwise the response reports `sequential_grep_fallback` with a fallback reason while keeping sequential grep as the authoritative search path.
 
-Candidate ranking happens inside `search_sessions` before normal candidate output is returned. The ranking inputs are bucketed file `mtime`, capped hit density, project matches from `operationalContext` and session metadata, and Codex current-session demotion when `process.env.CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`. Normal candidate results do not include scores. Candidate-mode debug requests include `debug.ranking.candidates` with the rank, internal score components, project match, recency bucket, and current-session flag.
+Candidate ranking happens inside `search_sessions` before normal candidate output is returned. The ranking inputs are bucketed file `mtime`, capped hit density, project matches from `operationalContext` and session metadata, and current-session demotion when `callerSession.source` and `callerSession.sessionId` exactly match a candidate. `process.env.CODEX_THREAD_ID` remains a backward-compatible Codex-only fallback when `callerSession` is absent. Normal candidate results do not include scores. Candidate-mode debug requests include `debug.ranking.candidates` with the rank, internal score components, project match, recency bucket, and current-session flag.
 
 `evidence` mode has two shapes:
 
@@ -155,6 +156,6 @@ The pre-commit hook runs `npx lint-staged`, `npm run check:beads`, `npm run chec
 Track concrete follow-up work in Beads. Keep this section short; treat it as design memory, not a backlog.
 
 - Structured MCP output: revisit `outputSchema` and `structuredContent` if FastMCP supports successful structured tool results cleanly.
-- Cross-agent current-session demotion: add non-Codex demotion only when another agent exposes a documented runtime signal that exactly matches a candidate `sessionId`.
+- Automatic cross-agent current-session demotion: `callerSession` supports any source when the caller provides a reliable id, but automatic per-agent environment discovery should only be added for documented runtime signals that exactly match a candidate `sessionId`.
 - Read-only Code Mode: consider a small typed API only if composing lower-level operations from sandboxed code becomes clearly more useful than the current one-tool MCP surface.
 - Richer evidence excerpts: revisit surrounding-line or byte-window reads only if candidate/evidence modes stop being enough. Keep any expansion inside `search_sessions` unless the one-tool boundary changes.

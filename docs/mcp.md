@@ -73,11 +73,15 @@ When a group has more leads, `more.groupCandidates` is a prepared follow-up payl
 
 `more.evidence` is a prepared follow-up payload for the same tool. It carries `query`, optional `queries`, `sources`, `resultsDisplayMode: "evidence"`, and `paths`. It does not preserve `operationalContext`, `context`, `debug`, or caps.
 
-Candidate ranking uses recency, hit density, project matches from `operationalContext`, and Codex current-session demotion when `CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`. Normal candidate output does not include score fields. To inspect ranking, pass:
+Candidate ranking uses recency, hit density, project matches from `operationalContext`, and current-session demotion. When the caller knows its own live session id, pass `callerSession: { "source": "<source>", "sessionId": "<id>" }`; a candidate with the same `source` and `sessionId` is sorted below non-current candidates. `CODEX_THREAD_ID` remains a Codex-only fallback when `callerSession` is absent. Normal candidate output does not include score fields. To inspect ranking, pass:
 
 ```json
 {
   "query": "auth token timeout",
+  "callerSession": {
+    "source": "codex",
+    "sessionId": "019edba3-fc85-74f1-b391-ef17d86f9985"
+  },
   "resultsDisplayMode": "candidates",
   "debug": true
 }

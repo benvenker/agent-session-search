@@ -25,6 +25,8 @@ export function cliHelpText() {
     "  --cwd <path>               Add cwd to operationalContext.",
     "  --branch <name>            Add branch to operationalContext.",
     "  --reason <text>            Add search reason to operationalContext.",
+    "  --caller-source <source>   Source name for reliable current-session demotion.",
+    "  --caller-session-id <id>   Live caller session id for current-session demotion; requires --caller-source.",
     "  --mode <candidates|evidence|debug>",
     "                             Select result detail. Defaults to candidates.",
     "  --candidates               Return candidate groups with compact session-level leads.",
@@ -47,7 +49,7 @@ export function cliHelpText() {
     "",
     "MCP:",
     "  Run agent-session-search-mcp to expose the search_sessions tool over stdio.",
-    "  Use query for a concise recall task, queries for short literal probes, and operationalContext for cwd, branch, and why you are searching.",
+    "  Use query for a concise recall task, queries for short literal probes, operationalContext for cwd/branch/reason, and callerSession when the caller knows its live session id.",
     "",
     "Setup:",
     "  Run agent-session-search-doctor to verify the FFF backend.",
@@ -71,7 +73,7 @@ export function cliCapabilities(version: string) {
       {
         name: "search",
         usage:
-          'agent-session-search "<query>" [--json] [--probe <query>...] [--cwd <path>] [--branch <name>] [--reason <text>] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...]',
+          'agent-session-search "<query>" [--json] [--probe <query>...] [--cwd <path>] [--branch <name>] [--reason <text>] [--caller-source <source> --caller-session-id <id>] [--source <source>...] [--mode <candidates|evidence|debug>] [--path <path>...]',
         output:
           "--json prints the same result envelope as the MCP search_sessions tool.",
       },
@@ -162,8 +164,16 @@ export function cliCapabilities(version: string) {
         use: "Override the delay between initially empty FFF response retries.",
       },
       {
+        name: "AGENT_SESSION_SEARCH_CALLER_SOURCE",
+        use: "With AGENT_SESSION_SEARCH_CALLER_SESSION_ID, demote the matching current session for any source.",
+      },
+      {
+        name: "AGENT_SESSION_SEARCH_CALLER_SESSION_ID",
+        use: "With AGENT_SESSION_SEARCH_CALLER_SOURCE, demote the matching current session for any source.",
+      },
+      {
         name: "CODEX_THREAD_ID",
-        use: "When present, demote the matching current Codex session in candidate ranking.",
+        use: "Backward-compatible Codex-only current-session demotion fallback.",
       },
     ],
     exitCodes: [
@@ -183,7 +193,7 @@ export function robotDocsGuide() {
     '  agent-session-search "auth token timeout" --json',
     '  agent-session-search "Find PR 227 work" --json --probe "PR #227" --probe paper-cuts --cwd /repo --branch paper-cuts --reason "Recover prior context"',
     "",
-    "Use `query` for the concise recall task. If you already know useful literal probes, call the MCP `search_sessions` tool with `queries` and `operationalContext` rather than stuffing instructions into `query`.",
+    "Use `query` for the concise recall task. If you already know useful literal probes, call the MCP `search_sessions` tool with `queries` and `operationalContext` rather than stuffing instructions into `query`. If you know the live caller session, include `callerSession: { source, sessionId }` so current-session echoes are demoted.",
     "",
     "Default result mode is `candidates`. Pick a candidate, then echo its `more.evidence` payload to `search_sessions` or use the matching CLI form:",
     '  agent-session-search "<query>" --json --evidence --path /absolute/session/path.jsonl',
@@ -196,7 +206,7 @@ export function robotDocsGuide() {
     "Contract notes:",
     "- FFF is the search engine.",
     "- Results preserve canonical absolute paths plus source and root metadata.",
-    "- Candidate ranking uses recency, hit density, project matches, and Codex current-session demotion.",
+    "- Candidate ranking uses recency, hit density, project matches, explicit callerSession current-session demotion for any source, and CODEX_THREAD_ID as a Codex fallback.",
     "- Missing roots are warnings; partial success is expected.",
     "- Keep the MCP surface centered on `search_sessions`.",
   ].join("\n");
@@ -264,6 +274,7 @@ export function mcpSearchSessionsDescription() {
     "This is an agentic recall tool: when the user request is conversational or underspecified, infer the operational context from your environment and pass several short literal probes in `queries`.",
     "Set `query` to a concise recall task, not the full prompt or response-format instructions. Strip tool-use directions, output-format requests, and examples from `query`.",
     "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
+    "Use `callerSession` only when you know the live caller source and session id; matching candidates are demoted so the current transcript does not crowd out older useful sessions.",
     "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
     'The default `resultsDisplayMode` is `candidates` with `resultsShape: "candidate_groups"`: static match groups ordered from exact/structured evidence through looser fallbacks. Expand a group by passing its `more.groupCandidates` payload under `groupCandidates`, or by echoing that payload exactly when your MCP client supports top-level shorthand, then use a candidate `more.evidence` object when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.',
   ].join(" ");

@@ -14,11 +14,22 @@ const matchGroupIdSchema = z.enum([
   "loose_fallback",
 ]);
 
+const callerSessionSchema = z
+  .object({
+    source: z.string().min(1),
+    sessionId: z.string().min(1),
+  })
+  .strict()
+  .describe(
+    "Reliable caller identity for current-session demotion. Use only when the calling agent knows its live session id; do not invent this value."
+  );
+
 const groupCandidatesFollowupSchema = z
   .object({
     query: z.string().min(1),
     queries: z.array(z.string().min(1)).optional(),
     operationalContext: z.unknown().optional(),
+    callerSession: callerSessionSchema.optional(),
     sources: z.union([z.array(z.string()), z.literal("all")]).optional(),
     resultsDisplayMode: z.literal("candidates"),
     paths: z.array(z.string().min(1)).optional(),
@@ -61,6 +72,7 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Helpful non-search context such as cwd, repo, branch, recent chat, and why the user is searching."
     ),
+  callerSession: callerSessionSchema.optional(),
   sources: z
     .union([z.array(z.string()), z.literal("all")])
     .optional()
@@ -163,6 +175,8 @@ export class SearchSessionsInputError extends Error {
         query: "<same query as the top-level request>",
         operationalContext:
           "<same operationalContext value as the server-prepared payload, when present>",
+        callerSession:
+          "<same callerSession value as the server-prepared payload, when present>",
         sources: ["<same source names as the original response>"],
         resultsDisplayMode: "candidates",
         maxPatterns:
@@ -243,6 +257,15 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
     throw new SearchSessionsInputError(
       "operationalContext",
       "Invalid group follow-up: top-level operationalContext must match groupCandidates.operationalContext from the server-prepared payload."
+    );
+  }
+  if (
+    input.callerSession !== undefined &&
+    !callerSessionsEqual(input.callerSession, followup.callerSession)
+  ) {
+    throw new SearchSessionsInputError(
+      "callerSession",
+      "Invalid group follow-up: top-level callerSession must match groupCandidates.callerSession from the server-prepared payload."
     );
   }
   if (
@@ -344,6 +367,9 @@ function normalizeGroupCandidatesShorthand(
       ...(input.operationalContext !== undefined
         ? { operationalContext: input.operationalContext }
         : {}),
+      ...(input.callerSession !== undefined
+        ? { callerSession: input.callerSession }
+        : {}),
       ...(input.sources ? { sources: input.sources } : {}),
       resultsDisplayMode: "candidates",
       ...(input.paths ? { paths: input.paths } : {}),
@@ -391,4 +417,14 @@ function sourcesEqual(
     return false;
   }
   return stringArraysEqual(left, right);
+}
+
+function callerSessionsEqual(
+  left: SearchSessionsToolInput["callerSession"],
+  right: SearchSessionsToolInput["callerSession"]
+) {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.source === right.source && left.sessionId === right.sessionId;
 }

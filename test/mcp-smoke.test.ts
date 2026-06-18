@@ -54,6 +54,9 @@ describe("MCP search_sessions smoke path", () => {
       expect(properties?.operationalContext.description).toContain(
         "cwd, repo, branch"
       );
+      expect(properties?.callerSession.description).toContain(
+        "current-session demotion"
+      );
       expect(properties?.sources.description).toContain(
         "Source names to search"
       );
@@ -234,6 +237,91 @@ describe("MCP search_sessions smoke path", () => {
           },
         },
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("demotes an explicit caller session when the MCP server has no thread env", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-mcp-"));
+    const root = join(tmp, "codex");
+    const db = join(tmp, "fff-db");
+    const configPath = join(tmp, "config.json");
+    const currentSessionId = "019edba3-fc85-74f1-b391-ef17d86f9985";
+    const currentPath = join(
+      root,
+      `rollout-2026-06-18T12-50-17-${currentSessionId}.jsonl`
+    );
+    const historicalPath = join(root, "historical.jsonl");
+    await mkdir(root);
+    await mkdir(db);
+    await writeFile(
+      currentPath,
+      Array.from(
+        { length: 12 },
+        (_, index) => `auth token timeout self echo ${index + 1}`
+      ).join("\n")
+    );
+    await writeFile(historicalPath, "auth token timeout older useful hit\n");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: root, include: ["*.jsonl"] }],
+      })
+    );
+    const canonicalRoot = await realpath(root);
+
+    const env = fixtureSearchEnv(configPath, db);
+    delete env.CODEX_THREAD_ID;
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", "src/server.ts"],
+      cwd: process.cwd(),
+      env,
+      stderr: "pipe",
+    });
+    const client = new Client({
+      name: "agent-session-search-caller-session",
+      version: "0.1.0",
+    });
+
+    try {
+      await client.connect(transport);
+      const result = await eventuallyCallSearchSessions(client, {
+        query: "auth token timeout",
+        sources: ["codex"],
+        resultsDisplayMode: "candidates",
+        debug: true,
+        callerSession: {
+          source: "codex",
+          sessionId: currentSessionId,
+        },
+      });
+      const leads = candidateLeads(result);
+
+      expect(leads.map((candidate: any) => candidate.path)).toEqual([
+        join(canonicalRoot, "historical.jsonl"),
+        join(
+          canonicalRoot,
+          `rollout-2026-06-18T12-50-17-${currentSessionId}.jsonl`
+        ),
+      ]);
+      expect((result as any).debug.ranking.candidates).toMatchObject([
+        {
+          rank: 1,
+          path: join(canonicalRoot, "historical.jsonl"),
+          isCurrentSession: false,
+        },
+        {
+          rank: 2,
+          path: join(
+            canonicalRoot,
+            `rollout-2026-06-18T12-50-17-${currentSessionId}.jsonl`
+          ),
+          sessionId: currentSessionId,
+          isCurrentSession: true,
+        },
+      ]);
     } finally {
       await client.close();
     }
