@@ -25,11 +25,21 @@ NOT do the work here — only choose the route.
 
 {props.sharedUnderstanding ?? "(grilling produced no extra shared understanding)"}
 
-## Durable seeded workflows you can route to
+## Durable local workflows you can route to
 
 ```json
 {JSON.stringify(props.workflows, null, 2)}
 ```
+
+Routing guide:
+
+- `ce-work-review-loop` — preferred for code implementation that should use
+  Compound Engineering: implement with `ce-work`, review with
+  `ce-code-review mode:agent`, and retry from blocking findings.
+- `implement` — generic implementation workflow when the CE loop is not the
+  right fit.
+- `research-plan-implement` — use when the work needs research and planning
+  before implementation.
 
 ## Choose a route
 
@@ -37,7 +47,7 @@ Pick exactly one `selectedRoute`:
 
 - `single_task` — one worker agent can finish this in a single pass.
 - `skills` — the work is best done by a worker agent loading specific skills.
-- `workflow` — the work earns a durable seeded workflow (ordering, loops,
+- `workflow` — the work earns a durable local workflow (ordering, loops,
   approvals, crash-recovery).
 - `manual` — the work should be handed to a human, not executed automatically.
 

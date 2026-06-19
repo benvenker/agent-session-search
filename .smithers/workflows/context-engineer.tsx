@@ -18,9 +18,10 @@ import ReportPrompt from "../prompts/context-engineer-report.mdx";
 const SKILLS_DIR = ".smithers/skills";
 const WORKFLOWS_DIR = ".smithers/workflows";
 
-// The durable, seeded workflows the concierge can route the script to. Keep this
+// The durable local workflows the concierge can route the script to. Keep this
 // loosely in sync with the workflows actually present in .smithers/workflows/.
 const SEEDED_WORKFLOWS = [
+  "ce-work-review-loop",
   "implement",
   "research-plan-implement",
   "review",
@@ -153,7 +154,7 @@ const routeSchema = z.looseObject({
     .nullable()
     .default(null)
     .describe(
-      "If routed to a durable workflow, the single best-fit seeded workflow id; otherwise null."
+      "If routed to a durable workflow, the single best-fit local workflow id; otherwise null."
     ),
   durableRequired: z
     .boolean()

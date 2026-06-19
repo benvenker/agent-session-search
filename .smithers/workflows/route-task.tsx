@@ -11,9 +11,10 @@ import ClassifyPrompt from "../prompts/route-task-classify.mdx";
 import ExecutePrompt from "../prompts/route-task-execute.mdx";
 import RecommendPrompt from "../prompts/route-task-recommend.mdx";
 
-// The seeded, durable workflows the concierge can hand off to. Keep this in sync
+// The local durable workflows the concierge can hand off to. Keep this in sync
 // with the workflows actually present in .smithers/workflows/.
 const SEEDED_WORKFLOWS = [
+  "ce-work-review-loop",
   "implement",
   "research-plan-implement",
   "review",
@@ -62,7 +63,7 @@ const classifySchema = z.looseObject({
     .string()
     .nullable()
     .default(null)
-    .describe("If durable, the best-fit seeded workflow id; otherwise null."),
+    .describe("If durable, the best-fit local workflow id; otherwise null."),
   reason: z
     .string()
     .describe("One or two sentences justifying the mode + durable call."),
@@ -80,7 +81,7 @@ const executeSchema = z.looseObject({
 const recommendSchema = z.looseObject({
   recommendedWorkflow: z
     .string()
-    .describe("The single best-fit seeded workflow id to run."),
+    .describe("The single best-fit local workflow id to run."),
   why: z
     .string()
     .describe(

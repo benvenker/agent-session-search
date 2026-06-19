@@ -10,7 +10,7 @@ produce the classification.
 
 {props.prompt}
 
-## Durable seeded workflows it could hand off to
+## Durable local workflows it could hand off to
 
 These are the durable workflows already present in this `.smithers/` pack. If the
 task is durable, the best fit will be one of these ids:
@@ -45,6 +45,11 @@ Set `durable` to `false` when the task is a single, short, one-shot action a
 worker agent can finish in one pass — even if it touches files or runs a command.
 Bias toward `false` for genuinely small asks; reserve `true` for work that earns
 the overhead of a real workflow.
+
+For code implementation tasks that need an implementation/review retry loop,
+prefer `ce-work-review-loop` when it is present in the workflow list. It is the
+Compound Engineering path: implement with `ce-work`, review with
+`ce-code-review mode:agent`, then retry from review findings.
 
 ## Produce
 

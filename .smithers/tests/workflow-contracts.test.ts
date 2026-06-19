@@ -135,6 +135,34 @@ describe("workflow source contracts", () => {
     );
   });
 
+  test("routing workflows prefer CE review loop for durable implementation", () => {
+    const routeTaskWorkflow = read("workflows/route-task.tsx");
+    const contextEngineerWorkflow = read("workflows/context-engineer.tsx");
+    const routeTaskClassifyPrompt = read("prompts/route-task-classify.mdx");
+    const routeTaskRecommendPrompt = read("prompts/route-task-recommend.mdx");
+    const contextEngineerClassifyPrompt = read(
+      "prompts/context-engineer-classify.mdx"
+    );
+    const contextEngineerRoutePrompt = read(
+      "prompts/context-engineer-route.mdx"
+    );
+
+    for (const source of [routeTaskWorkflow, contextEngineerWorkflow]) {
+      expect(source).toContain('"ce-work-review-loop"');
+    }
+
+    for (const source of [
+      routeTaskClassifyPrompt,
+      routeTaskRecommendPrompt,
+      contextEngineerClassifyPrompt,
+      contextEngineerRoutePrompt,
+    ]) {
+      expect(source).toContain("ce-work-review-loop");
+      expect(source).toContain("ce-work");
+      expect(source).toContain("ce-code-review mode:agent");
+    }
+  });
+
   test("review panel is a strict tuple without fallback backfilling", () => {
     const source = read("components/Review.tsx");
     expect(source).toContain(

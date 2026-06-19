@@ -10,7 +10,7 @@ files — just produce the classification.
 
 {props.prompt}
 
-## Durable seeded workflows it could later hand off to
+## Durable local workflows it could later hand off to
 
 These are the durable workflows present in this `.smithers/` pack. A later
 routing step may pick one of these ids:
@@ -39,6 +39,11 @@ Set `durable` to `true` when the work genuinely needs at least one of:
 Set `durable` to `false` for a single, short, one-shot action a worker agent can
 finish in one pass — even if it touches files or runs a command. Bias toward
 `false` for genuinely small asks.
+
+For code implementation tasks that need an implementation/review retry loop,
+expect the later router to prefer `ce-work-review-loop` when it is present in the
+workflow list. It is the Compound Engineering path: implement with `ce-work`,
+review with `ce-code-review mode:agent`, then retry from review findings.
 
 ## Produce
 
