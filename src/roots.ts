@@ -136,10 +136,21 @@ export async function resolveSessionRoots(
     const enabledSourceList = enabledRoots.map((root) => root.name).join(", ");
     for (const sourceName of input.sources) {
       if (!enabledRoots.some((root) => root.name === sourceName)) {
+        const suggestedSource = suggestSourceName(sourceName, enabledRoots);
         warnings.push({
           source: sourceName,
           code: "unknown_source",
-          message: `Requested source is not configured or is disabled: ${sourceName}. Enabled sources: ${enabledSourceList || "none"}. Run \`agent-session-search capabilities --json\` to inspect the CLI contract, or omit --source to search all enabled sources.`,
+          message: [
+            `Requested source is not configured or is disabled: ${sourceName}.`,
+            ...(suggestedSource ? [`Did you mean ${suggestedSource}?`] : []),
+            `Enabled sources: ${enabledSourceList || "none"}.`,
+            suggestedSource
+              ? `Run \`agent-session-search sources --json\` to inspect configured source names, use \`--source ${suggestedSource}\`, or omit --source to search all enabled sources.`
+              : "Run `agent-session-search sources --json` to inspect configured source names, or omit --source to search all enabled sources.",
+          ].join(" "),
+          recommendedAction: suggestedSource
+            ? `Use \`--source ${suggestedSource}\`, run \`agent-session-search sources --json\`, or omit --source to search all enabled sources.`
+            : "Run `agent-session-search sources --json`, or omit --source to search all enabled sources.",
         });
       }
     }
@@ -147,6 +158,8 @@ export async function resolveSessionRoots(
       warnings.push({
         code: "no_sources_selected",
         message: `No enabled configured sources matched the requested source filter. Enabled sources: ${enabledSourceList || "none"}. Omit --source or choose one of the enabled sources.`,
+        recommendedAction:
+          "Omit --source to search all enabled sources, or run `agent-session-search sources --json` and retry with one enabled source name.",
       });
     }
   }
@@ -161,6 +174,7 @@ export async function resolveSessionRoots(
         code:
           resolved.status === "missing" ? "missing_root" : "unreadable_root",
         message: resolved.warning,
+        recommendedAction: rootWarningRecommendedAction(resolved.status),
       });
     }
   }
@@ -210,6 +224,7 @@ export async function inspectSessionSources(
         code:
           resolved.status === "missing" ? "missing_root" : "unreadable_root",
         message: resolved.warning,
+        recommendedAction: rootWarningRecommendedAction(resolved.status),
       });
     }
   }
@@ -360,4 +375,64 @@ function isMissingFileError(error: unknown) {
     "code" in error &&
     (error as { code?: string }).code === "ENOENT"
   );
+}
+
+function rootWarningRecommendedAction(status: ResolvedSessionSource["status"]) {
+  if (status === "missing") {
+    return "Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.";
+  }
+  return "Fix filesystem permissions for this root, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.";
+}
+
+function suggestSourceName(
+  sourceName: SourceName,
+  enabledRoots: SessionRootConfig[]
+) {
+  let best: { name: SourceName; distance: number } | undefined;
+  for (const root of enabledRoots) {
+    const distance = damerauLevenshtein(sourceName, root.name);
+    if (!best || distance < best.distance) {
+      best = { name: root.name, distance };
+    }
+  }
+  return best && best.distance <= 2 ? best.name : undefined;
+}
+
+function damerauLevenshtein(left: string, right: string) {
+  const rows = left.length + 1;
+  const columns = right.length + 1;
+  const distances = Array.from({ length: rows }, () =>
+    Array<number>(columns).fill(0)
+  );
+
+  for (let row = 0; row < rows; row += 1) {
+    distances[row]![0] = row;
+  }
+  for (let column = 0; column < columns; column += 1) {
+    distances[0]![column] = column;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      let distance = Math.min(
+        distances[row - 1]![column]! + 1,
+        distances[row]![column - 1]! + 1,
+        distances[row - 1]![column - 1]! + cost
+      );
+
+      if (
+        row > 1 &&
+        column > 1 &&
+        left[row - 1] === right[column - 2] &&
+        left[row - 2] === right[column - 1]
+      ) {
+        distance = Math.min(distance, distances[row - 2]![column - 2]! + 1);
+      }
+
+      distances[row]![column] = distance;
+    }
+  }
+
+  return distances[left.length]![right.length]!;
 }

@@ -118,7 +118,7 @@ Debug mode includes input, expanded patterns, and backend diagnostics. It is for
 
 ## Warnings
 
-Warnings are structured and non-fatal unless all attempted sources fail. Common warning codes include:
+Warnings are structured and non-fatal unless all attempted sources fail. A warning may include `recommendedAction` when the caller can take a useful next step without inspecting docs. Common warning codes include:
 
 - `missing_root`
 - `unreadable_root`
@@ -128,4 +128,11 @@ Warnings are structured and non-fatal unless all attempted sources fail. Common 
 - `multi_grep_fallback`
 - `all_sources_failed`
 
-Missing or unreadable roots are normal on machines that do not use every supported agent. The search continues across readable roots.
+The warning envelope is stable for agents: `source?`, `root?`, `code`, `message`, and `recommendedAction?`. When `recommendedAction` is present, show it alongside the warning and prefer it over inventing a recovery path.
+
+Missing or unreadable roots are normal on machines that do not use every supported agent. The search continues across readable roots. The warning `recommendedAction` points to the concrete recovery path: create the directory, fix permissions, update or disable the source in config, or inspect current roots with `agent-session-search sources --json`.
+Source-filter warnings such as `unknown_source` and `no_sources_selected` include a recovery action that points to `agent-session-search sources --json` or omitting the source filter.
+
+`broad_evidence_capped` means an unscoped evidence request hit the default breadth cap. Switch back to candidates, expand a promising group with `more.groupCandidates`, then request focused evidence for the selected path.
+
+`all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor`.

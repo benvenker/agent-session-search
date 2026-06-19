@@ -179,6 +179,8 @@ export class CoordinatedSessionSearch implements SessionSearch {
       warnings.push({
         code: "broad_evidence_capped",
         message: `Unscoped evidence searches are capped at ${DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE} results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.`,
+        recommendedAction:
+          "Start with candidates mode, expand a promising group with more.groupCandidates, then request focused evidence with the selected candidate path.",
       });
     }
 
@@ -190,6 +192,8 @@ export class CoordinatedSessionSearch implements SessionSearch {
       warnings.push({
         code: "all_sources_failed",
         message: allSourcesFailedMessage(input.query, searchedSources),
+        recommendedAction:
+          "Verify source roots and fff-mcp with agent-session-search sources --json and agent-session-search-doctor. For exhaustive proof, run the rg fallback command in the warning message.",
       });
     }
 

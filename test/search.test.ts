@@ -36,6 +36,10 @@ const NOTHING_SHOULD_MATCH_PATTERNS = [
   "nothing",
   "match",
 ];
+const ALL_SOURCES_FAILED_RECOMMENDED_ACTION =
+  "Verify source roots and fff-mcp with agent-session-search sources --json and agent-session-search-doctor. For exhaustive proof, run the rg fallback command in the warning message.";
+const BROAD_EVIDENCE_CAPPED_RECOMMENDED_ACTION =
+  "Start with candidates mode, expand a promising group with more.groupCandidates, then request focused evidence with the selected candidate path.";
 
 function candidateLeads(result: { results: any[] }) {
   return result.results.flatMap((entry) =>
@@ -3133,6 +3137,8 @@ describe("createSessionSearch", () => {
           root: hermesRoot,
           code: "missing_root",
           message: `Configured root does not exist: ${hermesRoot}`,
+          recommendedAction:
+            "Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.",
         },
       ],
       results: [],
@@ -3201,6 +3207,8 @@ describe("createSessionSearch", () => {
         root: missingRoot,
         code: "missing_root",
         message: `Configured root does not exist: ${missingRoot}`,
+        recommendedAction:
+          "Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.",
       },
       {
         source: "codex",
@@ -3248,12 +3256,16 @@ describe("createSessionSearch", () => {
         source: "codx",
         code: "unknown_source",
         message:
-          "Requested source is not configured or is disabled: codx. Enabled sources: codex. Run `agent-session-search capabilities --json` to inspect the CLI contract, or omit --source to search all enabled sources.",
+          "Requested source is not configured or is disabled: codx. Did you mean codex? Enabled sources: codex. Run `agent-session-search sources --json` to inspect configured source names, use `--source codex`, or omit --source to search all enabled sources.",
+        recommendedAction:
+          "Use `--source codex`, run `agent-session-search sources --json`, or omit --source to search all enabled sources.",
       },
       {
         code: "no_sources_selected",
         message:
           "No enabled configured sources matched the requested source filter. Enabled sources: codex. Omit --source or choose one of the enabled sources.",
+        recommendedAction:
+          "Omit --source to search all enabled sources, or run `agent-session-search sources --json` and retry with one enabled source name.",
       },
     ]);
     expect(result.results).toEqual([]);
@@ -3665,6 +3677,7 @@ describe("createSessionSearch", () => {
       {
         code: "all_sources_failed",
         message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}'`,
+        recommendedAction: ALL_SOURCES_FAILED_RECOMMENDED_ACTION,
       },
     ]);
   });
@@ -3736,6 +3749,7 @@ describe("createSessionSearch", () => {
       {
         code: "all_sources_failed",
         message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}' '${canonicalClaudeRoot}'`,
+        recommendedAction: ALL_SOURCES_FAILED_RECOMMENDED_ACTION,
       },
     ]);
   });
@@ -3871,6 +3885,7 @@ describe("createSessionSearch", () => {
         code: "broad_evidence_capped",
         message:
           "Unscoped evidence searches are capped at 20 results per source. Use candidates first, then pass a candidate more.evidence payload or --path for focused evidence.",
+        recommendedAction: BROAD_EVIDENCE_CAPPED_RECOMMENDED_ACTION,
       },
     ]);
   });
@@ -4282,6 +4297,7 @@ describe("createSessionSearch", () => {
       {
         code: "all_sources_failed",
         message: `All searchable sources failed. Fallback command: rg --line-number --fixed-strings 'auth token timeout' '${canonicalCodexRoot}'`,
+        recommendedAction: ALL_SOURCES_FAILED_RECOMMENDED_ACTION,
       },
     ]);
   });

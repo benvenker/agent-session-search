@@ -146,10 +146,25 @@ export function cliCapabilities(version: string) {
         "custom",
       ],
       warnings: {
+        missing_root:
+          "Create the directory, update or disable the source in config, or inspect configured roots with agent-session-search sources --json.",
+        unreadable_root:
+          "Fix filesystem permissions, update or disable the source in config, or inspect configured roots with agent-session-search sources --json.",
         multi_grep_fallback:
           "Sequential grep is being used because multi_grep was unavailable, failed, or did not pass recall-equivalence gating.",
+        no_sources_selected:
+          "Omit --source to search all enabled sources, or run agent-session-search sources --json and retry with one enabled source name.",
         invalid_group_followup:
           "Copy the server-prepared more.groupCandidates payload exactly; it includes continuation and query-plan fingerprints.",
+        broad_evidence_capped:
+          "Switch to candidates mode, expand one more.groupCandidates payload when useful, then request focused evidence for selected paths.",
+        all_sources_failed:
+          "Run agent-session-search sources --json and agent-session-search-doctor, or use the rg fallback command included in the warning message.",
+      },
+      warningEnvelope: {
+        fields: ["source?", "root?", "code", "message", "recommendedAction?"],
+        recovery:
+          "When recommendedAction is present, show it with the warning and prefer it over guessing a repair path.",
       },
     },
     env: [

@@ -81,6 +81,10 @@ describe("CLI argument parsing", () => {
         tool: string;
         contractVersion: string;
         commands: Array<{ name: string }>;
+        contract: {
+          warnings: Record<string, string>;
+          warningEnvelope: { fields: string[]; recovery: string };
+        };
         env: Array<{ name: string }>;
         mcp: { tools: Array<{ name: string }> };
         exitCodes: Array<{ code: number; meaning: string }>;
@@ -98,6 +102,27 @@ describe("CLI argument parsing", () => {
         ])
       );
       expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
+      expect(output.contract.warnings.no_sources_selected).toContain(
+        "sources --json"
+      );
+      expect(output.contract.warnings.broad_evidence_capped).toContain(
+        "focused evidence"
+      );
+      expect(output.contract.warnings.all_sources_failed).toContain(
+        "rg fallback"
+      );
+      expect(output.contract.warnings.missing_root).toContain("sources --json");
+      expect(output.contract.warnings.unreadable_root).toContain("permissions");
+      expect(output.contract.warningEnvelope.fields).toEqual([
+        "source?",
+        "root?",
+        "code",
+        "message",
+        "recommendedAction?",
+      ]);
+      expect(output.contract.warningEnvelope.recovery).toContain(
+        "recommendedAction"
+      );
       expect(output.env.map((entry) => entry.name)).toEqual(
         expect.arrayContaining([
           "AGENT_SESSION_SEARCH_CONFIG",
@@ -169,7 +194,12 @@ describe("CLI argument parsing", () => {
           status: string;
           warning?: string;
         }>;
-        warnings: Array<{ source?: string; code: string; message: string }>;
+        warnings: Array<{
+          source?: string;
+          code: string;
+          message: string;
+          recommendedAction?: string;
+        }>;
       };
 
       expect(output.command).toBe("sources");
@@ -204,6 +234,8 @@ describe("CLI argument parsing", () => {
         root: missingRoot,
         code: "missing_root",
         message: `Configured root does not exist: ${missingRoot}`,
+        recommendedAction:
+          "Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.",
       });
       expect(JSON.parse(log.mock.calls[1]?.[0] as string)).toMatchObject({
         command: "sources",
@@ -399,6 +431,24 @@ describe("CLI argument parsing", () => {
       maxResultsPerSource: undefined,
       debug: undefined,
     });
+  });
+
+  it("reports unreadable group candidate payload files as user input errors", () => {
+    const missingPath = join(
+      tmpdir(),
+      "agent-session-search-missing-group-candidates.json"
+    );
+
+    expect(() =>
+      parseArgs(["--json", "--group-candidates", `@${missingPath}`])
+    ).toThrow(
+      expect.objectContaining({
+        name: "CliParseError",
+        message: expect.stringContaining(
+          `--group-candidates could not read JSON file ${missingPath}`
+        ),
+      })
+    );
   });
 
   it("rejects group candidate payloads mixed with conflicting query material", () => {
@@ -622,6 +672,28 @@ describe("CLI argument parsing", () => {
     expect(output.error.suggestedCommand).toBe("agent-session-search --json");
   });
 
+  it("prints missing group candidate payload files as JSON user input errors", async () => {
+    const missingPath = join(
+      tmpdir(),
+      "agent-session-search-missing-group-candidates-cli.json"
+    );
+    const result = await runCliExpectFailure([
+      "--json",
+      "--group-candidates",
+      `@${missingPath}`,
+    ]);
+
+    expect(result.stdout).toBe("");
+    const output = JSON.parse(result.stderr) as {
+      error: { code: string; message: string; suggestedCommand: string };
+    };
+    expect(output.error.code).toBe("user_input_error");
+    expect(output.error.message).toContain(
+      `--group-candidates could not read JSON file ${missingPath}`
+    );
+    expect(output.error.suggestedCommand).toBe("agent-session-search help");
+  });
+
   it("prints human typo suggestions with a copy-pasteable command", async () => {
     const result = await runCliExpectFailure(["--jason", "auth token timeout"]);
 
@@ -667,6 +739,9 @@ describe("CLI argument parsing", () => {
       expect(log).toHaveBeenCalledWith("results: 0");
       expect(warn).toHaveBeenCalledWith(
         `warning: missing_root: Configured root does not exist: ${missingRoot}`
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "action: Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots."
       );
     } finally {
       log.mockRestore();

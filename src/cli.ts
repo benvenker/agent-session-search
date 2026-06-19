@@ -332,7 +332,12 @@ function parseGroupCandidatesArgument(
     );
   }
 
-  const raw = groupCandidatesInputText(value);
+  let raw: string;
+  try {
+    raw = groupCandidatesInputText(value);
+  } catch (error) {
+    throw inputError(groupCandidatesReadErrorMessage(value, option, error));
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -348,6 +353,21 @@ function parseGroupCandidatesArgument(
   return parsed as GroupCandidatesFollowupInput;
 }
 
+function groupCandidatesReadErrorMessage(
+  value: string,
+  option: string,
+  error: unknown
+) {
+  if (value === "-") {
+    return `${option} could not read JSON from stdin: ${errorMessage(error)}`;
+  }
+  if (value.startsWith("@")) {
+    const path = value.slice(1);
+    return `${option} could not read JSON file ${path || "<empty>"}: ${errorMessage(error)}`;
+  }
+  return `${option} could not read JSON payload: ${errorMessage(error)}`;
+}
+
 function groupCandidatesInputText(value: string) {
   if (value === "-") {
     return readFileSync(0, "utf8");
@@ -356,6 +376,13 @@ function groupCandidatesInputText(value: string) {
     return readFileSync(value.slice(1), "utf8");
   }
   return value;
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function groupCandidatesMixedFlags({
@@ -587,6 +614,9 @@ export async function main(
     console.log(`results: ${result.results.length}`);
     for (const warning of result.warnings) {
       console.warn(`warning: ${warning.code}: ${warning.message}`);
+      if (warning.recommendedAction) {
+        console.warn(`action: ${warning.recommendedAction}`);
+      }
     }
   } finally {
     await search.close?.();

@@ -11,6 +11,7 @@ ideas/
 .ntm/
 .philip/
 .pi/
+.worktrees/
 skills/
 skills-lock.json
 smithers.db*

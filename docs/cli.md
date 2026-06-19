@@ -74,6 +74,8 @@ agent-session-search sources
 
 Inspects configured source roots without running a search. Each source includes `enabled`, `status`, `include`, and warning fields, plus the config path used.
 
+If a search uses an unknown `--source` or the source filter matches no enabled roots, the JSON warning includes enabled source names and a `recommendedAction` that points back to `agent-session-search sources --json`. Unknown close-name typos also include a suggested enabled source. Missing or unreadable root warnings include `recommendedAction` guidance to create the directory, fix permissions, or update or disable the source.
+
 ### Agent Guides
 
 ```bash

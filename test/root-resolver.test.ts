@@ -137,6 +137,8 @@ describe("resolveSessionRoots", () => {
         root: missingRoot,
         code: "missing_root",
         message: `Configured root does not exist: ${missingRoot}`,
+        recommendedAction:
+          "Create the directory, update or disable this source in the agent-session-search config, or run `agent-session-search sources --json` to inspect configured roots.",
       },
     ]);
   });
@@ -174,6 +176,40 @@ describe("resolveSessionRoots", () => {
       ],
       warnings: [],
     });
+  });
+
+  it("suggests close enabled source names for unknown requested sources", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    await mkdir(codexRoot);
+
+    const resolved = await resolveSessionRoots({
+      configPath: join(tmp, "does-not-exist.json"),
+      sources: ["codx"],
+      defaultRoots: [
+        { name: "codex", path: codexRoot, include: ["*.jsonl"] },
+        { name: "disabled-agent", path: join(tmp, "disabled"), enabled: false },
+      ],
+    });
+
+    expect(resolved.sources).toEqual([]);
+    expect(resolved.warnings).toEqual([
+      {
+        source: "codx",
+        code: "unknown_source",
+        message:
+          "Requested source is not configured or is disabled: codx. Did you mean codex? Enabled sources: codex. Run `agent-session-search sources --json` to inspect configured source names, use `--source codex`, or omit --source to search all enabled sources.",
+        recommendedAction:
+          "Use `--source codex`, run `agent-session-search sources --json`, or omit --source to search all enabled sources.",
+      },
+      {
+        code: "no_sources_selected",
+        message:
+          "No enabled configured sources matched the requested source filter. Enabled sources: codex. Omit --source or choose one of the enabled sources.",
+        recommendedAction:
+          "Omit --source to search all enabled sources, or run `agent-session-search sources --json` and retry with one enabled source name.",
+      },
+    ]);
   });
 
   it("merges configured roots with defaults by overriding matching names and adding custom names", async () => {
