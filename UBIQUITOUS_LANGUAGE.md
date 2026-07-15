@@ -73,7 +73,7 @@
 | **Hit Density**              | A capped signal based on how many backend hits grouped into a candidate.                                                     | raw hit count score, popularity        |
 | **Project Match**            | A match between caller project context and candidate path or early session metadata.                                         | project filter, workspace restriction  |
 | **Ranking Debug**            | Candidate-mode debug output under `debug.ranking.candidates` that explains internal score components without changing shape. | public score, ranking field            |
-| **Current Session Demotion** | The Codex-only demotion applied when `CODEX_THREAD_ID` exactly matches a Codex candidate `sessionId`.                        | self-hit filter, current-session block |
+| **Current Session Demotion** | The demotion applied when `callerSession` exactly matches a candidate; `CODEX_THREAD_ID` is the Codex-only fallback.         | self-hit filter, current-session block |
 | **Normal Candidate Output**  | Candidate output without ranking score fields.                                                                               | hidden ranking, opaque result          |
 
 ## Progressive Evidence

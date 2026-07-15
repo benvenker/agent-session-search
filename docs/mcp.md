@@ -37,6 +37,7 @@ Fields:
 | `query`               | Required recall task. Keep it concise and human-readable.                                                        |
 | `queries`             | Optional planned probes. Use short literal phrases the caller already knows.                                     |
 | `operationalContext`  | Optional caller-known context such as cwd, repo, branch, recent chat, or reason.                                 |
+| `callerSession`       | Optional reliable caller identity with `source` and `sessionId`; the matching live session is demoted.           |
 | `sources`             | Optional array such as `["codex", "claude"]`, or `"all"` for every enabled source. Omit to search enabled roots. |
 | `resultsDisplayMode`  | `candidates`, `evidence`, or `debug`. Defaults to `candidates`, unless `debug: true` is supplied alone.          |
 | `paths`               | Restrict evidence results to canonical session paths.                                                            |

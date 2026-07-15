@@ -63,7 +63,7 @@ Prototype in throwaway worktrees when useful, but merge durable findings before 
 - Prefer small, testable modules behind the single MCP tool: root resolution, query rewriting, FFF backend, fanout coordination, path normalization, and response shaping.
 - Missing or unreadable source roots should produce warnings without failing the whole search.
 - Query rewriting should be deterministic by default and emit a small set of literal FFF-friendly patterns.
-- Keep output close to the FFF result shape; avoid inventing ranking or summarization in v1.
+- Keep output close to the FFF result shape. Do not add opaque ranking signals or automatic summarization.
 
 ## Built-In Source Notes
 

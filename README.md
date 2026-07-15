@@ -139,7 +139,7 @@ agent-session-search "auth token timeout" --json --evidence \
   --path /Users/ben/.codex/sessions/session.jsonl
 ```
 
-Candidate ranking uses recency, hit density, project matches from `operationalContext`, and Codex current-session demotion when `CODEX_THREAD_ID` matches the candidate session id. Normal candidate output does not include score fields. For ranking diagnostics, use `--candidates --debug` or MCP input with `"resultsDisplayMode": "candidates"` and `"debug": true`.
+Candidate ranking uses recency, hit density, project matches from `operationalContext`, and current-session demotion. Pass `callerSession` with a reliable source and session id to demote the matching live session for any source. `CODEX_THREAD_ID` remains a Codex-only fallback when `callerSession` is absent. Normal candidate output does not include score fields. For ranking diagnostics, use `--candidates --debug` or MCP input with `"resultsDisplayMode": "candidates"` and `"debug": true`.
 
 ## Configuration
 
