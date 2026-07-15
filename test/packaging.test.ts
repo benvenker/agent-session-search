@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,40 +48,6 @@ describe("package build and tarball", () => {
     });
     expect(stderr).toContain("Usage: agent-session-search");
 
-    const dryRun = await execFileAsync("npm", ["pack", "--dry-run", "--json"], {
-      cwd: process.cwd(),
-    });
-    const packed = JSON.parse(dryRun.stdout) as Array<{
-      files: Array<{ path: string }>;
-    }>;
-    const packedPaths = packed[0]?.files.map((file) => file.path) ?? [];
-
-    expect(packedPaths).toContain("dist/cli.js");
-    expect(packedPaths).toContain("dist/fff-preflight.js");
-    expect(packedPaths).toContain("dist/server.js");
-    expect(packedPaths).toContain("AGENTS.md");
-    expect(packedPaths).toContain("DESIGN.md");
-    expect(packedPaths).toContain("scripts/postinstall.mjs");
-    expect(packedPaths).not.toContain("dist/test/packaging.test.js");
-    for (const forbiddenPrefix of [
-      ".agents/",
-      ".claude/",
-      ".factory/",
-      ".goose/",
-      ".pi/",
-      "skills/",
-      "test/",
-      "dist/test/",
-    ]) {
-      expect(
-        packedPaths.find((path) => path.startsWith(forbiddenPrefix))
-      ).toBeUndefined();
-    }
-    expect(packedPaths).not.toContain("skills-lock.json");
-    expect(
-      packedPaths.find((path) => path.startsWith(".beads/.br_history/"))
-    ).toBeUndefined();
-
     const installRoot = await mkdtemp(
       join(tmpdir(), "agent-session-search-install-")
     );
@@ -119,6 +86,41 @@ describe("package build and tarball", () => {
         },
       }
     );
+    const installedPackageRoot = join(
+      appRoot,
+      "node_modules",
+      "@benvenker",
+      "agent-session-search"
+    );
+    const installedPaths = (
+      await readdir(installedPackageRoot, { recursive: true })
+    ).map((path) => path.replaceAll("\\", "/"));
+
+    expect(installedPaths).toContain("dist/cli.js");
+    expect(installedPaths).toContain("dist/fff-preflight.js");
+    expect(installedPaths).toContain("dist/server.js");
+    expect(installedPaths).toContain("AGENTS.md");
+    expect(installedPaths).toContain("DESIGN.md");
+    expect(installedPaths).toContain("scripts/postinstall.mjs");
+    expect(installedPaths).not.toContain("dist/test/packaging.test.js");
+    for (const forbiddenPrefix of [
+      ".agents/",
+      ".claude/",
+      ".factory/",
+      ".goose/",
+      ".pi/",
+      "skills/",
+      "test/",
+      "dist/test/",
+    ]) {
+      expect(
+        installedPaths.find((path) => path.startsWith(forbiddenPrefix))
+      ).toBeUndefined();
+    }
+    expect(installedPaths).not.toContain("skills-lock.json");
+    expect(
+      installedPaths.find((path) => path.startsWith(".beads/.br_history/"))
+    ).toBeUndefined();
     const installOutput = `${install.stdout}\n${install.stderr}`;
     expect(installOutput).toContain(
       "agent-session-search uses fff-mcp for fast file searching, but it's not installed."
