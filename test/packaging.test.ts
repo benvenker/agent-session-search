@@ -56,14 +56,16 @@ describe("package build and tarball", () => {
     await mkdir(packDestination);
     await mkdir(appRoot);
 
-    const pack = await execFileAsync(
+    await execFileAsync(
       "npm",
-      ["pack", "--json", "--pack-destination", packDestination],
+      ["pack", "--pack-destination", packDestination],
       { cwd: process.cwd() }
     );
-    const tarball = (JSON.parse(pack.stdout) as Array<{ filename: string }>)[0]
-      ?.filename;
-    expect(tarball).toBeTruthy();
+    const tarballs = (await readdir(packDestination)).filter((path) =>
+      path.endsWith(".tgz")
+    );
+    expect(tarballs).toHaveLength(1);
+    const tarball = tarballs[0] ?? "";
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
     const emptyBin = join(installRoot, "empty-bin");
