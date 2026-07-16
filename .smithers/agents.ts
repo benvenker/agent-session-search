@@ -1,5 +1,7 @@
 // smithers-source: generated
-import { type AgentLike } from "smithers-orchestrator";
+import { homedir } from "node:os";
+import path from "node:path";
+import { type AgentLike, KimiAgent } from "smithers-orchestrator";
 import { type ReviewPanelAgents } from "./components/Review";
 import { type PlannerCandidate } from "./components/PlannerPanel";
 import {
@@ -12,9 +14,15 @@ import {
   Codex55HighAgent,
   Codex55LowAgent,
   Codex55MedAgent,
+  Codex56LunaMaxAgent,
+  Codex56SolHighAgent,
+  Codex56SolMaxAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
   createCodex55MedAgent,
+  createCodex56LunaMaxAgent,
+  createCodex56SolHighAgent,
+  createCodex56SolMaxAgent,
 } from "./agents/codex";
 import { Gemini31ProAgent } from "./agents/gemini";
 import { OpenCodeAgent } from "./agents/opencode";
@@ -42,9 +50,15 @@ export {
   Codex55HighAgent,
   Codex55LowAgent,
   Codex55MedAgent,
+  Codex56LunaMaxAgent,
+  Codex56SolHighAgent,
+  Codex56SolMaxAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
   createCodex55MedAgent,
+  createCodex56LunaMaxAgent,
+  createCodex56SolHighAgent,
+  createCodex56SolMaxAgent,
 } from "./agents/codex";
 export { Gemini31ProAgent } from "./agents/gemini";
 export { OpenCodeAgent } from "./agents/opencode";
@@ -62,6 +76,11 @@ export {
 } from "./agents/pi";
 
 export const providers = {
+  kimiK3: new KimiAgent({
+    model: "kimi-code/k3",
+    configDir: path.join(homedir(), ".kimi-code"),
+    cwd: process.cwd(),
+  }),
   codex: Codex55HighAgent,
   claudeOpus: ClaudeCodeOpusAgent,
   claudeOpusMax: ClaudeCodeOpusMaxAgent,
@@ -69,6 +88,9 @@ export const providers = {
   codex55High: Codex55HighAgent,
   codex55Med: Codex55MedAgent,
   codex55Low: Codex55LowAgent,
+  codex56SolMax: Codex56SolMaxAgent,
+  codex56SolHigh: Codex56SolHighAgent,
+  codex56LunaMax: Codex56LunaMaxAgent,
   gemini31Pro: Gemini31ProAgent,
   pi: PiGpt55High,
   minimaxM3: PiMiniMaxM3,
@@ -92,28 +114,32 @@ export const reviewPanel = [
 ] satisfies ReviewPanelAgents;
 
 export const agents = {
-  // cheapFast: Smithers would normally suggest Kimi here, but Kimi is not available: missing `kimi` on PATH; missing credentials (~/.kimi).
   // cheapFast: Smithers would normally suggest Vibe here, but Vibe is not available: missing `vibe` on PATH; missing credentials (~/.vibe/.env or ~/.vibe/config.toml or $MISTRAL_API_KEY).
   // cheapFast: Smithers would normally suggest Antigravity here, but Antigravity is not available: missing credentials (~/.gemini/antigravity-cli/settings.json or ~/.gemini/antigravity-cli).
-  cheapFast: [providers.codex55Low],
+  cheapFast: [providers.codex55Low, providers.codex56LunaMax],
   cheapExecution: [providers.glm52],
+  kimi: [providers.kimiK3],
 
-  explorer: [providers.codex55Low],
-  explorerSynthesis: [providers.codex55Low],
+  explorer: [providers.codex55Low, providers.codex56LunaMax],
+  explorerSynthesis: [providers.codex55Low, providers.codex56LunaMax],
 
   planner: [plannerSlots.codex.agent, plannerSlots.opus.agent],
-  plannerSynthesis: [providers.codex55High],
+  plannerSynthesis: [providers.codex55High, providers.codex56SolHigh],
 
-  engineer: [providers.codex55Med],
+  engineer: [providers.codex55Med, providers.codex56SolHigh],
 
-  design: [providers.claudeOpusMax, providers.codex55High],
-  designSynthesis: [providers.codex55High],
+  design: [
+    providers.claudeOpusMax,
+    providers.codex55High,
+    providers.codex56SolMax,
+  ],
+  designSynthesis: [providers.codex55High, providers.codex56SolHigh],
 
-  smart: [providers.codex, providers.claudeOpus],
-  smartTool: [providers.codex, providers.claudeOpus],
-  reviewContext: [providers.codex55Low],
+  smart: [providers.codex, providers.claudeOpus, providers.codex56SolMax],
+  smartTool: [providers.codex, providers.claudeOpus, providers.codex56SolMax],
+  reviewContext: [providers.codex55Low, providers.codex56LunaMax],
   review: reviewPanel,
-  reviewSynthesis: [providers.codex55High],
+  reviewSynthesis: [providers.codex55High, providers.codex56SolHigh],
   openRouterCode: [
     providers.minimaxM3,
     providers.kimiK27Code,
@@ -126,6 +152,7 @@ export const agents = {
     providers.codex55High,
     providers.codex55Med,
     providers.codex55Low,
+    providers.codex56SolHigh,
   ],
 } satisfies Record<string, AgentLike[]>;
 
@@ -149,6 +176,9 @@ export function createReadOnlySmithersAgents(env: Record<string, string>) {
     codex55High: createCodex55HighAgent(env, readOnly),
     codex55Med: createCodex55MedAgent(env, readOnly),
     codex55Low: createCodex55LowAgent(env, readOnly),
+    codex56SolMax: createCodex56SolMaxAgent(env, readOnly),
+    codex56SolHigh: createCodex56SolHighAgent(env, readOnly),
+    codex56LunaMax: createCodex56LunaMaxAgent(env, readOnly),
     claudeOpus: createClaudeCodeOpusAgent(env, readOnly),
     pi: createPiGpt55High(env, piReadOnlyTools),
     minimaxM3: createOpenRouterPiAgent(
