@@ -7,6 +7,10 @@ import {
 import { isEntrypoint } from "./entrypoint.js";
 import type { SessionSearch } from "./types.js";
 import { searchOptionsFromEnv } from "./env.js";
+import {
+  ensureFffMcpCompatible,
+  FffMcpCompatibilityError,
+} from "./fff-runtime.js";
 import { mcpSearchSessionsDescription } from "./help.js";
 import { packageVersion } from "./package-info.js";
 import {
@@ -69,7 +73,9 @@ function searchSessionsErrorPayload(error: SearchSessionsInputError) {
 }
 
 export async function main() {
-  const search = createSessionSearch(searchOptionsFromEnv());
+  const options = searchOptionsFromEnv();
+  await ensureFffMcpCompatible(options.fffMcp?.command);
+  const search = createSessionSearch(options);
   installProcessCleanupHandlers(() => search.close?.());
   const server = createServer({}, search);
   await server.start({
@@ -128,6 +134,11 @@ async function runCleanup(cleanup: (() => Promise<void> | void) | undefined) {
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
+    if (error instanceof FffMcpCompatibilityError) {
+      console.error(error.message);
+      process.exitCode = 3;
+      return;
+    }
     console.error(error);
     process.exitCode = 1;
   });

@@ -113,9 +113,9 @@ export function cliCapabilities(version: string) {
       {
         name: "doctor",
         usage:
-          "agent-session-search-doctor [--skip-smoke] [--list-orphans] [--reap-orphans]",
+          "agent-session-search-doctor [--skip-smoke] [--list-orphans] [--reap-orphans] | agent-session-search-doctor --ensure-fff --yes",
         output:
-          "FFF backend setup diagnostics including version, stable guidance, multi_grep support, and recall-equivalence status.",
+          "FFF backend setup diagnostics including required v0.9.6 compatibility, explicit repair, multi_grep support, and recall-equivalence status.",
       },
     ],
     resultModes: [
@@ -265,6 +265,7 @@ export function robotTriage(version: string) {
     ],
     healthChecks: [
       "agent-session-search-doctor",
+      "agent-session-search-doctor --ensure-fff --yes",
       "agent-session-search-doctor --list-orphans",
     ],
     commonNextSteps: [
@@ -279,20 +280,24 @@ export function robotTriage(version: string) {
 export function doctorHelpText() {
   return [
     "Usage: agent-session-search-doctor [--command <bin>] [--skip-smoke] [--list-orphans] [--reap-orphans]",
+    "       agent-session-search-doctor --ensure-fff --yes",
     "       agent-session-search-doctor help",
     "",
     "Verify the FFF backend used by agent-session-search.",
-    "Reports installed version, recommended stable release guidance, multi_grep support, and recall-equivalence status without upgrading automatically.",
+    "Fails when fff-mcp is missing or below the required minimum. Reports installed version, stable release guidance, multi_grep support, and recall-equivalence status without upgrading automatically.",
     "",
     "Options:",
     "  --command <bin>       Check a specific fff-mcp binary. Defaults to fff-mcp.",
     "  --skip-smoke          Skip the live temporary-file grep smoke test.",
+    "  --ensure-fff          Run the official FFF MCP installer when repair is needed. Requires --yes.",
+    "  --yes                 Confirm --ensure-fff may install or upgrade fff-mcp.",
     "  --list-orphans        List orphaned fff-mcp processes after preflight.",
     "  --reap-orphans        Kill orphaned fff-mcp processes after preflight.",
     "  -h, --help            Show this help.",
     "",
     "Examples:",
     "  agent-session-search-doctor",
+    "  agent-session-search-doctor --ensure-fff --yes",
     "  agent-session-search-doctor --list-orphans",
     "  agent-session-search-doctor --command /usr/local/bin/fff-mcp --skip-smoke",
   ].join("\n");

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -245,6 +245,103 @@ describe("CLI argument parsing", () => {
       log.mockRestore();
     }
   });
+
+  it("classifies stale fff-mcp as a tool-environment failure", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-cli-stale-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        "--no-warnings",
+        join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+        join(process.cwd(), "src", "cli.ts"),
+        "auth token timeout",
+        "--json",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: fakeBin,
+          NODE_NO_WARNINGS: "1",
+        },
+      }
+    ).catch((error: unknown) => {
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: number;
+      };
+      expect(execError.code).toBe(3);
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    });
+
+    expect(result.stdout).toBe("");
+    const parsed = JSON.parse(result.stderr) as {
+      error: { code: string; message: string; suggestedCommand: string };
+    };
+    expect(parsed.error.code).toBe("tool_environment_error");
+    expect(parsed.error.message).toContain(
+      "fff-mcp 0.9.5 is below required minimum v0.9.6"
+    );
+    expect(parsed.error.suggestedCommand).toBe(
+      "agent-session-search-doctor --ensure-fff --yes"
+    );
+  }, 60_000);
+
+  it("classifies missing fff-mcp as a non-JSON tool-environment failure", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-cli-missing-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    await mkdir(fakeBin);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        "--no-warnings",
+        join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+        join(process.cwd(), "src", "cli.ts"),
+        "auth token timeout",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: fakeBin,
+          NODE_NO_WARNINGS: "1",
+        },
+      }
+    ).catch((error: unknown) => {
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: number;
+      };
+      expect(execError.code).toBe(3);
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    });
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("fff-mcp was not found on PATH");
+    expect(result.stderr).toContain(
+      "Suggested command: agent-session-search-doctor --ensure-fff --yes"
+    );
+    expect(result.stderr).not.toContain("Usage: agent-session-search");
+  }, 60_000);
 
   it("treats --json help as a machine-readable capabilities request", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});

@@ -181,7 +181,7 @@ describe("package build and tarball", () => {
       "version: fff-mcp 9.9.9-package-test"
     );
     expect(installedDoctorResult.stdout).toContain(
-      "recommended stable FFF MCP: v0.9.5"
+      "recommended stable FFF MCP: v0.9.6"
     );
     expect(installedDoctorResult.stdout).toContain("smoke: skipped");
     expect(installedDoctorResult.stdout).toContain("multi_grep: skipped");

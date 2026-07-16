@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { isEntrypoint } from "./entrypoint.js";
 import { searchOptionsFromEnv } from "./env.js";
 import {
+  ensureFffMcpCompatible,
+  FffMcpCompatibilityError,
+} from "./fff-runtime.js";
+import {
   cliCapabilities,
   cliHelpText,
   robotDocsGuide,
@@ -600,7 +604,9 @@ export async function main(
   }
 
   const args = parseArgs(argv);
-  const search = createSessionSearch(searchOptionsFromEnv(env));
+  const searchOptions = searchOptionsFromEnv(env);
+  await ensureFffMcpCompatible(searchOptions.fffMcp?.command, env);
+  const search = createSessionSearch(searchOptions);
   try {
     const result = await search.searchSessions(searchInputFromParsedArgs(args));
 
@@ -714,6 +720,7 @@ function parsePositiveInteger(value: string | undefined, option: string) {
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    const toolEnvironmentError = error instanceof FffMcpCompatibilityError;
     const suggestion =
       error instanceof CliParseError ? error.suggestion : undefined;
     const groupFollowupError =
@@ -725,6 +732,7 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
             error: {
               code:
                 groupFollowupError?.code ??
+                (toolEnvironmentError ? "tool_environment_error" : undefined) ??
                 (error instanceof CliParseError
                   ? "user_input_error"
                   : "upstream_failure"),
@@ -742,6 +750,9 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
                 : {}),
               suggestedCommand:
                 suggestion?.suggestedCommand ??
+                (toolEnvironmentError
+                  ? "agent-session-search-doctor --ensure-fff --yes"
+                  : undefined) ??
                 (groupFollowupError
                   ? "Copy the exact more.groupCandidates payload and run: agent-session-search --json --group-candidates @payload.json"
                   : "agent-session-search help"),
@@ -755,6 +766,10 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
       console.error(message);
       if (suggestion) {
         console.error(`Suggested command: ${suggestion.suggestedCommand}`);
+      } else if (toolEnvironmentError) {
+        console.error(
+          "Suggested command: agent-session-search-doctor --ensure-fff --yes"
+        );
       }
       if (groupFollowupError) {
         console.error(`Invalid field: ${groupFollowupError.invalidField}`);
@@ -765,11 +780,14 @@ if (isEntrypoint(import.meta.url, process.argv[1])) {
           "Suggested command: agent-session-search --json --group-candidates @payload.json"
         );
       }
-      console.error(usage());
+      if (!toolEnvironmentError) {
+        console.error(usage());
+      }
     }
-    process.exitCode =
-      error instanceof CliParseError ||
-      error instanceof SearchSessionsInputError
+    process.exitCode = toolEnvironmentError
+      ? 3
+      : error instanceof CliParseError ||
+          error instanceof SearchSessionsInputError
         ? 1
         : 4;
   });

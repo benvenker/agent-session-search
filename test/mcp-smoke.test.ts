@@ -1,10 +1,14 @@
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { describe, expect, it } from "vitest";
 import packageJson from "../package.json" with { type: "json" };
+
+const execFileAsync = promisify(execFile);
 
 describe("MCP search_sessions smoke path", () => {
   function candidateLeads(result: { results: any[] }) {
@@ -68,6 +72,39 @@ describe("MCP search_sessions smoke path", () => {
       await client.close();
     }
   });
+
+  it("fails before MCP handshake when fff-mcp is missing", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-mcp-missing-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    await mkdir(fakeBin);
+
+    const result = await runServerExpectToolEnvironmentFailure(fakeBin);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("fff-mcp was not found on PATH");
+    expect(result.stderr).toContain("Install or upgrade FFF MCP");
+  }, 60_000);
+
+  it("fails before MCP handshake when fff-mcp is stale", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-mcp-stale-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await runServerExpectToolEnvironmentFailure(fakeBin);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "fff-mcp 0.9.5 is below required minimum v0.9.6"
+    );
+    expect(result.stderr).toContain("Install or upgrade FFF MCP");
+  }, 60_000);
 
   it("launches the stdio server and searches a deterministic fixture root", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-mcp-"));
@@ -424,6 +461,32 @@ function fixtureSearchEnv(
     AGENT_SESSION_SEARCH_FFF_DB_DIR: db,
     AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS: "10",
     AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS: "25",
+  });
+}
+
+async function runServerExpectToolEnvironmentFailure(path: string) {
+  return execFileAsync(
+    process.execPath,
+    ["--no-warnings", "--import", "tsx", "src/server.ts"],
+    {
+      cwd: process.cwd(),
+      env: stringEnv({
+        ...process.env,
+        PATH: path,
+        NODE_NO_WARNINGS: "1",
+      }),
+    }
+  ).catch((error: unknown) => {
+    const execError = error as {
+      stdout?: string;
+      stderr?: string;
+      code?: number;
+    };
+    expect(execError.code).toBe(3);
+    return {
+      stdout: execError.stdout ?? "",
+      stderr: execError.stderr ?? "",
+    };
   });
 }
 

@@ -4,6 +4,8 @@ The server exposes one MCP tool: `search_sessions`.
 
 The implementation returns JSON as MCP text content. It does not currently advertise an `outputSchema`; this behavior is pinned by tests while the FastMCP wrapper path returns successful tool results as string/content-style values.
 
+The stdio server checks the external `fff-mcp` binary before the MCP handshake. If `fff-mcp` is missing or below `v0.9.6`, `agent-session-search-mcp` exits with code `3` and prints install/upgrade guidance. Run `agent-session-search-doctor` to diagnose, or `agent-session-search-doctor --ensure-fff --yes` when you explicitly want doctor to run the official installer.
+
 ## Input
 
 Required minimal input:

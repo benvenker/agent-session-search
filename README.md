@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor
 ```
 
-Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current documented stable FFF MCP release for this package is `v0.9.5`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
+Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current required and documented stable FFF MCP release for this package is `v0.9.6`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
 
 ## Quick Start
 

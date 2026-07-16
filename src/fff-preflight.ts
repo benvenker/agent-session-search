@@ -6,15 +6,20 @@ import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { isEntrypoint } from "./entrypoint.js";
 import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
+import {
+  assessFffMcpVersion,
+  FFF_MCP_INSTALL_COMMAND,
+  FFF_MCP_INSTALLER_URL,
+  isNotFoundError,
+  readVersionFailureMessage,
+  readFffMcpVersion,
+  RECOMMENDED_FFF_MCP_RELEASE,
+  REQUIRED_FFF_MCP_RELEASE,
+} from "./fff-runtime.js";
 import { doctorHelpText } from "./help.js";
 import type { SourceName } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-
-export const FFF_MCP_INSTALLER_URL =
-  "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh";
-export const RECOMMENDED_FFF_MCP_RELEASE = "v0.9.5";
-export const FFF_MCP_INSTALL_COMMAND = `curl -fsSL ${FFF_MCP_INSTALLER_URL} | bash`;
 
 type CheckFffMcpOptions = {
   command?: string;
@@ -23,6 +28,9 @@ type CheckFffMcpOptions = {
   smoke?: (input: FffSmokeInput) => Promise<FffSmokeResult>;
   listOrphans?: boolean;
   reapOrphans?: boolean;
+  ensureFff?: boolean;
+  yes?: boolean;
+  installFffMcp?: (input: InstallFffMcpInput) => Promise<void>;
 };
 
 type CheckFffMcpResult =
@@ -31,6 +39,7 @@ type CheckFffMcpResult =
       command: string;
       resolvedPath?: string;
       version: string;
+      requiredRelease: string;
       recommendedRelease: string;
       installCommand: string;
       path: string;
@@ -42,13 +51,20 @@ type CheckFffMcpResult =
       ok: false;
       command: string;
       reason: string;
+      requiredRelease: string;
       recommendedRelease: string;
       installCommand: string;
       path: string;
+      canEnsureFff: boolean;
     };
 
 type FffSmokeInput = {
   command: string;
+  env: NodeJS.ProcessEnv;
+};
+
+type InstallFffMcpInput = {
+  env: NodeJS.ProcessEnv;
 };
 
 type FffSmokeResult =
@@ -105,21 +121,53 @@ export async function checkFffMcp(
   const env = options.env ?? process.env;
   const path = env.PATH ?? "";
 
+  const versionResult = await checkFffMcpVersion(command, env);
+  if (!versionResult.ok) {
+    if (options.ensureFff && options.yes) {
+      const installed = await tryInstallFffMcp(
+        options.installFffMcp ?? installFffMcp,
+        env
+      );
+      if (!installed.ok) {
+        return {
+          ok: false,
+          command,
+          reason: installed.reason,
+          requiredRelease: REQUIRED_FFF_MCP_RELEASE,
+          recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+          installCommand: FFF_MCP_INSTALL_COMMAND,
+          path,
+          canEnsureFff: true,
+        };
+      }
+      return checkFffMcp({ ...options, ensureFff: false });
+    }
+    return {
+      ok: false,
+      command,
+      reason: versionResult.reason,
+      requiredRelease: REQUIRED_FFF_MCP_RELEASE,
+      recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+      installCommand: FFF_MCP_INSTALL_COMMAND,
+      path,
+      canEnsureFff: true,
+    };
+  }
+
   try {
-    const { stdout, stderr } = await execFileAsync(command, ["--version"], {
-      env,
-    });
     let smokeResult: Extract<FffSmokeResult, { ok: true }> | undefined;
     if (!options.skipSmoke) {
-      const smoke = await (options.smoke ?? runFffSmokeTest)({ command });
+      const smoke = await (options.smoke ?? runFffSmokeTest)({ command, env });
       if (!smoke.ok) {
         return {
           ok: false,
           command,
           reason: `${command} was found, but a live grep smoke test failed: ${smoke.reason}`,
+          requiredRelease: REQUIRED_FFF_MCP_RELEASE,
           recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
           installCommand: FFF_MCP_INSTALL_COMMAND,
           path,
+          canEnsureFff: false,
         };
       }
       smokeResult = smoke;
@@ -129,7 +177,8 @@ export async function checkFffMcp(
       ok: true,
       command,
       resolvedPath: await findOnPath(command, path),
-      version: `${stdout}${stderr}`.trim(),
+      version: versionResult.version,
+      requiredRelease: REQUIRED_FFF_MCP_RELEASE,
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
       path,
@@ -144,14 +193,81 @@ export async function checkFffMcp(
       return {
         ok: false,
         command,
-        reason: `${command} was not found on PATH`,
+        reason: readVersionFailureMessage(command, error),
+        requiredRelease: REQUIRED_FFF_MCP_RELEASE,
         recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
         installCommand: FFF_MCP_INSTALL_COMMAND,
         path,
+        canEnsureFff: true,
+      };
+    }
+    return {
+      ok: false,
+      command,
+      reason: readVersionFailureMessage(command, error),
+      requiredRelease: REQUIRED_FFF_MCP_RELEASE,
+      recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+      installCommand: FFF_MCP_INSTALL_COMMAND,
+      path,
+      canEnsureFff: true,
+    };
+  }
+}
+
+async function checkFffMcpVersion(command: string, env: NodeJS.ProcessEnv) {
+  try {
+    const version = await readFffMcpVersion(command, env);
+    const assessment = assessFffMcpVersion(version, command);
+    if (!assessment.ok) {
+      return assessment;
+    }
+    return { ok: true as const, version };
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return {
+        ok: false as const,
+        reason: `${command} was not found on PATH`,
       };
     }
     throw error;
   }
+}
+
+async function installFffMcp(input: InstallFffMcpInput) {
+  await execFileAsync("bash", ["-c", FFF_MCP_INSTALL_COMMAND], {
+    env: input.env,
+  });
+}
+
+async function tryInstallFffMcp(
+  installer: (input: InstallFffMcpInput) => Promise<void>,
+  env: NodeJS.ProcessEnv
+) {
+  try {
+    await installer({ env });
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      reason: `Failed to run FFF MCP installer: ${installerErrorMessage(error)}`,
+    };
+  }
+}
+
+function installerErrorMessage(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    ("stderr" in error || "stdout" in error)
+  ) {
+    const output = `${"stderr" in error ? String(error.stderr ?? "") : ""}${
+      "stdout" in error ? String(error.stdout ?? "") : ""
+    }`.trim();
+    if (output) {
+      return output;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function findOrphanFffMcpProcesses(
@@ -208,6 +324,7 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`resolved path: ${result.resolvedPath}`);
     }
     console.log(`version: ${result.version || "unknown"}`);
+    console.log(`required FFF MCP: ${result.requiredRelease}`);
     console.log(`recommended stable FFF MCP: ${result.recommendedRelease}`);
     console.log(
       `smoke: ${result.smoke === "passed" ? "live grep passed" : "skipped"}`
@@ -227,9 +344,15 @@ export async function main(argv = process.argv.slice(2)) {
   console.error(result.reason);
   console.error(`PATH: ${result.path}`);
   console.error("");
-  console.error("Install FFF MCP with the official installer:");
+  console.error("Install or upgrade FFF MCP with the official installer:");
   console.error(`  ${result.installCommand}`);
+  console.error(`Required minimum release: ${result.requiredRelease}`);
   console.error(`Recommended stable release: ${result.recommendedRelease}`);
+  if (result.canEnsureFff) {
+    console.error(
+      "To let doctor run that command explicitly: agent-session-search-doctor --ensure-fff --yes"
+    );
+  }
   console.error("Review the installer before running it if desired:");
   console.error(`  ${FFF_MCP_INSTALLER_URL}`);
   process.exitCode = 3;
@@ -263,7 +386,36 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
       options.reapOrphans = true;
       continue;
     }
+    if (arg === "--ensure-fff") {
+      options.ensureFff = true;
+      continue;
+    }
+    if (arg === "--yes") {
+      options.yes = true;
+      continue;
+    }
     throw unknownOptionError(arg, argv);
+  }
+  if (options.yes && !options.ensureFff) {
+    throw new DoctorParseError("--yes requires --ensure-fff", {
+      hint: "Use --yes only when asking doctor to run the FFF installer.",
+      suggestedCommand: "agent-session-search-doctor --ensure-fff --yes",
+    });
+  }
+  if (options.ensureFff && !options.yes) {
+    throw new DoctorParseError("--ensure-fff requires --yes", {
+      hint: "Doctor will not install or upgrade fff-mcp unless --yes is present.",
+      suggestedCommand: "agent-session-search-doctor --ensure-fff --yes",
+    });
+  }
+  if (options.ensureFff && options.command && options.command !== "fff-mcp") {
+    throw new DoctorParseError(
+      "--ensure-fff only supports the default fff-mcp command",
+      {
+        hint: "Run the official installer for PATH-managed fff-mcp, or upgrade the custom binary manually.",
+        suggestedCommand: "agent-session-search-doctor --ensure-fff --yes",
+      }
+    );
   }
   return options;
 }
@@ -277,6 +429,8 @@ const KNOWN_DOCTOR_OPTIONS = [
   "--skip-smoke",
   "--list-orphans",
   "--reap-orphans",
+  "--ensure-fff",
+  "--yes",
   "--help",
 ] as const;
 
@@ -284,6 +438,8 @@ const BOOLEAN_DOCTOR_OPTIONS = new Set<string>([
   "--skip-smoke",
   "--list-orphans",
   "--reap-orphans",
+  "--ensure-fff",
+  "--yes",
   "--help",
 ]);
 
@@ -424,7 +580,10 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
     backend = new OneRootFffBackend({
       source: "doctor" as SourceName,
       root,
-      client: await createFffMcpClient(root, { command: input.command }),
+      client: await createFffMcpClient(root, {
+        command: input.command,
+        env: input.env,
+      }),
       timeoutMs: 5_000,
       emptyResultRetryAttempts: 10,
       emptyResultRetryDelayMs: 50,
@@ -524,15 +683,6 @@ async function findOnPath(command: string, path: string) {
     }
   }
   return undefined;
-}
-
-function isNotFoundError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {

@@ -90,12 +90,15 @@ agent-session-search --robot-triage
 ```bash
 agent-session-search-doctor
 agent-session-search-doctor --skip-smoke
+agent-session-search-doctor --ensure-fff --yes
 agent-session-search-doctor --list-orphans
 agent-session-search-doctor --reap-orphans
 agent-session-search-doctor --command /usr/local/bin/fff-mcp --skip-smoke
 ```
 
-Doctor verifies that `fff-mcp` is on `PATH` and runs a live smoke test unless `--skip-smoke` is set. It reports the installed version, documented stable release guidance, `multi_grep` support, recall-equivalence status, and the non-destructive upgrade command.
+Doctor verifies that `fff-mcp` is on `PATH`, requires at least `v0.9.6`, and runs a live smoke test unless `--skip-smoke` is set. It reports the installed version, documented stable release guidance, `multi_grep` support, recall-equivalence status, and the non-destructive upgrade command.
+
+Doctor does not install or upgrade automatically. Use `agent-session-search-doctor --ensure-fff --yes` when you explicitly want doctor to run the official installer.
 
 Use `--list-orphans` before `--reap-orphans`. Reaping kills matching orphaned `fff-mcp` processes with `SIGKILL`; it does not prompt.
 
@@ -111,11 +114,11 @@ Runs the stdio MCP server that exposes `search_sessions`.
 
 ## Exit Codes
 
-| Code | Meaning                                                    |
-| ---- | ---------------------------------------------------------- |
-| `0`  | Success.                                                   |
-| `1`  | User-input error, such as a missing query or invalid flag. |
-| `3`  | Tool-environment error, such as missing `fff-mcp`.         |
-| `4`  | Unexpected upstream failure.                               |
+| Code | Meaning                                                     |
+| ---- | ----------------------------------------------------------- |
+| `0`  | Success.                                                    |
+| `1`  | User-input error, such as a missing query or invalid flag.  |
+| `3`  | Tool-environment error, such as missing or stale `fff-mcp`. |
+| `4`  | Unexpected upstream failure.                                |
 
 With `--json`, CLI parse failures write a JSON envelope to stderr with `error.code: "user_input_error"` and `suggestedCommand`.

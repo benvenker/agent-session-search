@@ -17,7 +17,30 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor
 ```
 
-Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The documented stable FFF MCP release for this package is `v0.9.5`.
+Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The required and documented stable FFF MCP release for this package is `v0.9.6`.
+
+To let doctor run the official installer explicitly:
+
+```bash
+agent-session-search-doctor --ensure-fff --yes
+```
+
+## `fff-mcp` Is Too Old
+
+Symptom:
+
+```text
+fff-mcp 0.9.5 is below required minimum v0.9.6
+```
+
+Cause: the installed external `fff-mcp` binary is older than the runtime version Agent Session Search expects.
+
+Fix:
+
+```bash
+agent-session-search-doctor --ensure-fff --yes
+agent-session-search-doctor
+```
 
 ## FFF `multi_grep` Falls Back
 

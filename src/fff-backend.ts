@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 import { trackChildProcessPid } from "./child-process-cleanup.js";
 import { DetachedStdioClientTransport } from "./detached-stdio-transport.js";
+import { ensureFffMcpCompatible } from "./fff-runtime.js";
 import { pathMatchesInclude } from "./roots.js";
 
 export type FffGrepInput = {
@@ -582,12 +583,14 @@ export class FffMcpClient implements FffClient {
 export type CreateFffMcpClientOptions = {
   command?: string;
   args?: string[];
+  env?: NodeJS.ProcessEnv;
 };
 
 export async function createFffMcpClient(
   root: string,
   options: CreateFffMcpClientOptions = {}
 ): Promise<FffMcpClient> {
+  await ensureFffMcpCompatible(options.command ?? "fff-mcp", options.env);
   const defaultDbDir = options.args
     ? undefined
     : await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
@@ -601,6 +604,7 @@ export async function createFffMcpClient(
   const transport = new DetachedStdioClientTransport({
     command: options.command ?? "fff-mcp",
     args: [...args, root],
+    env: options.env ? stringEnv(options.env) : undefined,
   });
   const client = new Client({ name: "agent-session-search", version: "0.1.0" });
 
@@ -630,6 +634,14 @@ export async function createFffMcpClient(
 
 function normalizePath(root: string, path: string) {
   return isAbsolute(path) ? path : join(root, path);
+}
+
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
 }
 
 function hasReachedCap(
