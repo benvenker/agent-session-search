@@ -190,6 +190,11 @@ describe("package build and tarball", () => {
       command: installedServer,
       args: [],
       cwd: appRoot,
+      env: stringEnv({
+        ...process.env,
+        PATH: `${fakeBin}${delimiter}${dirname(process.execPath)}`,
+        NODE_NO_WARNINGS: "1",
+      }),
       stderr: "pipe",
     });
     const client = new Client({
@@ -206,3 +211,11 @@ describe("package build and tarball", () => {
     }
   }, 60_000);
 });
+
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+}

@@ -806,6 +806,11 @@ describe("CLI argument parsing", () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-cli-"));
     const missingRoot = join(tmp, "missing-custom-agent");
     const configPath = join(tmp, "config.json");
+    const fakeBin = join(tmp, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
     await mkdir(tmp, { recursive: true });
     await writeFile(
       configPath,
@@ -829,6 +834,7 @@ describe("CLI argument parsing", () => {
       await main(["auth"], {
         ...process.env,
         AGENT_SESSION_SEARCH_CONFIG: configPath,
+        PATH: fakeBin,
       });
 
       expect(log).toHaveBeenCalledWith("query: auth");
