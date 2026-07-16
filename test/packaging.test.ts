@@ -68,6 +68,18 @@ describe("package build and tarball", () => {
     const tarball = tarballs[0] ?? "";
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
+    await writeFile(
+      join(appRoot, "package.json"),
+      JSON.stringify(
+        {
+          allowScripts: {
+            "@benvenker/agent-session-search": true,
+          },
+        },
+        null,
+        2
+      )
+    );
     const emptyBin = join(installRoot, "empty-bin");
     await mkdir(emptyBin);
     const install = await execFileAsync(
