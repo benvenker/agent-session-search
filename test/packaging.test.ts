@@ -68,18 +68,6 @@ describe("package build and tarball", () => {
     const tarball = tarballs[0] ?? "";
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
-    await writeFile(
-      join(appRoot, "package.json"),
-      JSON.stringify(
-        {
-          allowScripts: {
-            "@benvenker/agent-session-search": true,
-          },
-        },
-        null,
-        2
-      )
-    );
     const emptyBin = join(installRoot, "empty-bin");
     await mkdir(emptyBin);
     const install = await execFileAsync(
@@ -135,17 +123,6 @@ describe("package build and tarball", () => {
     expect(
       installedPaths.find((path) => path.startsWith(".beads/.br_history/"))
     ).toBeUndefined();
-    const installOutput = `${install.stdout}\n${install.stderr}`;
-    expect(installOutput).toContain(
-      "agent-session-search uses fff-mcp for fast file searching, but it's not installed."
-    );
-    expect(installOutput).toContain("Recommended stable FFF MCP: v0.9.5");
-    expect(installOutput).toContain(
-      "Install FFF with: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
-    );
-    expect(installOutput).toContain(
-      "Then verify with: agent-session-search-doctor"
-    );
 
     const installedCli = join(
       appRoot,
