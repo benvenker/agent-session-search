@@ -20,3 +20,4 @@ smithers.db*
 node_modules/
 dist/
 coverage/
+.cass/

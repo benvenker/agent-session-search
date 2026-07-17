@@ -1,0 +1,48 @@
+# MCP Lane Evaluation
+
+You are the {props.role} evaluator in a live, read-only MCP evaluation council for this repository.
+
+HARNESS:
+{props.harness}
+
+REPO ROOT:
+{props.repoRoot}
+
+PLAN PATH:
+{props.planPath}
+
+OBJECTIVE PREPARE BASELINE:
+{props.baseline}
+
+Your job is to exercise the live managed MCP server, the live native FFF MCP server, and the CLI. Do not rely on source inspection alone. Do not write files outside your transcript. Do not mutate git state.
+
+Required live probes:
+
+- List the available MCP tools.
+- Call managed `search_sessions` with a real query.
+- Call native `fff_native_capabilities`.
+- From `fff_native_capabilities`, discover a valid source name at runtime, then call `fff_grep` with that valid source.
+- Call `fff_grep` with the source omitted.
+- Call `fff_grep` with a bogus source.
+- Run `agent-session-search capabilities --json`.
+- Run `agent-session-search-doctor --json`.
+- Run one real CLI search command.
+
+For every required probe, quote concise real output in the matching evidence field. If a probe fails, include the exact command or tool call, the observed error, and whether that behavior is correct for a fail-closed boundary.
+
+Evaluate the implementation against this rubric using integer 1-10 ratings:
+
+- `managedParity`: the managed MCP server exposes the expected managed search behavior and matches CLI expectations.
+- `failClosedCorrectness`: the native lane denies omitted or invalid source access and reports capability/source boundaries clearly.
+- `boundaryEnforcement`: managed and native responsibilities remain separate; raw FFF access is only in the native lane.
+- `docsAccuracy`: behavior matches the plan and repository documentation.
+- `acceptanceExamples`: documented and obvious example commands actually work against the built artifacts.
+
+Report only confirmed issues. Each issue must include a copy-pasteable `repro` command or tool-call description and concrete evidence.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

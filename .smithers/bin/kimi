@@ -4,26 +4,33 @@
 # ~/.kimi-code/bin so KimiAgent's `kimi` spawn resolves here.
 #
 # Dropped (unsupported by kimi-code 0.26): --print, --final-message-only,
-# --thinking/--no-thinking, --work-dir <dir> (handled via cd instead).
-# Everything else passes through verbatim. Note: kimi-code 0.26 rejects
-# combining --prompt with --yolo, so no approval flag is added.
+# --thinking/--no-thinking, --work-dir <dir> (handled via cd instead),
+# --session <id> (0.26 only resumes existing sessions; Smithers always passes
+# a fresh UUID, which errors).
+#
+# --mcp-config-file/--mcp-config: 0.26 discovers MCP servers only from a
+# project-scoped .mcp.json in the working directory, so the shim merges the
+# given servers into <workdir>/.mcp.json (preserving existing entries),
+# runs kimi as a child, then restores the original file on exit.
 set -euo pipefail
 
 out=()
 workdir=""
+mcp_inputs=()
 while (($#)); do
   case "$1" in
     --print | --final-message-only | --thinking | --no-thinking)
       shift
+      ;;
+    --mcp-config-file | --mcp-config)
+      mcp_inputs+=("$2")
+      shift 2
       ;;
     --work-dir)
       workdir="${2:-}"
       shift 2
       ;;
     --session)
-      # kimi-code 0.26 --session only resumes existing sessions; Smithers
-      # always passes a fresh UUID, which errors. Drop it: Smithers tasks
-      # are one-shot and retries simply start a fresh session.
       shift 2
       ;;
     *)
@@ -37,4 +44,45 @@ if [[ -n "$workdir" ]]; then
   cd "$workdir"
 fi
 
-exec /home/ben/.kimi-code/bin/kimi "${out[@]}"
+mcp_json=""
+backup=""
+if ((${#mcp_inputs[@]})); then
+  mcp_json="$PWD/.mcp.json"
+  if [[ -f "$mcp_json" ]]; then
+    backup="$(mktemp)"
+    cp "$mcp_json" "$backup"
+  fi
+  python3 - "$mcp_json" "${mcp_inputs[@]}" <<'PY'
+import json, sys
+path, *inputs = sys.argv[1:]
+try:
+    base = json.load(open(path))
+except Exception:
+    base = {}
+servers = base.setdefault("mcpServers", {})
+added = []
+for item in inputs:
+    try:
+        data = json.loads(item) if item.lstrip().startswith("{") else json.load(open(item))
+    except Exception as e:
+        print(f"shim: mcp config parse failed for {item!r}: {e}", file=sys.stderr)
+        continue
+    for name, spec in data.get("mcpServers", data).items():
+        servers[name] = spec
+        added.append(name)
+json.dump(base, open(path, "w"), indent=2)
+print(f"shim: merged MCP servers {added} into {path}", file=sys.stderr)
+PY
+fi
+
+rc=0
+/home/ben/.kimi-code/bin/kimi "${out[@]}" || rc=$?
+
+if [[ -n "$mcp_json" ]]; then
+  if [[ -n "$backup" ]]; then
+    cp "$backup" "$mcp_json" && rm -f "$backup"
+  else
+    rm -f "$mcp_json"
+  fi
+fi
+exit "$rc"

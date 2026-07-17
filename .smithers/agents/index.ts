@@ -13,6 +13,7 @@ export {
   Codex56LunaMaxAgent,
   Codex56SolHighAgent,
   Codex56SolMaxAgent,
+  Codex56SolMedAgent,
   Codex56SolXHighAgent,
   CodexAgent,
   createCodex55HighAgent,
@@ -21,6 +22,7 @@ export {
   createCodex56LunaMaxAgent,
   createCodex56SolHighAgent,
   createCodex56SolMaxAgent,
+  createCodex56SolMedAgent,
   createCodex56SolXHighAgent,
 } from "./codex";
 export { OpenCodeAgent } from "./opencode";

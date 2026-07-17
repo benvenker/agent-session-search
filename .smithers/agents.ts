@@ -19,6 +19,7 @@ import {
   Codex56LunaMaxAgent,
   Codex56SolHighAgent,
   Codex56SolMaxAgent,
+  Codex56SolMedAgent,
   Codex56SolXHighAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
@@ -26,6 +27,7 @@ import {
   createCodex56LunaMaxAgent,
   createCodex56SolHighAgent,
   createCodex56SolMaxAgent,
+  createCodex56SolMedAgent,
   createCodex56SolXHighAgent,
 } from "./agents/codex";
 import { Gemini31ProAgent } from "./agents/gemini";
@@ -110,6 +112,7 @@ export const providers = {
   codex56SolMax: Codex56SolMaxAgent,
   codex56SolHigh: Codex56SolHighAgent,
   codex56SolXHigh: Codex56SolXHighAgent,
+  codex56SolMed: Codex56SolMedAgent,
   codex56LunaMax: Codex56LunaMaxAgent,
   kimiK3Thinking: new KimiAgent({
     model: "kimi-code/k3",

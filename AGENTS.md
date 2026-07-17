@@ -77,3 +77,9 @@ Prototype in throwaway worktrees when useful, but merge durable findings before 
 - Run `npm run check:dcg` to verify DCG is active.
 - Avoid broad refactors when changing behavior; update focused tests for the module touched.
 - Before finishing code changes, run `npm run check` and the relevant tests, or explain why they were not run.
+
+## Session Recall
+
+- Start non-trivial tasks with procedural memory: `cm context "<one-line task description>" --json` returns relevant rules, anti-patterns, and past-session snippets. Treat its output as advisory, not authoritative.
+- For session archaeology ("what did we decide about X?"), search the local corpus with cass: `cass search "KEYWORD" --workspace /data/projects/agent-session-search --json --fields minimal --limit 20`. Refresh only when `cass status --json` reports `index.stale`, and cap every `cass index` call with `timeout`.
+- After significant work, harvest it: `cm reflect --days 1 --json` (background with `setsid timeout 1800 ... &` for long runs) so future tasks inherit the lessons.
