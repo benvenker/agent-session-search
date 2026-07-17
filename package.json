@@ -33,6 +33,7 @@
     "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "check:dcg": "bash scripts/validate-dcg.sh",
     "check:beads": "node scripts/check-beads-sync.mjs",
     "check:fff": "tsx src/fff-preflight.ts",
     "prepack": "npm run build",

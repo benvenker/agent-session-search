@@ -72,5 +72,7 @@ Prototype in throwaway worktrees when useful, but merge durable findings before 
 
 ## Guardrails
 
+- **Destructive Command Guard (DCG)** is installed globally and its PreToolUse hook is registered in Claude Code (global, not repo-local). This repo carries project-specific DCG packs in `.dcg.toml` (currently `platform.github`) and a validation script. It blocks dangerous commands (e.g. `git reset --hard`, broad `rm -rf`, `gh repo delete`) before they run. If DCG blocks a command, find a safe alternative from the DCG skill workflow; do not silently retry or ask for an override without first explaining the risk and alternatives.
+- Run `npm run check:dcg` to verify DCG is active.
 - Avoid broad refactors when changing behavior; update focused tests for the module touched.
 - Before finishing code changes, run `npm run check` and the relevant tests, or explain why they were not run.
