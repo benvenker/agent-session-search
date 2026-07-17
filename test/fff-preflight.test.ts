@@ -10,6 +10,7 @@ import {
   handleDoctorEntrypointError,
   main,
   reapOrphanFffMcpProcesses,
+  runNativeToolsSmoke,
 } from "../src/fff-preflight.js";
 import { assessFffMcpVersion } from "../src/fff-runtime.js";
 
@@ -415,6 +416,10 @@ describe("FFF preflight command", () => {
         multiGrep: "supported",
         recallEquivalence: "passed",
       }),
+      nativeSmoke: async () => ({
+        ok: true,
+        tools: ["fff_native_capabilities", "fff_grep"],
+      }),
     });
 
     expect(result.ok).toBe(true);
@@ -425,7 +430,128 @@ describe("FFF preflight command", () => {
         { id: "smoke_grep", status: "passed" },
         { id: "multi_grep_available", status: "passed" },
         { id: "recall_equivalence", status: "passed" },
+        { id: "native_server_tools", status: "passed" },
       ]);
+    }
+  }, 60_000);
+
+  it("fails doctor when the native server smoke check fails", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-native-fail-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.6\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await checkFffMcp({
+      command: "fff-mcp",
+      env: { PATH: fakeBin },
+      smoke: async () => ({
+        ok: true,
+        multiGrep: "supported",
+        recallEquivalence: "passed",
+      }),
+      nativeSmoke: async () => ({
+        ok: false,
+        reason: "native boot failed",
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain(
+        "native MCP server startup/tool-listing check failed"
+      );
+      expectDoctorChecks({ checks: result.checks }, [
+        { id: "command_found", status: "passed" },
+        { id: "version_minimum", status: "passed" },
+        { id: "smoke_grep", status: "passed" },
+        { id: "multi_grep_available", status: "passed" },
+        { id: "recall_equivalence", status: "passed" },
+        { id: "native_server_tools", status: "failed" },
+      ]);
+    }
+  }, 60_000);
+
+  it("threads a custom fff-mcp command into native smoke when PATH lacks fff-mcp", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-native-command-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "custom-fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.6\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    let nativeCommand: string | undefined;
+    const result = await checkFffMcp({
+      command: fakeFffMcp,
+      env: { PATH: fakePath },
+      smoke: async () => ({
+        ok: true,
+        multiGrep: "supported",
+        recallEquivalence: "passed",
+      }),
+      nativeSmoke: async (input) => {
+        nativeCommand = input.command;
+        return { ok: true, tools: ["fff_native_capabilities"] };
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(nativeCommand).toBe(fakeFffMcp);
+  }, 60_000);
+
+  it("fails native smoke instead of hanging when the native server never handshakes", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-native-no-handshake-")
+    );
+    const fakeServer = join(fakePath, "server.mjs");
+    await writeFile(fakeServer, "setInterval(() => {}, 1000);\n");
+
+    const result = await runNativeToolsSmoke({
+      command: "fff-mcp",
+      env: { PATH: process.env.PATH ?? "" },
+      serverCommand: process.execPath,
+      serverArgs: [fakeServer],
+      timeoutMs: 50,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "native_server_tools_timeout",
+    });
+  }, 60_000);
+
+  it("does not run the native server smoke check when smoke is skipped", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-native-skip-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.6\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+    let nativeSmokeCalled = false;
+
+    const result = await checkFffMcp({
+      command: "fff-mcp",
+      env: { PATH: fakeBin },
+      skipSmoke: true,
+      nativeSmoke: async () => {
+        nativeSmokeCalled = true;
+        return { ok: false, reason: "should not run" };
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(nativeSmokeCalled).toBe(false);
+    if (result.ok) {
+      expect(result.checks.map((check) => check.id)).not.toContain(
+        "native_server_tools"
+      );
     }
   }, 60_000);
 

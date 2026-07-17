@@ -3,7 +3,10 @@ import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { isEntrypoint } from "./entrypoint.js";
 import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
 import {
@@ -32,6 +35,7 @@ type CheckFffMcpOptions = {
   json?: boolean;
   skipSmoke?: boolean;
   smoke?: (input: FffSmokeInput) => Promise<FffSmokeResult>;
+  nativeSmoke?: (input: NativeSmokeInput) => Promise<NativeSmokeResult>;
   listOrphans?: boolean;
   reapOrphans?: boolean;
   ensureFff?: boolean;
@@ -88,6 +92,18 @@ type FffSmokeResult =
       reason: string;
     };
 
+type NativeSmokeInput = {
+  command: string;
+  env: NodeJS.ProcessEnv;
+  serverCommand?: string;
+  serverArgs?: string[];
+  timeoutMs?: number;
+};
+
+type NativeSmokeResult =
+  | { ok: true; tools: string[] }
+  | { ok: false; reason: string };
+
 type DoctorCheckStatus = "passed" | "failed" | "skipped" | "warning";
 
 type DoctorCheck = {
@@ -96,7 +112,8 @@ type DoctorCheck = {
     | "version_minimum"
     | "smoke_grep"
     | "multi_grep_available"
-    | "recall_equivalence";
+    | "recall_equivalence"
+    | "native_server_tools";
   status: DoctorCheckStatus;
   message: string;
   recommendedAction?: string;
@@ -282,9 +299,46 @@ export async function checkFffMcp(
       smokeResult = smoke;
     }
 
-    const checks = options.skipSmoke
+    let checks = options.skipSmoke
       ? skippedSmokeChecks(baseChecks)
       : [...baseChecks, ...smokeChecks(smokeResult!)];
+    if (!options.skipSmoke && (!options.smoke || options.nativeSmoke)) {
+      const nativeSmoke = await (options.nativeSmoke ?? runNativeToolsSmoke)({
+        command,
+        env,
+      });
+      if (!nativeSmoke.ok) {
+        checks = [
+          ...checks,
+          {
+            id: "native_server_tools",
+            status: "failed",
+            message: `Native MCP server startup/tool-listing failed: ${nativeSmoke.reason}`,
+            recommendedAction:
+              "Run agent-session-search-native-mcp directly with the same environment and inspect stderr.",
+          },
+        ];
+        return {
+          ok: false,
+          command,
+          reason: `${command} was found, but the native MCP server startup/tool-listing check failed: ${nativeSmoke.reason}`,
+          requiredRelease: REQUIRED_FFF_MCP_RELEASE,
+          recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
+          installCommand: FFF_MCP_INSTALL_COMMAND,
+          path,
+          canEnsureFff: false,
+          checks,
+        };
+      }
+      checks = [
+        ...checks,
+        {
+          id: "native_server_tools",
+          status: "passed",
+          message: `Native MCP server started and listed ${nativeSmoke.tools.length} tool(s).`,
+        },
+      ];
+    }
     return {
       ok: true,
       command,
@@ -1201,6 +1255,88 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
     await backend?.close();
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+export async function runNativeToolsSmoke(
+  input: NativeSmokeInput
+): Promise<NativeSmokeResult> {
+  const env = {
+    ...stringEnv(input.env),
+    AGENT_SESSION_SEARCH_FFF_MCP_COMMAND: input.command,
+  };
+  const transport = new StdioClientTransport({
+    command: input.serverCommand ?? process.execPath,
+    args: input.serverArgs ?? nativeServerNodeArgs(),
+    env,
+    stderr: "pipe",
+  });
+  const client = new Client({
+    name: "agent-session-search-doctor-native-smoke",
+    version: "0.1.0",
+  });
+
+  try {
+    const result = await withTimeout(
+      async () => {
+        await client.connect(transport);
+        return client.listTools();
+      },
+      input.timeoutMs ?? 5_000,
+      "native_server_tools_timeout"
+    );
+    const tools = result.tools.map((tool) => tool.name);
+    if (!tools.includes("fff_native_capabilities")) {
+      return {
+        ok: false,
+        reason: "tools/list did not include fff_native_capabilities",
+      };
+    }
+    return { ok: true, tools };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+  }
+}
+
+async function withTimeout<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function nativeServerNodeArgs() {
+  const current = fileURLToPath(import.meta.url);
+  if (current.endsWith(".ts")) {
+    return ["--import", "tsx", join(process.cwd(), "src", "native-server.ts")];
+  }
+  return [fileURLToPath(new URL("./native-server.js", import.meta.url))];
+}
+
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
 }
 
 function printOrphans(orphans: ProcessInfo[]) {

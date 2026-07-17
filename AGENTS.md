@@ -5,6 +5,7 @@ Repo-local guidance for coding agents working in this project.
 ## Project Shape
 
 - This is a TypeScript ESM package that exposes a local MCP server and CLI for searching coding-agent session history.
+- `agent-session-search-mcp` is the managed MCP server and exposes only `search_sessions`; `agent-session-search-native-mcp` is the separate opt-in native MCP server for audited raw FFF access.
 - Keep the managed MCP surface centered on the single `search_sessions` tool; raw FFF access belongs only in the separate opt-in native MCP lane described by `DESIGN.md`.
 - Treat FFF as the search engine. Do not add custom indexing, embeddings, SQLite search stores, markdown session exports, or session aggregation unless explicitly requested.
 - Preserve canonical absolute paths in search results and keep source/root metadata attached to hits.
@@ -17,7 +18,7 @@ Repo-local guidance for coding agents working in this project.
 - Typecheck: `npm run check`
 - Test: `npm test`
 - Build: `npm run build`
-- Run MCP server in development: `npm run dev:mcp`
+- Run managed MCP server in development: `npm run dev:mcp`
 - Run CLI smoke path: `npm run dev:cli -- "auth token timeout" --json`
 
 ## Smithers

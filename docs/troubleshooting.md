@@ -64,6 +64,23 @@ Upgrade FFF only when you want the faster backend path:
 curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
 ```
 
+## Native FFF Tool Is Missing
+
+Symptoms:
+
+- `agent-session-search-native-mcp` lists only `fff_native_capabilities`
+- `fff_native_capabilities` reports `definition_drift`, `unknown_tool`, `unsafe_schema`, or no healthy source enum
+
+Cause: native exposure is fail-closed. Only checked-in, fingerprinted, read-only FFF definitions are exposed as `fff_grep` and `fff_multi_grep`. New or changed upstream definitions remain diagnostic-only until this package is updated.
+
+Fix:
+
+```bash
+agent-session-search-doctor --json
+```
+
+Check `fff_native_capabilities` for blocked reasons and source health. Restart the native server after FFF upgrades or config changes. Do not treat managed `include` patterns as native confinement; native calls are root-wide for the selected `source`.
+
 ## Malformed Group Follow-Up
 
 Symptom:

@@ -100,6 +100,7 @@ describe("package build and tarball", () => {
 
     expect(installedPaths).toContain("dist/cli.js");
     expect(installedPaths).toContain("dist/fff-preflight.js");
+    expect(installedPaths).toContain("dist/native-server.js");
     expect(installedPaths).toContain("dist/server.js");
     expect(installedPaths).toContain("AGENTS.md");
     expect(installedPaths).toContain("DESIGN.md");
@@ -141,6 +142,12 @@ describe("package build and tarball", () => {
       "node_modules",
       ".bin",
       "agent-session-search-mcp"
+    );
+    const installedNativeServer = join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      "agent-session-search-native-mcp"
     );
     const installedCliResult = await execFileAsync(installedCli, [], {
       cwd: appRoot,
@@ -205,9 +212,50 @@ describe("package build and tarball", () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toContain("search_sessions");
+      expect(tools.tools.map((tool) => tool.name)).toEqual(["search_sessions"]);
     } finally {
       await client.close();
+    }
+
+    const nativeRoot = join(installRoot, "native-root");
+    const nativeDb = join(installRoot, "native-db");
+    const nativeConfig = join(installRoot, "native-config.json");
+    await mkdir(nativeRoot);
+    await mkdir(nativeDb);
+    await writeFile(join(nativeRoot, "session.jsonl"), "native package hit\n");
+    await writeFile(
+      nativeConfig,
+      JSON.stringify({
+        roots: [
+          { name: "native_pack", path: nativeRoot, include: ["*.jsonl"] },
+        ],
+      })
+    );
+    const nativeTransport = new StdioClientTransport({
+      command: installedNativeServer,
+      args: [],
+      cwd: appRoot,
+      env: stringEnv({
+        ...process.env,
+        AGENT_SESSION_SEARCH_CONFIG: nativeConfig,
+        AGENT_SESSION_SEARCH_FFF_DB_DIR: nativeDb,
+        NODE_NO_WARNINGS: "1",
+      }),
+      stderr: "pipe",
+    });
+    const nativeClient = new Client({
+      name: "agent-session-search-native-package-test",
+      version: "0.1.0",
+    });
+
+    try {
+      await nativeClient.connect(nativeTransport);
+      const tools = await nativeClient.listTools();
+      expect(tools.tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(["fff_native_capabilities", "fff_grep"])
+      );
+    } finally {
+      await nativeClient.close();
     }
   }, 60_000);
 });

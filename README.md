@@ -12,7 +12,8 @@ Agent Session Search wraps [FFF][fff]. It keeps raw session files as the source 
 
 ## What It Does
 
-- Exposes one MCP tool: `search_sessions`.
+- Exposes one managed MCP tool: `search_sessions`.
+- Ships a separate opt-in native MCP server, `agent-session-search-native-mcp`, for approved raw FFF tools.
 - Ships a matching CLI: `agent-session-search`.
 - Uses `agent-session-search-doctor --json` to expose agent-readable FFF, source, and orphan diagnostics.
 - Searches local text transcript roots only. It does not add embeddings, summaries, or a custom session database.
@@ -67,6 +68,20 @@ Register the MCP server with a client:
   }
 }
 ```
+
+The managed server is the default and still lists exactly one tool. Advanced agents can opt in to the native FFF lane with a separate server entry:
+
+```json
+{
+  "mcpServers": {
+    "agent-session-search-native": {
+      "command": "agent-session-search-native-mcp"
+    }
+  }
+}
+```
+
+The native server exposes `fff_native_capabilities` plus approved tools such as `fff_grep` and `fff_multi_grep`. Every native call requires `source`. Native calls inspect the selected canonical root, return raw FFF presentation text, and do not enforce managed `include` filters. Config or FFF schema changes require restarting the native server.
 
 Call the MCP tool:
 
@@ -181,6 +196,7 @@ Add a custom text transcript root without re-declaring the built-ins:
 
 - [CLI reference](docs/cli.md)
 - [MCP tool contract](docs/mcp.md)
+- [Native MCP opt-in](docs/native-mcp.md)
 - [Configuration](docs/configuration.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Release process](docs/maintainers/release.md)
@@ -209,6 +225,7 @@ npm run dev:cli -- "auth token timeout" --json
 - SQLite-only or binary session stores need an export path before FFF can search them.
 - Results cover the session files available to the current machine and user.
 - `fff-mcp` must be installed and runnable for real searches.
+- Native FFF access is opt-in, root-wide, bounded by local policy and budgets, and not a Code Mode or importable SDK surface.
 
 ## License
 

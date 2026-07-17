@@ -74,7 +74,7 @@ describe("MCP server FFF client pooling", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 20_000);
 });
 
 async function eventuallyCallSearchSessions(

@@ -88,7 +88,18 @@ describe("CLI argument parsing", () => {
           warningEnvelope: { fields: string[]; recovery: string };
         };
         env: Array<{ name: string }>;
-        mcp: { tools: Array<{ name: string }> };
+        mcp: {
+          tools: Array<{ name: string }>;
+          managedEntrypoint: string;
+          nativeEntrypoint: {
+            command: string;
+            optIn: boolean;
+            diagnosticTool: string;
+            approvedToolNames: string[];
+            sourceArgument: string;
+            restartRequiredForConfigOrSchemaChanges: boolean;
+          };
+        };
         exitCodes: Array<{ code: number; meaning: string }>;
       };
 
@@ -114,6 +125,15 @@ describe("CLI argument parsing", () => {
       expect(doctorCommand?.output).toContain("stderr");
       expect(doctorCommand?.output).toContain("0/1/3/4");
       expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
+      expect(output.mcp.managedEntrypoint).toBe("agent-session-search-mcp");
+      expect(output.mcp.nativeEntrypoint).toMatchObject({
+        command: "agent-session-search-native-mcp",
+        optIn: true,
+        diagnosticTool: "fff_native_capabilities",
+        approvedToolNames: ["fff_grep", "fff_multi_grep"],
+        sourceArgument: "required",
+        restartRequiredForConfigOrSchemaChanges: true,
+      });
       expect(output.contract.warnings.no_sources_selected).toContain(
         "sources --json"
       );

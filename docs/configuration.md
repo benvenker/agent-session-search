@@ -71,6 +71,8 @@ You do not need to re-declare built-ins to add a new source.
 - `*` matches within one path segment.
 - `**` matches across path segments.
 
+Native MCP calls do not use `include` as a security boundary. `agent-session-search-native-mcp` binds each call to the selected source's canonical root and reports the managed include patterns in `fff_native_capabilities` for awareness, but raw FFF tools can inspect the whole selected root. Register the native server only for roots you are comfortable exposing root-wide.
+
 ## Defaults
 
 `defaults.maxPatterns`, `defaults.maxResultsPerSource`, and `defaults.context` are optional. Request fields override config defaults.
@@ -83,16 +85,17 @@ Broad candidate discovery uses FFF `multi_grep` only when the installed backend 
 
 All environment variables are optional.
 
-| Variable                                        | Use                                                                                                           |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `AGENT_SESSION_SEARCH_CONFIG`                   | Override the JSON source-root config path.                                                                    |
-| `AGENT_SESSION_SEARCH_FFF_DB_DIR`               | Directory containing FFF `frecency.mdb` and `history.mdb`; set only for a non-default FFF database directory. |
-| `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`           | Per-pattern FFF timeout in milliseconds. Runtime searches default to `15000`.                                 |
-| `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS` | Retry count for initially empty FFF responses.                                                                |
-| `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS` | Delay between empty-result retries.                                                                           |
-| `AGENT_SESSION_SEARCH_CALLER_SOURCE`            | With `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`, demote the matching current session for any source.            |
-| `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`        | With `AGENT_SESSION_SEARCH_CALLER_SOURCE`, demote the matching current session for any source.                |
-| `CODEX_THREAD_ID`                               | Backward-compatible Codex-only current-session demotion fallback.                                             |
+| Variable                                        | Use                                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `AGENT_SESSION_SEARCH_CONFIG`                   | Override the JSON source-root config path.                                                                         |
+| `AGENT_SESSION_SEARCH_FFF_MCP_COMMAND`          | Override the `fff-mcp` executable used by MCP servers; doctor sets this for native smoke when `--command` is used. |
+| `AGENT_SESSION_SEARCH_FFF_DB_DIR`               | Directory containing FFF `frecency.mdb` and `history.mdb`; set only for a non-default FFF database directory.      |
+| `AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS`           | Per-pattern FFF timeout in milliseconds. Runtime searches default to `15000`.                                      |
+| `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS` | Retry count for initially empty FFF responses.                                                                     |
+| `AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS` | Delay between empty-result retries.                                                                                |
+| `AGENT_SESSION_SEARCH_CALLER_SOURCE`            | With `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`, demote the matching current session for any source.                 |
+| `AGENT_SESSION_SEARCH_CALLER_SESSION_ID`        | With `AGENT_SESSION_SEARCH_CALLER_SOURCE`, demote the matching current session for any source.                     |
+| `CODEX_THREAD_ID`                               | Backward-compatible Codex-only current-session demotion fallback.                                                  |
 
 For MCP clients, put environment variables in the server entry's `env` block. For CLI use, export them in your shell.
 
@@ -120,6 +123,23 @@ If the client does not put the npm global bin directory on `PATH`, use the absol
 ```bash
 which agent-session-search-mcp
 ```
+
+The native MCP lane is separate and opt-in:
+
+```json
+{
+  "mcpServers": {
+    "agent-session-search-native": {
+      "command": "agent-session-search-native-mcp",
+      "env": {
+        "AGENT_SESSION_SEARCH_CONFIG": "/Users/ben/.config/agent-session-search/config.json"
+      }
+    }
+  }
+}
+```
+
+Restart `agent-session-search-native-mcp` after config edits or FFF upgrades. Its source and schema catalog is a startup snapshot.
 
 For Pool:
 

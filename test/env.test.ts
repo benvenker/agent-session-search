@@ -9,6 +9,7 @@ describe("searchOptionsFromEnv", () => {
     expect(
       searchOptionsFromEnv({
         AGENT_SESSION_SEARCH_CONFIG: "/tmp/config.json",
+        AGENT_SESSION_SEARCH_FFF_MCP_COMMAND: "/opt/fff-mcp",
         AGENT_SESSION_SEARCH_FFF_DB_DIR: dbDir,
         AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_ATTEMPTS: "4",
         AGENT_SESSION_SEARCH_FFF_EMPTY_RETRY_DELAY_MS: "125",
@@ -17,6 +18,7 @@ describe("searchOptionsFromEnv", () => {
     ).toEqual({
       configPath: "/tmp/config.json",
       fffMcp: {
+        command: "/opt/fff-mcp",
         args: [
           "--no-update-check",
           "--frecency-db",

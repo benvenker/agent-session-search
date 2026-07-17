@@ -8,7 +8,7 @@ Agent Session Search is a local TypeScript ESM package that exposes:
 
 - one managed MCP server binary: `agent-session-search-mcp`
 - one managed MCP tool: `search_sessions`
-- one planned opt-in native MCP server binary: `agent-session-search-native-mcp`
+- one opt-in native MCP server binary: `agent-session-search-native-mcp`
 - one CLI binary: `agent-session-search`
 - one setup/diagnostic binary: `agent-session-search-doctor`
 

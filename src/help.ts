@@ -53,6 +53,7 @@ export function cliHelpText() {
     "",
     "MCP:",
     "  Run agent-session-search-mcp to expose the search_sessions tool over stdio.",
+    "  Run agent-session-search-native-mcp only when you explicitly want the opt-in native FFF lane: fff_native_capabilities plus approved source-bound tools such as fff_grep.",
     "  Use query for a concise recall task, queries for short literal probes, operationalContext for cwd/branch/reason, and callerSession when the caller knows its live session id.",
     "",
     "Setup:",
@@ -71,7 +72,19 @@ export function cliCapabilities(version: string) {
     mcp: {
       tools: [{ name: "search_sessions" }],
       policy:
-        "Keep the public MCP surface centered on this single tool; use result modes and follow-up payloads instead of adding extra MCP tools.",
+        "The managed MCP server exposes exactly one tool. Native FFF access is a separate opt-in server, never a mode of search_sessions.",
+      managedEntrypoint: "agent-session-search-mcp",
+      nativeEntrypoint: {
+        command: "agent-session-search-native-mcp",
+        optIn: true,
+        diagnosticTool: "fff_native_capabilities",
+        approvedToolNames: ["fff_grep", "fff_multi_grep"],
+        sourceArgument: "required",
+        coverage:
+          "Native calls inspect the selected canonical root; managed include patterns are reported for awareness but are not a native security boundary.",
+        restartRequiredForConfigOrSchemaChanges: true,
+        deferredFrontends: ["Code Mode", "importable SDK"],
+      },
     },
     commands: [
       {
@@ -177,6 +190,10 @@ export function cliCapabilities(version: string) {
         use: "Override where temporary FFF frecency/history databases are written.",
       },
       {
+        name: "AGENT_SESSION_SEARCH_FFF_MCP_COMMAND",
+        use: "Override the fff-mcp executable used by MCP servers and doctor native smoke.",
+      },
+      {
         name: "AGENT_SESSION_SEARCH_FFF_TIMEOUT_MS",
         use: "Override the per-pattern FFF timeout in milliseconds.",
       },
@@ -237,7 +254,8 @@ export function robotDocsGuide() {
     "- Results preserve canonical absolute paths plus source and root metadata.",
     "- Candidate ranking uses recency, hit density, project matches, explicit callerSession current-session demotion for any source, and CODEX_THREAD_ID as a Codex fallback.",
     "- Missing roots are warnings; partial success is expected.",
-    "- Keep the MCP surface centered on `search_sessions`.",
+    "- The managed MCP server exposes exactly `search_sessions`; the separate opt-in `agent-session-search-native-mcp` server exposes `fff_native_capabilities` plus approved source-bound raw FFF tools.",
+    "- Native FFF tools require `source`, return raw FFF presentation text, use root-wide coverage, and do not enforce managed `include` filters.",
   ].join("\n");
 }
 

@@ -449,6 +449,7 @@ export function projectNativeToolSchema(input: {
       type: "object",
       properties: projectedProperties,
       required: uniqueStrings(required),
+      additionalProperties: false,
     },
     annotations: {
       ...input.tool.annotations,
@@ -494,11 +495,14 @@ export class NativeCallBudget {
     }
     this.attemptedCalls += 1;
     this.activeCalls += 1;
-    const operationPromise = Promise.resolve()
-      .then(operation)
-      .finally(() => {
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
         this.activeCalls -= 1;
-      });
+      }
+    };
+    const operationPromise = Promise.resolve().then(operation).finally(release);
     try {
       const routed = await raceNativeCall(operationPromise, this.timeoutMs);
       if (routed === "native_call_timeout") {

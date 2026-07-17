@@ -1,11 +1,11 @@
 # Agent Session Search Context
 
-Agent Session Search is a local TypeScript ESM package for searching coding-agent session history. It ships a managed local MCP server, a CLI, and a setup/diagnostic command so agents and humans can recover prior work across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and configured custom roots. A separate native MCP lane is being introduced as an explicit opt-in for audited raw FFF access.
+Agent Session Search is a local TypeScript ESM package for searching coding-agent session history. It ships a managed local MCP server, a separate opt-in native MCP server, a CLI, and a setup/diagnostic command so agents and humans can recover prior work across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and configured custom roots.
 
 ## Product Shape
 
 - The managed MCP surface is the single `search_sessions` tool.
-- The native MCP lane, when shipped, is a separate opt-in binary with source-bound, namespaced, policy-approved FFF tools.
+- The native MCP lane is a separate opt-in binary with source-bound, namespaced, policy-approved FFF tools.
 - The CLI uses the same search flow and result shape as the MCP server.
 - `agent-session-search-doctor` is for setup, FFF health checks, and orphaned `fff-mcp` process cleanup.
 - CLI and doctor parse errors are user-input failures. They should fail before search or preflight, print usage, and include a suggested command when a close flag spelling is available.
@@ -27,6 +27,8 @@ Native FFF calls are bound to one configured source's canonical root. Managed `i
 - `src/client-pool.ts` and `src/child-process-cleanup.ts`: FFF child lifecycle and cleanup behavior.
 - `src/fff-capability-router.ts`: complete FFF tool discovery and raw source-bound tool routing over resolved source snapshots.
 - `src/fff-native-policy.ts`: fail-closed native exposure classification, schema projection, validation helpers, and call budgets.
+- `src/native-server.ts`: opt-in native MCP stdio server exposing `fff_native_capabilities`, `fff_grep`, and `fff_multi_grep` when policy and source health allow.
+- `src/server-lifecycle.ts`: shared MCP process cleanup, stdin EOF, signal, timeout, and child-reaping handlers.
 - `src/search.ts`: fanout coordination, filtering, candidate ranking, result grouping, and response shaping.
 - `src/tool.ts` and `src/types.ts`: MCP tool input/output contracts and shared types.
 - `src/server.ts`: MCP server entry point.

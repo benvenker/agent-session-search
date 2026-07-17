@@ -100,21 +100,92 @@ describe("child process cleanup", () => {
       killPidIfAlive(server.pid);
     }
   });
+
+  it("still kills every tracked child when shutdown cleanup rejects", async () => {
+    const script = `
+      import { spawn } from "node:child_process";
+      import { installProcessCleanupHandlers } from "./src/server.ts";
+      import { trackChildProcessPid } from "./src/child-process-cleanup.ts";
+
+      const children = [
+        spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }),
+        spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }),
+      ];
+      for (const child of children) {
+        if (!child.pid) throw new Error("missing child pid");
+        trackChildProcessPid(child.pid);
+      }
+      console.log(children.map((child) => child.pid).join(","));
+      const lifecycle = installProcessCleanupHandlers(async () => {
+        throw new Error("cleanup rejected");
+      });
+      void (async () => {
+        try {
+          await lifecycle.shutdown(0);
+        } catch {
+          // The test process stays alive so the parent can verify child reaping.
+        }
+      })();
+      setInterval(() => {}, 1000);
+    `;
+    const server = spawn(
+      process.execPath,
+      ["node_modules/.bin/tsx", "--eval", script],
+      {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
+
+    const childPids = await readFirstStdoutLineAsPidList(server);
+
+    try {
+      for (const childPid of childPids) {
+        await waitForProcessToExit(childPid);
+      }
+    } finally {
+      for (const childPid of childPids) {
+        killPidIfAlive(childPid);
+      }
+      killPidIfAlive(server.pid);
+    }
+  });
 });
 
 async function readFirstStdoutLineAsNumber(
   child: ReturnType<typeof spawn>
 ): Promise<number> {
+  const line = await readFirstStdoutLine(child);
+  const pid = Number(line.trim());
+  if (!Number.isInteger(pid)) {
+    throw new Error(`Expected pid on stdout, got: ${line}`);
+  }
+  return pid;
+}
+
+async function readFirstStdoutLineAsPidList(
+  child: ReturnType<typeof spawn>
+): Promise<number[]> {
+  const line = await readFirstStdoutLine(child);
+  const pids = line
+    .split(",")
+    .map((candidate) => Number(candidate.trim()))
+    .filter((pid) => Number.isInteger(pid));
+  if (pids.length === 0) {
+    throw new Error(`Expected pid list on stdout, got: ${line}`);
+  }
+  return pids;
+}
+
+async function readFirstStdoutLine(
+  child: ReturnType<typeof spawn>
+): Promise<string> {
   let buffer = "";
   for await (const chunk of child.stdout!) {
     buffer += chunk.toString("utf8");
     const line = buffer.split(/\r?\n/).find((candidate) => candidate.trim());
     if (line) {
-      const pid = Number(line.trim());
-      if (!Number.isInteger(pid)) {
-        throw new Error(`Expected pid on stdout, got: ${line}`);
-      }
-      return pid;
+      return line;
     }
   }
   const stderr = await streamText(child.stderr);

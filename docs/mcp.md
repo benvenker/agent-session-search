@@ -1,12 +1,15 @@
 # MCP Tool Contract
 
-The server exposes one MCP tool: `search_sessions`.
+The managed server (`agent-session-search-mcp`) exposes one MCP tool: `search_sessions`.
+
+Raw FFF access is available only through the separate opt-in native server (`agent-session-search-native-mcp`). See [Native MCP opt-in](native-mcp.md). The native server does not add tools or modes to `search_sessions`.
 
 The implementation returns JSON as MCP text content. It does not currently advertise an `outputSchema`; this behavior is pinned by tests while the FastMCP wrapper path returns successful tool results as string/content-style values.
 
 The stdio server checks the external `fff-mcp` binary before the MCP handshake. If `fff-mcp` is missing or below `v0.9.6`, `agent-session-search-mcp` exits with code `3` and prints install/upgrade guidance. Run `agent-session-search-doctor --json` for agent-readable setup diagnostics, or `agent-session-search-doctor --ensure-fff --yes` when you explicitly want doctor to run the official installer.
 
 Doctor JSON is a CLI diagnostic surface, not an MCP tool. Success writes one object to stdout with `ok: true`, `contractVersion: "1.0"`, backend identity fields, structured `checks`, `sourceDiagnostics`, and `orphans`; parse and runtime failures write one object to stderr with `ok: false`, `error.code`, and `exitCode`. A success object carries backend identity such as `"command":"fff-mcp"` and source health under `"sourceDiagnostics":{"configPath": ...}`. Exit codes match the CLI convention: `0` success, `1` user-input error, `3` tool-environment error, and `4` upstream failure.
+When the live smoke path runs, doctor also checks that `agent-session-search-native-mcp` can start and list `fff_native_capabilities`.
 
 Compact success excerpt with `checks` shortened:
 

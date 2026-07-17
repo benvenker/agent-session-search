@@ -65,6 +65,7 @@ describe("fff native policy", () => {
       return;
     }
     expect(decision.tool.name).toBe("fff_grep");
+    expect(decision.tool.inputSchema.additionalProperties).toBe(false);
     expect(decision.tool.inputSchema.required).toContain("source");
     expect(decision.tool.inputSchema.properties?.source).toEqual({
       type: "string",
@@ -382,19 +383,34 @@ describe("fff native policy", () => {
     });
   });
 
-  it("keeps timed-out operations in the concurrency budget until upstream settles", async () => {
+  it("keeps timed-out upstream operations in the concurrency budget until they settle", async () => {
     const budget = new NativeCallBudget({
       maxAttempts: 10,
       maxConcurrent: 4,
       timeoutMs: 1,
     });
 
-    const never = () => new Promise<RouterCallResult>(() => {});
+    let activeUpstreamCalls = 0;
+    let maxActiveUpstreamCalls = 0;
+    const releaseUpstreamCalls: Array<(value: RouterCallResult) => void> = [];
+    const pending = () =>
+      new Promise<RouterCallResult>((resolve) => {
+        activeUpstreamCalls += 1;
+        maxActiveUpstreamCalls = Math.max(
+          maxActiveUpstreamCalls,
+          activeUpstreamCalls
+        );
+        releaseUpstreamCalls.push((value) => {
+          activeUpstreamCalls -= 1;
+          resolve(value);
+        });
+      });
+
     const timedOut = await Promise.all([
-      budget.run(never),
-      budget.run(never),
-      budget.run(never),
-      budget.run(never),
+      budget.run(pending),
+      budget.run(pending),
+      budget.run(pending),
+      budget.run(pending),
     ]);
     expect(timedOut.map(errorText)).toEqual([
       "native_call_timeout",
@@ -408,12 +424,23 @@ describe("fff native policy", () => {
         source: "codex",
         root: "/tmp/codex",
         tool: "grep",
-        result: { content: [] },
+        result: { content: [{ type: "text", text: "ok" }] },
       }))
     ).resolves.toMatchObject({
       isError: true,
       content: [{ text: "native_call_concurrency_exhausted" }],
     });
+    expect(maxActiveUpstreamCalls).toBe(4);
+
+    for (const release of releaseUpstreamCalls) {
+      release({
+        source: "codex",
+        root: "/tmp/codex",
+        tool: "grep",
+        result: { content: [{ type: "text", text: "late" }] },
+      });
+    }
+    await waitFor(() => expect(budget.active).toBe(0));
   });
 
   it("reports timeout and non-timeout router failures with distinct codes", async () => {
@@ -500,6 +527,20 @@ function policyEntryFor(
 function errorText(result: { content?: unknown[] }) {
   const first = result.content?.[0] as { text?: string } | undefined;
   return first?.text;
+}
+
+async function waitFor(assertion: () => void) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw lastError;
 }
 
 function catalogSummary(
