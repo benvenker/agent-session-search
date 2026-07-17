@@ -18,6 +18,33 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 describe("package build and tarball", () => {
+  it("keeps postinstall non-destructive for an existing older fff-mcp", async () => {
+    const fakeRoot = await mkdtemp(
+      join(tmpdir(), "agent-session-search-postinstall-")
+    );
+    const fakeBin = join(fakeRoot, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [join(process.cwd(), "scripts", "postinstall.mjs")],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          CI: "1",
+          PATH: fakeBin,
+        },
+      }
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  });
+
   it("ships executable bin entries without local agent files or tests", async () => {
     await execFileAsync("npm", ["run", "build"], { cwd: process.cwd() });
 
@@ -190,8 +217,12 @@ describe("package build and tarball", () => {
     expect(installedDoctorResult.stdout).toContain(
       "recommended stable FFF MCP: v0.9.6"
     );
+    expect(installedDoctorResult.stdout).toContain("version guidance: current");
     expect(installedDoctorResult.stdout).toContain("smoke: skipped");
     expect(installedDoctorResult.stdout).toContain("multi_grep: skipped");
+    expect(installedDoctorResult.stdout).toContain(
+      "upgrade path: https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh"
+    );
 
     const transport = new StdioClientTransport({
       command: installedServer,

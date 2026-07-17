@@ -236,6 +236,8 @@ export class CoordinatedSessionSearch implements SessionSearch {
       resultsDisplayMode,
       resultsShape,
       metadata: searchMetadata({
+        resultsDisplayMode,
+        resultsShape,
         backendMetadata,
         maxPatterns,
         maxResultsPerSource,
@@ -1036,6 +1038,8 @@ function compareRankedCandidates(a: RankedCandidate, b: RankedCandidate) {
     b.patternMatchCount - a.patternMatchCount ||
     b.candidate.hitCount - a.candidate.hitCount ||
     (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) ||
+    a.candidate.source.localeCompare(b.candidate.source) ||
+    a.candidate.path.localeCompare(b.candidate.path) ||
     a.originalIndex - b.originalIndex
   );
 }
@@ -1683,12 +1687,16 @@ function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
 }
 
 function searchMetadata({
+  resultsDisplayMode,
+  resultsShape,
   backendMetadata,
   maxPatterns,
   maxResultsPerSource,
   candidateGroupLeadLimit,
   unscopedEvidenceDefaultCap,
 }: {
+  resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
+  resultsShape: ResultsShape;
   backendMetadata: SearchBackendMetadata[];
   maxPatterns: number | undefined;
   maxResultsPerSource: number | undefined;
@@ -1697,6 +1705,8 @@ function searchMetadata({
 }): SearchSessionsOutput["metadata"] {
   return {
     contractVersion: "progressive-evidence-groups.v2",
+    resultsDisplayMode,
+    resultsShape,
     backend: summarizeBackendMetadata(backendMetadata),
     limits: {
       ...(maxPatterns !== undefined ? { maxPatterns } : {}),

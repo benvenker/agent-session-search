@@ -12,7 +12,10 @@ import {
   reapOrphanFffMcpProcesses,
   runNativeToolsSmoke,
 } from "../src/fff-preflight.js";
-import { assessFffMcpVersion } from "../src/fff-runtime.js";
+import {
+  assessFffMcpVersion,
+  assessFffMcpVersionGuidance,
+} from "../src/fff-runtime.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +77,52 @@ describe("FFF preflight command", () => {
     expect(configDocs).toContain("AGENT_SESSION_SEARCH_FFF_DB_DIR");
     expect(configDocs).toContain("AGENT_SESSION_SEARCH_CONFIG");
   });
+
+  it("postinstall only prints install guidance when fff-mcp is missing", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-postinstall-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const staleResult = await execFileAsync(
+      process.execPath,
+      [join(process.cwd(), "scripts", "postinstall.mjs")],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          CI: "1",
+          PATH: fakeBin,
+        }),
+      }
+    );
+    expect(staleResult.stdout).toBe("");
+    expect(staleResult.stderr).toBe("");
+
+    const emptyPath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-postinstall-missing-")
+    );
+    await mkdir(join(emptyPath, "bin"));
+    const missingResult = await execFileAsync(
+      process.execPath,
+      [join(process.cwd(), "scripts", "postinstall.mjs")],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          CI: "1",
+          PATH: join(emptyPath, "bin"),
+        }),
+      }
+    );
+    expect(missingResult.stdout).toBe("");
+    expect(missingResult.stderr).toContain("fff-mcp for fast file searching");
+    expect(missingResult.stderr).toContain(
+      "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
+    );
+  }, 60_000);
 
   it("fails with actionable installer guidance when fff-mcp is missing from PATH", async () => {
     const emptyPath = await mkdtemp(
@@ -602,11 +651,50 @@ describe("FFF preflight command", () => {
     }
   }, 60_000);
 
-  it("assesses fff-mcp version output against the required minimum", () => {
+  it("warns about older-than-recommended FFF without failing when fallback search is usable", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-advisory-version-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await checkFffMcp({
+      command: "fff-mcp",
+      env: { PATH: fakeBin },
+      smoke: async () => ({
+        ok: true,
+        multiGrep: "fallback",
+        recallEquivalence: "failed",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.versionGuidance).toBe("older_than_recommended");
+      expectDoctorChecks({ checks: result.checks }, [
+        { id: "command_found", status: "passed" },
+        {
+          id: "version_minimum",
+          status: "warning",
+          message:
+            'fff-mcp version output "fff-mcp 0.9.5" is older than recommended stable v0.9.6; capability checks decide whether fallback search is usable.',
+          recommendedAction:
+            "Upgrade FFF MCP when convenient with: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
+        },
+        { id: "smoke_grep", status: "passed" },
+        { id: "multi_grep_available", status: "warning" },
+        { id: "recall_equivalence", status: "warning" },
+      ]);
+    }
+  }, 60_000);
+
+  it("assesses fff-mcp version output and stable guidance", () => {
     expect(assessFffMcpVersion("fff-mcp 0.9.5")).toEqual({
-      ok: false,
       version: "0.9.5",
-      reason: "fff-mcp 0.9.5 is below required minimum v0.9.6",
+      ok: true,
     });
     expect(assessFffMcpVersion("fff-mcp 0.9.6")).toEqual({
       ok: true,
@@ -619,11 +707,30 @@ describe("FFF preflight command", () => {
     expect(assessFffMcpVersion("wrapper 9.9.9")).toEqual({
       ok: false,
       reason:
-        "fff-mcp version could not be determined from --version output; required minimum is v0.9.6",
+        "fff-mcp version could not be determined from --version output; recommended stable release is v0.9.6",
+    });
+    expect(assessFffMcpVersionGuidance("fff-mcp 0.9.5")).toEqual({
+      ok: true,
+      version: "0.9.5",
+      status: "older_than_recommended",
+      recommendedAction:
+        "Upgrade FFF MCP when convenient with: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
+    });
+    expect(assessFffMcpVersionGuidance("fff-mcp 0.9.6")).toEqual({
+      ok: true,
+      version: "0.9.6",
+      status: "current",
+    });
+    expect(assessFffMcpVersionGuidance("wrapper 9.9.9")).toEqual({
+      ok: true,
+      version: "wrapper 9.9.9",
+      status: "unknown",
+      recommendedAction:
+        "Verify FFF MCP with agent-session-search-doctor --json; upgrade manually if capability checks fail: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
     });
   });
 
-  it("fails clearly when fff-mcp is below the required minimum", async () => {
+  it("warns without failing when fff-mcp is older than recommended stable", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-fff-stale-")
     );
@@ -642,25 +749,18 @@ describe("FFF preflight command", () => {
           PATH: fakeBin,
         }),
       }
-    ).catch((error: unknown) => {
-      const execError = error as {
-        stdout?: string;
-        stderr?: string;
-        code?: number;
-      };
-      expect(execError.code).toBe(3);
-      return {
-        stdout: execError.stdout ?? "",
-        stderr: execError.stderr ?? "",
-      };
-    });
+    );
 
     const output = `${result.stdout}\n${result.stderr}`;
-    expect(output).toContain("fff-mcp 0.9.5 is below required minimum v0.9.6");
+    expect(result.stderr).toBe("");
+    expect(output).toContain("FFF MCP preflight passed.");
+    expect(output).toContain("version guidance: older_than_recommended");
     expect(output).toContain(
-      "Install or upgrade FFF MCP with the official installer"
+      "upgrade command: curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
     );
-    expect(output).toContain("agent-session-search-doctor --ensure-fff --yes");
+    expect(output).toContain(
+      "upgrade path: https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh"
+    );
   }, 60_000);
 
   it("finds only orphan fff-mcp processes from ps output", async () => {
@@ -1129,7 +1229,7 @@ describe("FFF preflight command", () => {
     expectDoctorChecks(payload, [
       {
         id: "command_found",
-        status: "failed",
+        status: "missing",
         recommendedAction:
           "Install or upgrade FFF MCP with the official installer.",
       },
@@ -1201,7 +1301,7 @@ describe("FFF preflight command", () => {
     ]);
   }, 60_000);
 
-  it("does not suggest the default installer for stale custom command JSON failures", async () => {
+  it("warns for stale custom command JSON without suggesting automatic upgrade", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-json-custom-stale-")
     );
@@ -1209,37 +1309,35 @@ describe("FFF preflight command", () => {
     await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
     await chmod(fakeFffMcp, 0o755);
 
-    const result = await runDoctorExpectFailure(
-      ["--json", "--command", fakeFffMcp],
-      3,
-      sourceProcessEnv()
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        ...preflightSourceArgs(),
+        "--json",
+        "--skip-smoke",
+        "--command",
+        fakeFffMcp,
+      ],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv(),
+      }
     );
 
-    expect(result.stdout).toBe("");
-    const payload = parseJsonObject(result.stderr);
+    expect(result.stderr).toBe("");
+    const payload = parseJsonObject(result.stdout);
     expect(payload).toMatchObject({
-      ok: false,
-      error: {
-        code: "tool_environment_error",
-        canEnsureFff: false,
-        recommendedAction:
-          "Upgrade or fix the custom FFF MCP binary; the built-in installer only manages PATH fff-mcp.",
-      },
-      exitCode: 3,
+      ok: true,
+      versionGuidance: "older_than_recommended",
     });
-    const error = payload.error as Record<string, unknown>;
-    expect(error.suggestedCommand).toBeUndefined();
-    expectErrorMessageContains(
-      payload,
-      "fff-mcp 0.9.5 is below required minimum v0.9.6"
-    );
     expectDoctorChecks(payload, [
       { id: "command_found", status: "passed" },
       {
         id: "version_minimum",
-        status: "failed",
-        recommendedAction:
-          "Upgrade or fix the custom FFF MCP binary; the built-in installer only manages PATH fff-mcp.",
+        status: "warning",
+        recommendedAction: expect.stringContaining(
+          "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash"
+        ),
       },
       { id: "smoke_grep", status: "skipped" },
       { id: "multi_grep_available", status: "skipped" },
@@ -1261,25 +1359,15 @@ describe("FFF preflight command", () => {
     );
   });
 
-  it("runs the explicit ensure installer path through the doctor entrypoint", async () => {
+  it("does not upgrade an older installed fff-mcp during explicit ensure", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-fff-entrypoint-ensure-")
     );
     const fakeBin = join(fakePath, "bin");
     const fakeFffMcp = join(fakeBin, "fff-mcp");
-    const fakeBash = join(fakeBin, "bash");
     await mkdir(fakeBin);
     await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
     await chmod(fakeFffMcp, 0o755);
-    await writeFile(
-      fakeBash,
-      [
-        "#!/bin/sh",
-        `{ printf '#!/bin/sh\\n'; printf \"printf 'fff-mcp 0.9.6\\\\n'\\n\"; } > ${JSON.stringify(fakeFffMcp)}`,
-        "",
-      ].join("\n")
-    );
-    await chmod(fakeBash, 0o755);
 
     const result = await execFileAsync(
       process.execPath,
@@ -1294,10 +1382,11 @@ describe("FFF preflight command", () => {
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("FFF MCP preflight passed.");
-    expect(result.stdout).toContain("version: fff-mcp 0.9.6");
+    expect(result.stdout).toContain("version: fff-mcp 0.9.5");
+    expect(result.stdout).toContain("version guidance: older_than_recommended");
   }, 60_000);
 
-  it("runs the explicit ensure installer path and rechecks fff-mcp", async () => {
+  it("does not call the explicit ensure installer for an older usable fff-mcp", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-fff-ensure-")
     );
@@ -1322,10 +1411,11 @@ describe("FFF preflight command", () => {
       },
     });
 
-    expect(installed).toBe(true);
+    expect(installed).toBe(false);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.version).toBe("fff-mcp 0.9.6");
+      expect(result.version).toBe("fff-mcp 0.9.5");
+      expect(result.versionGuidance).toBe("older_than_recommended");
       expect(result.requiredRelease).toBe("v0.9.6");
     }
   }, 60_000);
@@ -1360,6 +1450,8 @@ describe("FFF preflight command", () => {
       recommendedRelease: "v0.9.6",
       installCommand:
         "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
+      installerUrl:
+        "https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh",
       path: fakeBin,
       canEnsureFff: false,
       checks: [
@@ -1368,7 +1460,7 @@ describe("FFF preflight command", () => {
           id: "version_minimum",
           status: "passed",
           message:
-            'fff-mcp version output "fff-mcp 0.9.6" satisfies required minimum v0.9.6.',
+            'fff-mcp version output "fff-mcp 0.9.6" matches current stable guidance v0.9.6.',
         },
         {
           id: "smoke_grep",
@@ -1508,7 +1600,7 @@ function expectDoctorChecks(
       expect(check.message).toBe(expectedCheck.message);
     }
     if (expectedCheck.recommendedAction !== undefined) {
-      expect(check.recommendedAction).toBe(expectedCheck.recommendedAction);
+      expect(check.recommendedAction).toEqual(expectedCheck.recommendedAction);
     }
   });
 }

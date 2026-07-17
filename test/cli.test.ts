@@ -30,6 +30,8 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("capabilities [--json]");
       expect(output).toContain("--source <source>");
       expect(output).toContain("--mode <candidates|evidence|debug>");
+      expect(output).toContain("candidate_groups");
+      expect(output).toContain("more.groupCandidates");
       expect(output).toContain("--evidence");
       expect(output).toContain("--path <path>");
       expect(output).toContain("--max-results <n>");
@@ -84,8 +86,33 @@ describe("CLI argument parsing", () => {
         contractVersion: string;
         commands: Array<{ name: string; usage: string; output: string }>;
         contract: {
+          metadata: string;
+          resultShape: string;
+          countRelationSemantics: string;
+          followUps: { groupExpansion: string; focusedEvidence: string };
           warnings: Record<string, string>;
           warningEnvelope: { fields: string[]; recovery: string };
+        };
+        resultModes: Array<{ name: string; shape: string; use: string }>;
+        examples: {
+          defaultCandidateGroups: {
+            request: Record<string, unknown>;
+            responseShape: {
+              resultsShape: string;
+              results: Array<{
+                more: { groupCandidates: string };
+                leads: Array<{ more: { evidence: string } }>;
+              }>;
+            };
+          };
+          groupExpansion: {
+            mcpRequest: Record<string, unknown>;
+            cliCommand: string;
+          };
+          focusedEvidence: {
+            mcpRequest: string;
+            cliCommand: string;
+          };
         };
         env: Array<{ name: string }>;
         mcp: {
@@ -105,9 +132,31 @@ describe("CLI argument parsing", () => {
 
       expect(output.tool).toBe("agent-session-search");
       expect(output.contractVersion).toBe("1.0");
+      expect(output.contract.metadata).toContain("metadata.contractVersion");
+      expect(output.contract.metadata).toContain("resultsShape");
+      expect(output.contract.resultShape).toContain("candidate_groups");
+      expect(output.contract.resultShape).toContain("hasMore");
+      expect(output.contract.countRelationSemantics).toContain('"eq"');
+      expect(output.contract.countRelationSemantics).toContain('"gte"');
+      expect(output.contract.followUps.groupExpansion).toContain(
+        "more.groupCandidates"
+      );
+      expect(output.contract.followUps.focusedEvidence).toContain(
+        "more.evidence"
+      );
+      expect(output.resultModes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "candidates",
+            shape: "candidate_groups",
+            use: expect.stringContaining("group payload"),
+          }),
+        ])
+      );
       expect(output.commands.map((command) => command.name)).toEqual(
         expect.arrayContaining([
           "search",
+          "group-candidates follow-up",
           "sources",
           "capabilities",
           "robot-docs guide",
@@ -154,6 +203,31 @@ describe("CLI argument parsing", () => {
       ]);
       expect(output.contract.warningEnvelope.recovery).toContain(
         "recommendedAction"
+      );
+      expect(output.examples.defaultCandidateGroups.request).toMatchObject({
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+      });
+      expect(
+        output.examples.defaultCandidateGroups.responseShape.resultsShape
+      ).toBe("candidate_groups");
+      expect(
+        output.examples.defaultCandidateGroups.responseShape.results[0]?.more
+          .groupCandidates
+      ).toBe("<server-prepared payload>");
+      expect(
+        output.examples.defaultCandidateGroups.responseShape.results[0]
+          ?.leads[0]?.more.evidence
+      ).toBe("<server-prepared payload>");
+      expect(output.examples.groupExpansion.mcpRequest).toMatchObject({
+        query: "auth token timeout",
+        groupCandidates: "<copy results[0].more.groupCandidates exactly>",
+      });
+      expect(output.examples.groupExpansion.cliCommand).toContain(
+        "--group-candidates @payload.json"
+      );
+      expect(output.examples.focusedEvidence.cliCommand).toContain(
+        "--evidence --path /absolute/session.jsonl"
       );
       expect(output.env.map((entry) => entry.name)).toEqual(
         expect.arrayContaining([
@@ -278,7 +352,7 @@ describe("CLI argument parsing", () => {
     }
   });
 
-  it("classifies stale fff-mcp as a tool-environment failure", async () => {
+  it("keeps CLI JSON stdout parseable when an older fff-mcp cannot serve search", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-cli-stale-")
     );
@@ -300,35 +374,21 @@ describe("CLI argument parsing", () => {
       {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...sourceProcessEnv(),
           PATH: fakeBin,
-          NODE_NO_WARNINGS: "1",
         },
       }
-    ).catch((error: unknown) => {
-      const execError = error as {
-        stdout?: string;
-        stderr?: string;
-        code?: number;
-      };
-      expect(execError.code).toBe(3);
-      return {
-        stdout: execError.stdout ?? "",
-        stderr: execError.stderr ?? "",
-      };
-    });
+    );
 
-    expect(result.stdout).toBe("");
-    const parsed = JSON.parse(result.stderr) as {
-      error: { code: string; message: string; suggestedCommand: string };
+    const parsed = JSON.parse(result.stdout) as {
+      resultsShape: string;
+      warnings: Array<{ code: string; message: string }>;
     };
-    expect(parsed.error.code).toBe("tool_environment_error");
-    expect(parsed.error.message).toContain(
-      "fff-mcp 0.9.5 is below required minimum v0.9.6"
+    expect(parsed.resultsShape).toBe("candidate_groups");
+    expect(parsed.warnings.map((warning) => warning.code)).toContain(
+      "all_sources_failed"
     );
-    expect(parsed.error.suggestedCommand).toBe(
-      "agent-session-search-doctor --ensure-fff --yes"
-    );
+    expect(result.stderr).toBe("");
   }, 60_000);
 
   it("classifies missing fff-mcp as a non-JSON tool-environment failure", async () => {
@@ -349,9 +409,8 @@ describe("CLI argument parsing", () => {
       {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...sourceProcessEnv(),
           PATH: fakeBin,
-          NODE_NO_WARNINGS: "1",
         },
       }
     ).catch((error: unknown) => {
@@ -399,6 +458,8 @@ describe("CLI argument parsing", () => {
       const output = log.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(output).toContain("Agent guide: agent-session-search");
       expect(output).toContain("capabilities --json");
+      expect(output).toContain('resultsShape: "candidate_groups"');
+      expect(output).toContain("more.groupCandidates");
       expect(output).toContain("agent-session-search-doctor --json");
       expect(output).toContain("more.evidence");
       expect(output).toContain("search_sessions");
@@ -421,6 +482,7 @@ describe("CLI argument parsing", () => {
       expect(output.quickRef).toMatchObject({
         mcpTool: "search_sessions",
         defaultMode: "candidates",
+        resultShape: "candidate_groups",
       });
       expect(output.recommendedCommands).toContain(
         'agent-session-search "auth token timeout" --json'
@@ -892,8 +954,13 @@ describe("CLI argument parsing", () => {
 });
 
 function sourceProcessEnv() {
+  const {
+    AGENT_SESSION_SEARCH_FFF_MCP_COMMAND: _fffCommand,
+    AGENT_SESSION_SEARCH_FFF_DB_DIR: _fffDbDir,
+    ...env
+  } = process.env;
   return {
-    ...process.env,
+    ...env,
     NODE_NO_WARNINGS: "1",
   };
 }

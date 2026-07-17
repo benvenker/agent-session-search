@@ -63,7 +63,7 @@ agent-session-search capabilities
 agent-session-search --json --help
 ```
 
-Prints the machine-readable CLI and MCP contract, including commands, modes, environment variables, and exit-code categories.
+Prints the machine-readable CLI and MCP contract, including commands, result modes, contract/version metadata, warning meanings, copy-ready examples for default `candidate_groups`, group expansion, focused evidence, environment variables, and exit-code categories.
 
 ### Sources
 

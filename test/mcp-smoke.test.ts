@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +51,8 @@ describe("MCP search_sessions smoke path", () => {
       expect(tool?.outputSchema).toBeUndefined();
       expect(tool?.description).toContain("concise recall task");
       expect(tool?.description).toContain("operationalContext");
+      expect(tool?.description).toContain('resultsShape: "candidate_groups"');
+      expect(tool?.description).toContain("more.groupCandidates");
       expect(tool?.description).toContain("more.evidence");
 
       const properties = tool?.inputSchema.properties as
@@ -87,7 +96,7 @@ describe("MCP search_sessions smoke path", () => {
     expect(result.stderr).toContain("Install or upgrade FFF MCP");
   }, 60_000);
 
-  it("fails before MCP handshake when fff-mcp is stale", async () => {
+  it("reports older fff-mcp versions as advisory doctor guidance", async () => {
     const fakePath = await mkdtemp(
       join(tmpdir(), "agent-session-search-mcp-stale-")
     );
@@ -97,13 +106,26 @@ describe("MCP search_sessions smoke path", () => {
     await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
     await chmod(fakeFffMcp, 0o755);
 
-    const result = await runServerExpectToolEnvironmentFailure(fakeBin);
-
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain(
-      "fff-mcp 0.9.5 is below required minimum v0.9.6"
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        "--no-warnings",
+        "node_modules/tsx/dist/cli.mjs",
+        "src/fff-preflight.ts",
+        "--skip-smoke",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          PATH: fakeBin,
+          NODE_NO_WARNINGS: "1",
+        },
+      }
     );
-    expect(result.stderr).toContain("Install or upgrade FFF MCP");
+
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("version: fff-mcp 0.9.5");
+    expect(result.stdout).toContain("version guidance: older_than_recommended");
   }, 60_000);
 
   it("launches the stdio server and searches a deterministic fixture root", async () => {
@@ -159,6 +181,10 @@ describe("MCP search_sessions smoke path", () => {
         warnings: [],
       });
       expect((result as any).resultsShape).toBe("candidate_groups");
+      expect((result as any).metadata).toMatchObject({
+        resultsDisplayMode: "candidates",
+        resultsShape: "candidate_groups",
+      });
       expect(candidateLeads(result)).toMatchObject([
         {
           source: "smoke",
@@ -274,6 +300,132 @@ describe("MCP search_sessions smoke path", () => {
           },
         },
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("supports the default, group follow-up, and focused evidence MCP flow", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-mcp-"));
+    const root = join(tmp, "sessions");
+    const db = join(tmp, "fff-db");
+    const configPath = join(tmp, "config.json");
+    await mkdir(root);
+    await mkdir(db);
+    for (let index = 1; index <= 6; index += 1) {
+      await writeFile(
+        join(root, `session-${index}.jsonl`),
+        `before\nauth token timeout progressive candidate ${index}\nafter\n`
+      );
+      const mtime = new Date(Date.now() - (6 - index) * 1_000);
+      await utimes(join(root, `session-${index}.jsonl`), mtime, mtime);
+    }
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "smoke", path: root, include: ["*.jsonl"] }],
+      })
+    );
+    const canonicalRoot = await realpath(root);
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", "src/server.ts"],
+      cwd: process.cwd(),
+      env: fixtureSearchEnv(configPath, db),
+      stderr: "pipe",
+    });
+    const client = new Client({
+      name: "agent-session-search-progressive-flow",
+      version: "0.1.0",
+    });
+
+    try {
+      await client.connect(transport);
+      const firstPage = await eventuallyCallSearchSessions(client, {
+        query: "auth token timeout",
+        sources: ["smoke"],
+        resultsDisplayMode: "candidates",
+        maxResultsPerSource: 3,
+      });
+      const exactGroup = (firstPage as any).results.find(
+        (group: any) => group.id === "exact_or_structured"
+      );
+
+      expect(exactGroup).toMatchObject({
+        id: "exact_or_structured",
+        shownLeadCount: 3,
+        hasMore: true,
+        more: {
+          groupCandidates: {
+            query: "auth token timeout",
+            sources: ["smoke"],
+            resultsDisplayMode: "candidates",
+            offset: 3,
+            limit: 3,
+          },
+        },
+      });
+      const firstPageLeadPaths = exactGroup.leads.map((lead: any) => lead.path);
+
+      const secondPage = await eventuallyCallSearchSessions(client, {
+        query: "auth token timeout",
+        groupCandidates: exactGroup.more.groupCandidates,
+      });
+      expect(secondPage).toMatchObject({
+        resultsDisplayMode: "candidates",
+        resultsShape: "candidate_groups",
+        metadata: {
+          resultsDisplayMode: "candidates",
+          resultsShape: "candidate_groups",
+        },
+      });
+      expect((secondPage as any).results).toHaveLength(1);
+      expect((secondPage as any).results[0]).toMatchObject({
+        id: "exact_or_structured",
+        shownLeadCount: 3,
+        hasMore: false,
+      });
+      const secondPageLeadPaths = (secondPage as any).results[0].leads.map(
+        (lead: any) => lead.path
+      );
+      expect(secondPageLeadPaths).toHaveLength(3);
+      expect(
+        firstPageLeadPaths.filter((path: string) =>
+          secondPageLeadPaths.includes(path)
+        )
+      ).toEqual([]);
+      expect([...firstPageLeadPaths, ...secondPageLeadPaths]).toEqual(
+        expect.arrayContaining([
+          join(canonicalRoot, "session-1.jsonl"),
+          join(canonicalRoot, "session-2.jsonl"),
+          join(canonicalRoot, "session-3.jsonl"),
+          join(canonicalRoot, "session-4.jsonl"),
+          join(canonicalRoot, "session-5.jsonl"),
+          join(canonicalRoot, "session-6.jsonl"),
+        ])
+      );
+
+      const selectedLead = (secondPage as any).results[0].leads[0];
+      const evidence = await eventuallyCallSearchSessions(
+        client,
+        selectedLead.more.evidence
+      );
+      expect(evidence).toMatchObject({
+        resultsDisplayMode: "evidence",
+        resultsShape: "evidence_hits",
+        results: [
+          {
+            source: "smoke",
+            root: canonicalRoot,
+            path: selectedLead.path,
+            line: 2,
+          },
+        ],
+      });
+      expect((evidence as any).results[0].content).toMatch(
+        /^auth token timeout progressive candidate [1-6]$/
+      );
     } finally {
       await client.close();
     }

@@ -22,6 +22,19 @@ export type FffMcpVersionAssessment =
       reason: string;
     };
 
+export type FffMcpVersionGuidance =
+  | {
+      ok: true;
+      version: string;
+      status: "current" | "older_than_recommended" | "unknown";
+      recommendedAction?: string;
+    }
+  | {
+      ok: false;
+      version?: string;
+      reason: string;
+    };
+
 export class FffMcpCompatibilityError extends Error {
   constructor(message: string) {
     super(message);
@@ -46,23 +59,47 @@ export function assessFffMcpVersion(
   command = "fff-mcp"
 ): FffMcpVersionAssessment {
   const installed = parseVersion(versionOutput);
-  const required = parseVersion(REQUIRED_FFF_MCP_RELEASE);
 
   if (!installed) {
     return {
       ok: false,
-      reason: `${command} version could not be determined from --version output; required minimum is ${REQUIRED_FFF_MCP_RELEASE}`,
+      reason: `${command} version could not be determined from --version output; recommended stable release is ${RECOMMENDED_FFF_MCP_RELEASE}`,
     };
   }
 
-  if (!required || compareVersions(installed, required) >= 0) {
-    return { ok: true, version: formatVersion(installed) };
+  return { ok: true, version: formatVersion(installed) };
+}
+
+export function assessFffMcpVersionGuidance(
+  versionOutput: string,
+  command = "fff-mcp"
+): FffMcpVersionGuidance {
+  const installed = parseVersion(versionOutput);
+  const recommended = parseVersion(RECOMMENDED_FFF_MCP_RELEASE);
+
+  if (!installed) {
+    return {
+      ok: true,
+      version: versionOutput.trim() || "unknown",
+      status: "unknown",
+      recommendedAction: `Verify FFF MCP with agent-session-search-doctor --json; upgrade manually if capability checks fail: ${FFF_MCP_INSTALL_COMMAND}`,
+    };
+  }
+
+  const version = formatVersion(installed);
+  if (recommended && compareVersions(installed, recommended) < 0) {
+    return {
+      ok: true,
+      version,
+      status: "older_than_recommended",
+      recommendedAction: `Upgrade FFF MCP when convenient with: ${FFF_MCP_INSTALL_COMMAND}`,
+    };
   }
 
   return {
-    ok: false,
-    version: formatVersion(installed),
-    reason: `${command} ${formatVersion(installed)} is below required minimum ${REQUIRED_FFF_MCP_RELEASE}`,
+    ok: true,
+    version,
+    status: "current",
   };
 }
 
@@ -94,9 +131,7 @@ async function checkFffMcpCompatible(command: string, env: NodeJS.ProcessEnv) {
 
   const assessment = assessFffMcpVersion(versionOutput, command);
   if (!assessment.ok) {
-    throw new FffMcpCompatibilityError(
-      `${assessment.reason}. Install or upgrade FFF MCP with: ${FFF_MCP_INSTALL_COMMAND}`
-    );
+    return;
   }
 }
 

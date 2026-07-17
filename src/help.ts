@@ -32,7 +32,7 @@ export function cliHelpText() {
     "                             Replay a server-prepared more.groupCandidates payload to expand one candidate group.",
     "  --mode <candidates|evidence|debug>",
     "                             Select result detail. Defaults to candidates.",
-    "  --candidates               Return candidate groups with compact session-level leads.",
+    "  --candidates               Return candidate_groups: ordered match groups with compact session-level leads.",
     "  --evidence                 Return matching snippets, usually with --path.",
     "  --debug                    Return query expansion and diagnostics; combine with --candidates for ranking explanations.",
     "  --path <path>              Restrict evidence to a canonical session path. Repeatable.",
@@ -151,7 +151,17 @@ export function cliCapabilities(version: string) {
     contract: {
       version: "progressive-evidence-groups.v2",
       metadata:
-        "Search responses include backend mode, limits, and count semantics.",
+        "Search responses include metadata.contractVersion, resultsDisplayMode, resultsShape, backend mode, limits, and count semantics.",
+      resultShape:
+        'Default candidates mode returns resultsShape: "candidate_groups" with ordered match groups, count relation semantics, hasMore, and copy-ready follow-ups.',
+      countRelationSemantics:
+        'Counts use { value, relation } where relation is "eq" for exact counts and "gte" for lower bounds when caps or backend budgets prevent exact totals.',
+      followUps: {
+        groupExpansion:
+          "Expand a group by copying more.groupCandidates exactly into search_sessions.groupCandidates or replaying it with agent-session-search --json --group-candidates @payload.json.",
+        focusedEvidence:
+          "Request focused evidence by copying a candidate more.evidence payload or by using --evidence --path with the candidate canonical path.",
+      },
       backendModes: [
         "multi_grep",
         "sequential_grep",
@@ -178,6 +188,52 @@ export function cliCapabilities(version: string) {
         fields: ["source?", "root?", "code", "message", "recommendedAction?"],
         recovery:
           "When recommendedAction is present, show it with the warning and prefer it over guessing a repair path.",
+      },
+    },
+    examples: {
+      defaultCandidateGroups: {
+        request: {
+          query: "auth token timeout",
+          resultsDisplayMode: "candidates",
+        },
+        responseShape: {
+          resultsDisplayMode: "candidates",
+          resultsShape: "candidate_groups",
+          metadata: {
+            contractVersion: "progressive-evidence-groups.v2",
+            backend: { mode: "multi_grep" },
+          },
+          results: [
+            {
+              id: "exact_or_structured",
+              priority: 0,
+              assignedCandidateCount: { value: 3, relation: "eq" },
+              hitCount: { value: 8, relation: "eq" },
+              shownLeadCount: { value: 1, relation: "eq" },
+              hasMore: true,
+              more: { groupCandidates: "<server-prepared payload>" },
+              leads: [
+                {
+                  path: "/absolute/session.jsonl",
+                  more: { evidence: "<server-prepared payload>" },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      groupExpansion: {
+        mcpRequest: {
+          query: "auth token timeout",
+          groupCandidates: "<copy results[0].more.groupCandidates exactly>",
+        },
+        cliCommand:
+          "agent-session-search --json --group-candidates @payload.json",
+      },
+      focusedEvidence: {
+        mcpRequest: "<copy candidate.more.evidence exactly>",
+        cliCommand:
+          'agent-session-search "auth token timeout" --json --evidence --path /absolute/session.jsonl',
       },
     },
     env: [
@@ -237,7 +293,7 @@ export function robotDocsGuide() {
     "",
     "Use `query` for the concise recall task. If you already know useful literal probes, call the MCP `search_sessions` tool with `queries` and `operationalContext` rather than stuffing instructions into `query`. If you know the live caller session, include `callerSession: { source, sessionId }` so current-session echoes are demoted.",
     "",
-    "Default result mode is `candidates`. Pick a candidate, then echo its `more.evidence` payload to `search_sessions` or use the matching CLI form:",
+    'Default result mode is `candidates` with `resultsShape: "candidate_groups"`. Inspect groups in priority order, expand a promising group when `hasMore` is true, then request focused evidence for selected candidates.',
     "To expand a promising candidate group from the CLI, save the group's `more.groupCandidates` payload and run:",
     "  agent-session-search --json --group-candidates @payload.json",
     "",

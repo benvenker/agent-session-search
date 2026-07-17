@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor --json
 ```
 
-Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current required and documented stable FFF MCP release for this package is `v0.9.6`; doctor JSON reports the installed version, multi_grep support, recall-equivalence smoke status, source diagnostics, orphan diagnostics when requested, and the same upgrade command. Success writes one JSON object to stdout; parse and runtime failures write one JSON object to stderr with exit code `1`, `3`, or `4`.
+Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current documented stable FFF MCP release for this package is `v0.9.6`; doctor JSON reports the installed version, stable-version guidance, multi_grep support, recall-equivalence smoke status, source diagnostics, orphan diagnostics when requested, and the same upgrade command and installer path. Version guidance is advisory when live sequential `grep` remains usable. Success writes one JSON object to stdout; parse and runtime failures write one JSON object to stderr with exit code `1`, `3`, or `4`.
 
 ## Quick Start
 
@@ -134,7 +134,17 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
         }
       },
       "leads": [
-        { "path": "/absolute/session.jsonl", "more": { "evidence": {} } }
+        {
+          "path": "/absolute/session.jsonl",
+          "more": {
+            "evidence": {
+              "query": "auth token timeout",
+              "sources": ["codex"],
+              "resultsDisplayMode": "evidence",
+              "paths": ["/absolute/session.jsonl"]
+            }
+          }
+        }
       ]
     }
   ]
@@ -143,11 +153,42 @@ The default result mode is `candidates` with `resultsShape: "candidate_groups"`.
 
 When a promising group has more leads, pass the prepared payload back as `groupCandidates`, for example `{ "query": "auth token timeout", "groupCandidates": <more.groupCandidates> }`. Clients that support exact top-level argument echoing can also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The CLI can replay the same payload:
 
+```json
+{
+  "query": "auth token timeout",
+  "groupCandidates": {
+    "query": "auth token timeout",
+    "sources": ["codex"],
+    "resultsDisplayMode": "candidates",
+    "planFingerprint": "gcp1:server-prepared",
+    "fingerprint": "gcf1:server-prepared",
+    "group": {
+      "id": "exact_or_structured",
+      "priority": 0,
+      "patternIds": ["p1"]
+    },
+    "offset": 5,
+    "limit": 5
+  }
+}
+```
+
 ```bash
 agent-session-search --json --group-candidates @payload.json
 ```
 
-Then echo a selected candidate's `more.evidence` object back to `search_sessions`, or use the equivalent CLI form, to get bounded matched content for that session:
+Then echo a selected candidate's `more.evidence` object back to `search_sessions` to get bounded matched content for that session:
+
+```json
+{
+  "query": "auth token timeout",
+  "sources": ["codex"],
+  "resultsDisplayMode": "evidence",
+  "paths": ["/absolute/session.jsonl"]
+}
+```
+
+The equivalent CLI form is:
 
 ```bash
 agent-session-search "auth token timeout" --json --evidence \

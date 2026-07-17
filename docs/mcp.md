@@ -92,6 +92,61 @@ Top-level `metadata` includes `contractVersion`, backend mode, limits, and count
 
 Candidate groups include `id`, `priority`, `label`, `guidance`, `patternIds`, `assignedCandidateCount`, `hitCount`, `shownLeadCount`, `hasMore`, and `leads`. Counts use `{ "value": number, "relation": "eq" | "gte" }` so callers can tell exact counts from lower bounds. Empty groups are omitted.
 
+Concise default response shape:
+
+```json
+{
+  "resultsDisplayMode": "candidates",
+  "resultsShape": "candidate_groups",
+  "metadata": {
+    "contractVersion": "progressive-evidence-groups.v2",
+    "backend": { "mode": "multi_grep" },
+    "countRelationSemantics": {
+      "eq": "exact count",
+      "gte": "lower bound because a cap or backend budget may hide more"
+    }
+  },
+  "results": [
+    {
+      "id": "exact_or_structured",
+      "label": "Exact or structured evidence",
+      "assignedCandidateCount": { "value": 3, "relation": "eq" },
+      "shownLeadCount": { "value": 1, "relation": "eq" },
+      "hasMore": true,
+      "more": {
+        "groupCandidates": {
+          "query": "auth token timeout",
+          "sources": ["codex"],
+          "resultsDisplayMode": "candidates",
+          "planFingerprint": "gcp1:server-prepared",
+          "fingerprint": "gcf1:server-prepared",
+          "group": {
+            "id": "exact_or_structured",
+            "priority": 0,
+            "patternIds": ["p1"]
+          },
+          "offset": 5,
+          "limit": 5
+        }
+      },
+      "leads": [
+        {
+          "path": "/absolute/session.jsonl",
+          "more": {
+            "evidence": {
+              "query": "auth token timeout",
+              "sources": ["codex"],
+              "resultsDisplayMode": "evidence",
+              "paths": ["/absolute/session.jsonl"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
 Each candidate includes:
 
 - `source`
@@ -108,6 +163,28 @@ Each candidate includes:
 
 When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Prefer the schema-shaped call `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it.
 
+Copy-ready group follow-up call:
+
+```json
+{
+  "query": "auth token timeout",
+  "groupCandidates": {
+    "query": "auth token timeout",
+    "sources": ["codex"],
+    "resultsDisplayMode": "candidates",
+    "planFingerprint": "gcp1:server-prepared",
+    "fingerprint": "gcf1:server-prepared",
+    "group": {
+      "id": "exact_or_structured",
+      "priority": 0,
+      "patternIds": ["p1"]
+    },
+    "offset": 5,
+    "limit": 5
+  }
+}
+```
+
 CLI fallback can replay the same prepared group payload:
 
 ```bash
@@ -115,6 +192,17 @@ agent-session-search --json --group-candidates @payload.json
 ```
 
 `more.evidence` is a prepared follow-up payload for the same tool. It carries `query`, optional `queries`, `sources`, `resultsDisplayMode: "evidence"`, and `paths`. It does not preserve `operationalContext`, `context`, `debug`, or caps.
+
+Copy-ready focused evidence call:
+
+```json
+{
+  "query": "auth token timeout",
+  "sources": ["codex"],
+  "resultsDisplayMode": "evidence",
+  "paths": ["/absolute/session.jsonl"]
+}
+```
 
 Candidate ranking uses recency, hit density, project matches from `operationalContext`, and current-session demotion. When the caller knows its own live session id, pass `callerSession: { "source": "<source>", "sessionId": "<id>" }`; a candidate with the same `source` and `sessionId` is sorted below non-current candidates. `CODEX_THREAD_ID` remains a Codex-only fallback when `callerSession` is absent. Normal candidate output does not include score fields. To inspect ranking, pass:
 

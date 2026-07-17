@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { isEntrypoint } from "./entrypoint.js";
 import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
 import {
-  assessFffMcpVersion,
+  assessFffMcpVersionGuidance,
   FFF_MCP_INSTALL_COMMAND,
   FFF_MCP_INSTALLER_URL,
   isNotFoundError,
@@ -49,9 +49,11 @@ type CheckFffMcpResult =
       command: string;
       resolvedPath?: string;
       version: string;
+      versionGuidance: "current" | "older_than_recommended" | "unknown";
       requiredRelease: string;
       recommendedRelease: string;
       installCommand: string;
+      installerUrl: string;
       path: string;
       smoke: "passed" | "skipped";
       multiGrep: "supported" | "fallback" | "skipped";
@@ -65,6 +67,7 @@ type CheckFffMcpResult =
       requiredRelease: string;
       recommendedRelease: string;
       installCommand: string;
+      installerUrl: string;
       path: string;
       canEnsureFff: boolean;
       checks: DoctorCheck[];
@@ -104,7 +107,12 @@ type NativeSmokeResult =
   | { ok: true; tools: string[] }
   | { ok: false; reason: string };
 
-type DoctorCheckStatus = "passed" | "failed" | "skipped" | "warning";
+type DoctorCheckStatus =
+  | "passed"
+  | "missing"
+  | "warning"
+  | "failed"
+  | "skipped";
 
 type DoctorCheck = {
   id:
@@ -226,6 +234,7 @@ export async function checkFffMcp(
           requiredRelease: REQUIRED_FFF_MCP_RELEASE,
           recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
           installCommand: FFF_MCP_INSTALL_COMMAND,
+          installerUrl: FFF_MCP_INSTALLER_URL,
           path,
           canEnsureFff: true,
           checks,
@@ -241,6 +250,7 @@ export async function checkFffMcp(
       requiredRelease: REQUIRED_FFF_MCP_RELEASE,
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
+      installerUrl: FFF_MCP_INSTALLER_URL,
       path,
       canEnsureFff,
       checks,
@@ -252,7 +262,12 @@ export async function checkFffMcp(
     const resolvedPath = await findOnPath(command, path);
     const baseChecks = [
       commandFoundCheck(command, resolvedPath),
-      versionMinimumCheck(command, versionResult.version),
+      versionMinimumCheck(
+        command,
+        versionResult.version,
+        versionResult.guidance,
+        versionResult.recommendedAction
+      ),
     ];
     let smokeResult: Extract<FffSmokeResult, { ok: true }> | undefined;
     if (!options.skipSmoke) {
@@ -291,6 +306,7 @@ export async function checkFffMcp(
           requiredRelease: REQUIRED_FFF_MCP_RELEASE,
           recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
           installCommand: FFF_MCP_INSTALL_COMMAND,
+          installerUrl: FFF_MCP_INSTALLER_URL,
           path,
           canEnsureFff: false,
           checks,
@@ -325,6 +341,7 @@ export async function checkFffMcp(
           requiredRelease: REQUIRED_FFF_MCP_RELEASE,
           recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
           installCommand: FFF_MCP_INSTALL_COMMAND,
+          installerUrl: FFF_MCP_INSTALLER_URL,
           path,
           canEnsureFff: false,
           checks,
@@ -344,9 +361,11 @@ export async function checkFffMcp(
       command,
       resolvedPath,
       version: versionResult.version,
+      versionGuidance: versionResult.guidance,
       requiredRelease: REQUIRED_FFF_MCP_RELEASE,
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
+      installerUrl: FFF_MCP_INSTALLER_URL,
       path,
       smoke: options.skipSmoke ? "skipped" : "passed",
       multiGrep: options.skipSmoke ? "skipped" : smokeResult!.multiGrep,
@@ -365,6 +384,7 @@ export async function checkFffMcp(
         requiredRelease: REQUIRED_FFF_MCP_RELEASE,
         recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
         installCommand: FFF_MCP_INSTALL_COMMAND,
+        installerUrl: FFF_MCP_INSTALLER_URL,
         path,
         canEnsureFff,
         checks: failedVersionChecks(
@@ -386,6 +406,7 @@ export async function checkFffMcp(
       requiredRelease: REQUIRED_FFF_MCP_RELEASE,
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
+      installerUrl: FFF_MCP_INSTALLER_URL,
       path,
       canEnsureFff,
       checks: [],
@@ -397,11 +418,17 @@ export async function checkFffMcp(
 async function checkFffMcpVersion(command: string, env: NodeJS.ProcessEnv) {
   try {
     const version = await readFffMcpVersion(command, env);
-    const assessment = assessFffMcpVersion(version, command);
+    const assessment = assessFffMcpVersionGuidance(version, command);
     if (!assessment.ok) {
       return { ...assessment, commandFound: true as const };
     }
-    return { ok: true as const, version, commandFound: true as const };
+    return {
+      ok: true as const,
+      version,
+      guidance: assessment.status,
+      recommendedAction: assessment.recommendedAction,
+      commandFound: true as const,
+    };
   } catch (error) {
     if (isNotFoundError(error)) {
       return {
@@ -432,7 +459,7 @@ function failedVersionChecks(
     return [
       {
         id: "command_found",
-        status: "failed",
+        status: "missing",
         message: `${command} was not found on PATH.`,
         recommendedAction,
       },
@@ -510,11 +537,22 @@ function commandFoundCheck(command: string, resolvedPath: string | undefined) {
   } satisfies DoctorCheck;
 }
 
-function versionMinimumCheck(command: string, version: string) {
+function versionMinimumCheck(
+  command: string,
+  version: string,
+  guidance: "current" | "older_than_recommended" | "unknown",
+  recommendedAction?: string
+) {
   return {
     id: "version_minimum",
-    status: "passed",
-    message: `${command} version output "${version}" satisfies required minimum ${REQUIRED_FFF_MCP_RELEASE}.`,
+    status: guidance === "current" ? "passed" : "warning",
+    message:
+      guidance === "current"
+        ? `${command} version output "${version}" matches current stable guidance ${RECOMMENDED_FFF_MCP_RELEASE}.`
+        : guidance === "unknown"
+          ? `${command} version output "${version}" could not be parsed; capability checks decide whether fallback search is usable.`
+          : `${command} version output "${version}" is older than recommended stable ${RECOMMENDED_FFF_MCP_RELEASE}; capability checks decide whether fallback search is usable.`,
+    ...(recommendedAction ? { recommendedAction } : {}),
   } satisfies DoctorCheck;
 }
 
@@ -701,6 +739,12 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`resolved path: ${result.resolvedPath}`);
     }
     console.log(`version: ${result.version || "unknown"}`);
+    console.log(`version guidance: ${result.versionGuidance}`);
+    for (const check of result.checks) {
+      if (check.status === "warning") {
+        console.log(check.message);
+      }
+    }
     console.log(`required FFF MCP: ${result.requiredRelease}`);
     console.log(`recommended stable FFF MCP: ${result.recommendedRelease}`);
     console.log(
@@ -709,6 +753,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`multi_grep: ${result.multiGrep}`);
     console.log(`recall equivalence: ${result.recallEquivalence}`);
     console.log(`upgrade command: ${result.installCommand}`);
+    console.log(`upgrade path: ${result.installerUrl}`);
     console.log(`PATH: ${result.path}`);
     if (options.reapOrphans) {
       printReapOrphansResult(await reapOrphanFffMcpProcesses());
@@ -745,7 +790,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.error(`Recommended action: ${result.recommendedAction}`);
   }
   console.error("Review the installer before running it if desired:");
-  console.error(`  ${FFF_MCP_INSTALLER_URL}`);
+  console.error(`  ${result.installerUrl}`);
   process.exitCode = 3;
 }
 
@@ -833,9 +878,11 @@ function doctorSuccessEnvelope(
     command: result.command,
     ...(result.resolvedPath ? { resolvedPath: result.resolvedPath } : {}),
     version: result.version,
+    versionGuidance: result.versionGuidance,
     requiredRelease: result.requiredRelease,
     recommendedRelease: result.recommendedRelease,
     installCommand: result.installCommand,
+    installerUrl: result.installerUrl,
     checks: result.checks,
     sourceDiagnostics,
     orphans,
@@ -859,6 +906,7 @@ function doctorFffErrorEnvelope(
     requiredRelease: result.requiredRelease,
     recommendedRelease: result.recommendedRelease,
     installCommand: result.installCommand,
+    installerUrl: result.installerUrl,
     checks: result.checks,
     orphans,
     sourceDiagnostics,
@@ -931,6 +979,7 @@ function doctorErrorEnvelope({
   requiredRelease,
   recommendedRelease,
   installCommand,
+  installerUrl,
   checks = [],
   sourceDiagnostics = null,
   orphans = null,
@@ -945,6 +994,7 @@ function doctorErrorEnvelope({
   requiredRelease?: string;
   recommendedRelease?: string;
   installCommand?: string;
+  installerUrl?: string;
   checks?: DoctorCheck[];
   sourceDiagnostics?: DoctorSourceDiagnostics | null;
   orphans?: DoctorOrphansDiagnostics | null;
@@ -964,6 +1014,7 @@ function doctorErrorEnvelope({
     ...(requiredRelease ? { requiredRelease } : {}),
     ...(recommendedRelease ? { recommendedRelease } : {}),
     ...(installCommand ? { installCommand } : {}),
+    ...(installerUrl ? { installerUrl } : {}),
     checks,
     sourceDiagnostics,
     orphans,

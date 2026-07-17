@@ -53,6 +53,7 @@
 | **Evidence Hit**       | A path-restricted raw-ish matched result with line, content, query, and pattern metadata.                                         | raw result, line match                  |
 | **Snippet**            | A small matched text sample included in an evidence group.                                                                        | excerpt, preview, context               |
 | **Result Shape**       | The structural form of `results`, such as candidates, evidence groups, or evidence hits.                                          | display mode, output type               |
+| **Count Relation**     | The `relation` on a count object: `eq` means exact and `gte` means a lower bound because caps or backend budgets may hide more.   | fuzzy count, approximate total          |
 | **Result Cap**         | A maximum number of backend hits considered or returned for a source.                                                             | limit, page size, max results           |
 
 ## CLI Ergonomics

@@ -71,6 +71,8 @@ export type CountWithRelation = {
   relation: CountRelation;
 };
 
+export type RecommendedAction = string & {};
+
 export type GroupMembership = {
   id: MatchGroupId;
   priority: number;
@@ -116,6 +118,17 @@ export type CandidateGroup = {
   };
 };
 
+export type SearchWarningCode =
+  | "all_sources_failed"
+  | "broad_evidence_capped"
+  | "fff_multi_grep_unavailable"
+  | "fff_multi_grep_probe_failed"
+  | "source_cleanup_failed"
+  | "source_missing"
+  | "source_root_missing"
+  | "source_search_failed"
+  | (string & {});
+
 export type SearchedSource = {
   name: SourceName;
   root: string;
@@ -126,9 +139,17 @@ export type SearchedSource = {
 export type SearchWarning = {
   source?: SourceName;
   root?: string;
-  code: string;
+  code: SearchWarningCode;
   message: string;
-  recommendedAction?: string;
+  recommendedAction?: RecommendedAction;
+};
+
+export type TeachingErrorCode = "invalid_group_followup";
+
+export type SearchSessionsTeachingError = {
+  code: TeachingErrorCode;
+  invalidField: string;
+  correctedShape: Record<string, unknown>;
 };
 
 export type SearchResult = {
@@ -157,6 +178,8 @@ export type SearchBackendMetadata = {
 
 export type SearchSessionsMetadata = {
   contractVersion: "progressive-evidence-groups.v2";
+  resultsDisplayMode: ResultsDisplayMode;
+  resultsShape: ResultsShape;
   backend: SearchBackendMetadata;
   limits: {
     maxPatterns?: number;

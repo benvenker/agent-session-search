@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install
 agent-session-search-doctor --json
 ```
 
-Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The required and documented stable FFF MCP release for this package is `v0.9.6`.
+Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The documented stable FFF MCP release for this package is `v0.9.6`.
 
 To let doctor run the official installer explicitly:
 
@@ -25,22 +25,24 @@ To let doctor run the official installer explicitly:
 agent-session-search-doctor --ensure-fff --yes
 ```
 
-## `fff-mcp` Is Too Old
+## `fff-mcp` Is Older Than Recommended
 
 Symptom:
 
 ```text
-fff-mcp 0.9.5 is below required minimum v0.9.6
+fff-mcp version output "fff-mcp 0.9.5" is older than recommended stable v0.9.6
 ```
 
-Cause: the installed external `fff-mcp` binary is older than the runtime version Agent Session Search expects.
+Cause: the installed external `fff-mcp` binary is older than the stable release documented for Agent Session Search. Doctor treats this as advisory when live `grep` is usable; missing or unsupported `multi_grep` remains a safe fallback to sequential `grep`, not a hard failure.
 
 Fix:
 
 ```bash
-agent-session-search-doctor --ensure-fff --yes
+curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
 agent-session-search-doctor --json
 ```
+
+The exact documented installer path is <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. Doctor only runs the installer when you explicitly pass `agent-session-search-doctor --ensure-fff --yes`; postinstall never upgrades or mutates an existing FFF installation.
 
 ## FFF `multi_grep` Falls Back
 
@@ -232,7 +234,7 @@ The command exits `1`, leaves stdout empty, and writes a concise stderr object:
 }
 ```
 
-Successful doctor JSON exits `0` and writes stdout only. Missing or stale `fff-mcp` exits `3` with `error.code: "tool_environment_error"` on stderr; unexpected upstream failures exit `4` with `error.code: "upstream_failure"` on stderr.
+Successful doctor JSON exits `0` and writes stdout only, including stale-version warnings when live fallback search remains usable. Missing `fff-mcp` or failed required smoke checks exit `3` with `error.code: "tool_environment_error"` on stderr; unexpected upstream failures exit `4` with `error.code: "upstream_failure"` on stderr.
 
 ## All Attempted Sources Failed
 

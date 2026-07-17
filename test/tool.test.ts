@@ -52,6 +52,15 @@ describe("search_sessions tool boundary", () => {
           expandedPatterns: [input.query],
           metadata: {
             contractVersion: "progressive-evidence-groups.v2",
+            resultsDisplayMode,
+            resultsShape:
+              resultsDisplayMode === "evidence"
+                ? input.paths?.length
+                  ? "evidence_hits"
+                  : "evidence_groups"
+                : resultsDisplayMode === "debug"
+                  ? "evidence_hits"
+                  : "candidates",
             backend: { mode: "custom" },
             limits: {},
             countSemantics: {
@@ -109,6 +118,8 @@ describe("search_sessions tool boundary", () => {
       expandedPatterns: ["auth token timeout"],
       metadata: {
         contractVersion: "progressive-evidence-groups.v2",
+        resultsDisplayMode: "evidence",
+        resultsShape: "evidence_hits",
         backend: { mode: "custom" },
         limits: {},
         countSemantics: {
@@ -209,6 +220,44 @@ describe("search_sessions tool boundary", () => {
         invalidField: "resultsDisplayMode",
       })
     );
+  });
+
+  it("rejects malformed group follow-up payloads with a teaching error", async () => {
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+
+    await expect(
+      runSearchSessionsTool(search, {
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        groupCandidates: {
+          query: "auth token timeout",
+          resultsDisplayMode: "candidates",
+          planFingerprint: "gcp1:test",
+          fingerprint: "gcf1:test",
+          offset: 0,
+          limit: 10,
+        },
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.group",
+      correctedShape: {
+        groupCandidates: {
+          resultsDisplayMode: "candidates",
+          group: {
+            id: "exact_or_structured",
+            priority: 0,
+            patternIds: ["p1"],
+          },
+          offset: 0,
+          limit: 10,
+        },
+      },
+    } satisfies Partial<SearchSessionsInputError>);
   });
 
   it("replays prepared group follow-ups through the public tool boundary", async () => {

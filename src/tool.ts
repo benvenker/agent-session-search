@@ -4,7 +4,11 @@ import {
   groupCandidatesFingerprintIsValid,
   stringArraysEqual,
 } from "./followup.js";
-import type { SearchSessionsInput, SessionSearch } from "./types.js";
+import type {
+  SearchSessionsInput,
+  SearchSessionsTeachingError,
+  SessionSearch,
+} from "./types.js";
 
 const matchGroupIdSchema = z.enum([
   "exact_or_structured",
@@ -160,7 +164,10 @@ export const searchSessionsInputSchema = z.object({
 
 export type SearchSessionsToolInput = z.infer<typeof searchSessionsInputSchema>;
 
-export class SearchSessionsInputError extends Error {
+export class SearchSessionsInputError
+  extends Error
+  implements SearchSessionsTeachingError
+{
   readonly code = "invalid_group_followup";
   readonly invalidField: string;
   readonly correctedShape: Record<string, unknown>;
@@ -209,12 +216,43 @@ export function parseSearchSessionsInput(
 
 export async function runSearchSessionsTool(
   search: SessionSearch,
-  input: SearchSessionsToolInput
+  input: unknown
 ) {
-  const parsed = parseSearchSessionsInput(
-    searchSessionsInputSchema.parse(input)
-  );
+  const schemaResult = searchSessionsInputSchema.safeParse(input);
+  if (!schemaResult.success) {
+    const groupError = searchSessionsInputErrorFromSchema(schemaResult.error);
+    if (groupError) {
+      throw groupError;
+    }
+    throw schemaResult.error;
+  }
+  const parsed = parseSearchSessionsInput(schemaResult.data);
   return search.searchSessions(parsed);
+}
+
+function searchSessionsInputErrorFromSchema(error: z.ZodError) {
+  const groupIssue =
+    error.issues.find((issue) => issue.path[0] === "groupCandidates") ??
+    error.issues.find((issue) => isGroupFollowupShorthandField(issue.path[0]));
+  if (!groupIssue) {
+    return undefined;
+  }
+  const invalidField =
+    groupIssue.path.length > 0 ? groupIssue.path.join(".") : "input";
+  return new SearchSessionsInputError(
+    invalidField,
+    `Invalid group follow-up: ${invalidField} does not match the server-prepared group candidate payload shape. Copy more.groupCandidates exactly, or echo its shorthand fields exactly.`
+  );
+}
+
+function isGroupFollowupShorthandField(field: PropertyKey | undefined) {
+  return [
+    "planFingerprint",
+    "fingerprint",
+    "group",
+    "offset",
+    "limit",
+  ].includes(String(field));
 }
 
 function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {

@@ -121,6 +121,8 @@ describe("createSessionSearch", () => {
     expect(result.resultsShape).toBe("candidate_groups");
     expect(result.metadata).toMatchObject({
       contractVersion: "progressive-evidence-groups.v2",
+      resultsDisplayMode: "candidates",
+      resultsShape: "candidate_groups",
       backend: { mode: "custom" },
       limits: { candidateGroupLeadLimit: 5 },
       countSemantics: {
@@ -589,6 +591,8 @@ describe("createSessionSearch", () => {
       expandedPatterns: AUTH_TOKEN_TIMEOUT_PATTERNS,
       metadata: {
         contractVersion: "progressive-evidence-groups.v2",
+        resultsDisplayMode: "evidence",
+        resultsShape: "evidence_groups",
         backend: { mode: "custom" },
         limits: {
           maxResultsPerSource: 20,

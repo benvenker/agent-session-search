@@ -76,6 +76,58 @@ describe("rewriteQueryPatterns", () => {
     ]);
   });
 
+  it("assigns stronger provenance to structured fragments than loose configured fallbacks", () => {
+    const plans = planQueryPatterns(
+      'inspect "retry budget" in packages/core/src/index.ts for @scope/pkg bd-a12 and timeout alias',
+      {
+        synonyms: {
+          alias: ["alternate"],
+        },
+      }
+    );
+
+    expect(
+      plans.map((plan) => ({
+        pattern: plan.pattern,
+        provenance: plan.provenance,
+        initialGroup: plan.initialGroup,
+      }))
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          pattern: "retry budget",
+          provenance: "quoted_phrase",
+          initialGroup: "exact_or_structured",
+        },
+        {
+          pattern: "@scope/pkg",
+          provenance: "package_name",
+          initialGroup: "exact_or_structured",
+        },
+        {
+          pattern: "packages/core/src/index.ts",
+          provenance: "file_path",
+          initialGroup: "exact_or_structured",
+        },
+        {
+          pattern: "bd-a12",
+          provenance: "id",
+          initialGroup: "exact_or_structured",
+        },
+        {
+          pattern: "alias",
+          provenance: "configured_synonym",
+          initialGroup: "loose_fallback",
+        },
+        {
+          pattern: "timeout",
+          provenance: "natural_term",
+          initialGroup: "distinctive_term",
+        },
+      ])
+    );
+  });
+
   it("plans bare recall phrases with exact, adjacent, and term groups", () => {
     expect(
       planQueryPatterns("alpha beta gamma").map((plan) => ({
@@ -113,6 +165,34 @@ describe("rewriteQueryPatterns", () => {
         pattern: "beta",
         provenance: "natural_term",
         initialGroup: "distinctive_term",
+      },
+    ]);
+  });
+
+  it("uses extractor coverage rather than hard-coded term names for bare phrase groups", () => {
+    expect(
+      planQueryPatterns("vector lattice comet")
+        .filter((plan) => plan.initialGroup !== "distinctive_term")
+        .map((plan) => ({
+          pattern: plan.pattern,
+          provenance: plan.provenance,
+          initialGroup: plan.initialGroup,
+        }))
+    ).toEqual([
+      {
+        pattern: "vector lattice comet",
+        provenance: "full_phrase",
+        initialGroup: "exact_or_structured",
+      },
+      {
+        pattern: "vector lattice",
+        provenance: "adjacent_terms",
+        initialGroup: "phrase_or_adjacent_terms",
+      },
+      {
+        pattern: "lattice comet",
+        provenance: "adjacent_terms",
+        initialGroup: "phrase_or_adjacent_terms",
       },
     ]);
   });
