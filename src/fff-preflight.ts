@@ -17,6 +17,11 @@ import {
   REQUIRED_FFF_MCP_RELEASE,
 } from "./fff-runtime.js";
 import { doctorHelpText } from "./help.js";
+import { searchOptionsFromEnv } from "./env.js";
+import {
+  inspectSessionSources,
+  type InspectSessionSourcesOutput,
+} from "./roots.js";
 import type { SourceName } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -24,6 +29,7 @@ const execFileAsync = promisify(execFile);
 type CheckFffMcpOptions = {
   command?: string;
   env?: NodeJS.ProcessEnv;
+  json?: boolean;
   skipSmoke?: boolean;
   smoke?: (input: FffSmokeInput) => Promise<FffSmokeResult>;
   listOrphans?: boolean;
@@ -46,6 +52,7 @@ type CheckFffMcpResult =
       smoke: "passed" | "skipped";
       multiGrep: "supported" | "fallback" | "skipped";
       recallEquivalence: "passed" | "failed" | "skipped";
+      checks: DoctorCheck[];
     }
   | {
       ok: false;
@@ -56,11 +63,14 @@ type CheckFffMcpResult =
       installCommand: string;
       path: string;
       canEnsureFff: boolean;
+      checks: DoctorCheck[];
+      recommendedAction?: string;
     };
 
 type FffSmokeInput = {
   command: string;
   env: NodeJS.ProcessEnv;
+  suppressStderr?: boolean;
 };
 
 type InstallFffMcpInput = {
@@ -78,10 +88,47 @@ type FffSmokeResult =
       reason: string;
     };
 
+type DoctorCheckStatus = "passed" | "failed" | "skipped" | "warning";
+
+type DoctorCheck = {
+  id:
+    | "command_found"
+    | "version_minimum"
+    | "smoke_grep"
+    | "multi_grep_available"
+    | "recall_equivalence";
+  status: DoctorCheckStatus;
+  message: string;
+  recommendedAction?: string;
+};
+
 type DoctorParseSuggestion = {
   hint?: string;
   suggestedCommand: string;
 };
+
+type DoctorErrorCode =
+  | "user_input_error"
+  | "tool_environment_error"
+  | "upstream_failure";
+
+type DoctorOrphansDiagnostics =
+  | {
+      mode: "list";
+      status: DoctorCheckStatus;
+      found: ProcessInfo[];
+      reason?: string;
+    }
+  | {
+      mode: "reap";
+      status: DoctorCheckStatus;
+      found: ProcessInfo[];
+      reaped: number[];
+      failed: Array<{ pid: number; message: string }>;
+      reason?: string;
+    };
+
+type DoctorSourceDiagnostics = Omit<InspectSessionSourcesOutput, "command">;
 
 class DoctorParseError extends Error {
   readonly suggestion: DoctorParseSuggestion;
@@ -90,6 +137,25 @@ class DoctorParseError extends Error {
     super(message);
     this.name = "DoctorParseError";
     this.suggestion = suggestion;
+  }
+}
+
+class DoctorDiagnosticsError extends Error {
+  readonly code: Extract<
+    DoctorErrorCode,
+    "user_input_error" | "tool_environment_error"
+  >;
+  readonly exitCode: 1 | 3;
+
+  constructor(
+    code: DoctorDiagnosticsError["code"],
+    message: string,
+    exitCode: 1 | 3
+  ) {
+    super(message);
+    this.name = "DoctorDiagnosticsError";
+    this.code = code;
+    this.exitCode = exitCode;
   }
 }
 
@@ -120,9 +186,16 @@ export async function checkFffMcp(
   const command = options.command ?? "fff-mcp";
   const env = options.env ?? process.env;
   const path = env.PATH ?? "";
+  const canEnsureFff = command === "fff-mcp";
+  const dependencyFailureAction = fffDependencyFailureAction(command);
 
   const versionResult = await checkFffMcpVersion(command, env);
   if (!versionResult.ok) {
+    const checks = failedVersionChecks(
+      command,
+      versionResult,
+      dependencyFailureAction
+    );
     if (options.ensureFff && options.yes) {
       const installed = await tryInstallFffMcp(
         options.installFffMcp ?? installFffMcp,
@@ -138,6 +211,8 @@ export async function checkFffMcp(
           installCommand: FFF_MCP_INSTALL_COMMAND,
           path,
           canEnsureFff: true,
+          checks,
+          recommendedAction: dependencyFailureAction,
         };
       }
       return checkFffMcp({ ...options, ensureFff: false });
@@ -150,15 +225,48 @@ export async function checkFffMcp(
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
       path,
-      canEnsureFff: true,
+      canEnsureFff,
+      checks,
+      recommendedAction: dependencyFailureAction,
     };
   }
 
   try {
+    const resolvedPath = await findOnPath(command, path);
+    const baseChecks = [
+      commandFoundCheck(command, resolvedPath),
+      versionMinimumCheck(command, versionResult.version),
+    ];
     let smokeResult: Extract<FffSmokeResult, { ok: true }> | undefined;
     if (!options.skipSmoke) {
-      const smoke = await (options.smoke ?? runFffSmokeTest)({ command, env });
+      const smoke = await (options.smoke ?? runFffSmokeTest)({
+        command,
+        env,
+        suppressStderr: options.json,
+      });
       if (!smoke.ok) {
+        const checks: DoctorCheck[] = [
+          ...baseChecks,
+          {
+            id: "smoke_grep",
+            status: "failed",
+            message: `Live grep smoke test failed: ${smoke.reason}`,
+            recommendedAction:
+              "Inspect FFF MCP runtime behavior and source access; reinstalling is not expected to fix this smoke failure.",
+          },
+          {
+            id: "multi_grep_available",
+            status: "skipped",
+            message:
+              "multi_grep availability was not checked because the smoke grep failed.",
+          },
+          {
+            id: "recall_equivalence",
+            status: "skipped",
+            message:
+              "Recall equivalence was not checked because the smoke grep failed.",
+          },
+        ];
         return {
           ok: false,
           command,
@@ -168,15 +276,19 @@ export async function checkFffMcp(
           installCommand: FFF_MCP_INSTALL_COMMAND,
           path,
           canEnsureFff: false,
+          checks,
         };
       }
       smokeResult = smoke;
     }
 
+    const checks = options.skipSmoke
+      ? skippedSmokeChecks(baseChecks)
+      : [...baseChecks, ...smokeChecks(smokeResult!)];
     return {
       ok: true,
       command,
-      resolvedPath: await findOnPath(command, path),
+      resolvedPath,
       version: versionResult.version,
       requiredRelease: REQUIRED_FFF_MCP_RELEASE,
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
@@ -187,18 +299,30 @@ export async function checkFffMcp(
       recallEquivalence: options.skipSmoke
         ? "skipped"
         : smokeResult!.recallEquivalence,
+      checks,
     };
   } catch (error) {
     if (isNotFoundError(error)) {
+      const reason = readVersionFailureMessage(command, error);
       return {
         ok: false,
         command,
-        reason: readVersionFailureMessage(command, error),
+        reason,
         requiredRelease: REQUIRED_FFF_MCP_RELEASE,
         recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
         installCommand: FFF_MCP_INSTALL_COMMAND,
         path,
-        canEnsureFff: true,
+        canEnsureFff,
+        checks: failedVersionChecks(
+          command,
+          {
+            ok: false,
+            reason,
+            commandFound: false,
+          },
+          dependencyFailureAction
+        ),
+        recommendedAction: dependencyFailureAction,
       };
     }
     return {
@@ -209,7 +333,9 @@ export async function checkFffMcp(
       recommendedRelease: RECOMMENDED_FFF_MCP_RELEASE,
       installCommand: FFF_MCP_INSTALL_COMMAND,
       path,
-      canEnsureFff: true,
+      canEnsureFff,
+      checks: [],
+      recommendedAction: dependencyFailureAction,
     };
   }
 }
@@ -219,18 +345,176 @@ async function checkFffMcpVersion(command: string, env: NodeJS.ProcessEnv) {
     const version = await readFffMcpVersion(command, env);
     const assessment = assessFffMcpVersion(version, command);
     if (!assessment.ok) {
-      return assessment;
+      return { ...assessment, commandFound: true as const };
     }
-    return { ok: true as const, version };
+    return { ok: true as const, version, commandFound: true as const };
   } catch (error) {
     if (isNotFoundError(error)) {
       return {
         ok: false as const,
         reason: `${command} was not found on PATH`,
+        commandFound: false as const,
       };
     }
-    throw error;
+    return {
+      ok: false as const,
+      reason: readVersionFailureMessage(command, error),
+      commandFound: true as const,
+    };
   }
+}
+
+function failedVersionChecks(
+  command: string,
+  versionResult: {
+    ok: false;
+    reason: string;
+    version?: string;
+    commandFound?: boolean;
+  },
+  recommendedAction = fffDependencyFailureAction(command)
+): DoctorCheck[] {
+  if (versionResult.commandFound === false) {
+    return [
+      {
+        id: "command_found",
+        status: "failed",
+        message: `${command} was not found on PATH.`,
+        recommendedAction,
+      },
+      {
+        id: "version_minimum",
+        status: "skipped",
+        message:
+          "Version minimum was not checked because the command was not found.",
+      },
+      {
+        id: "smoke_grep",
+        status: "skipped",
+        message: "Smoke grep was not run because the command was not found.",
+      },
+      {
+        id: "multi_grep_available",
+        status: "skipped",
+        message:
+          "multi_grep availability was not checked because the command was not found.",
+      },
+      {
+        id: "recall_equivalence",
+        status: "skipped",
+        message:
+          "Recall equivalence was not checked because the command was not found.",
+      },
+    ];
+  }
+
+  return [
+    {
+      id: "command_found",
+      status: "passed",
+      message: `${command} was found.`,
+    },
+    {
+      id: "version_minimum",
+      status: "failed",
+      message: versionResult.reason,
+      recommendedAction,
+    },
+    {
+      id: "smoke_grep",
+      status: "skipped",
+      message: "Smoke grep was not run because the version check failed.",
+    },
+    {
+      id: "multi_grep_available",
+      status: "skipped",
+      message:
+        "multi_grep availability was not checked because the version check failed.",
+    },
+    {
+      id: "recall_equivalence",
+      status: "skipped",
+      message:
+        "Recall equivalence was not checked because the version check failed.",
+    },
+  ];
+}
+
+function fffDependencyFailureAction(command: string) {
+  return command === "fff-mcp"
+    ? "Install or upgrade FFF MCP with the official installer."
+    : "Upgrade or fix the custom FFF MCP binary; the built-in installer only manages PATH fff-mcp.";
+}
+
+function commandFoundCheck(command: string, resolvedPath: string | undefined) {
+  return {
+    id: "command_found",
+    status: "passed",
+    message: resolvedPath
+      ? `${command} was found at ${resolvedPath}.`
+      : `${command} was found.`,
+  } satisfies DoctorCheck;
+}
+
+function versionMinimumCheck(command: string, version: string) {
+  return {
+    id: "version_minimum",
+    status: "passed",
+    message: `${command} version output "${version}" satisfies required minimum ${REQUIRED_FFF_MCP_RELEASE}.`,
+  } satisfies DoctorCheck;
+}
+
+function skippedSmokeChecks(baseChecks: DoctorCheck[]) {
+  return [
+    ...baseChecks,
+    {
+      id: "smoke_grep",
+      status: "skipped",
+      message: "Smoke grep was skipped by --skip-smoke.",
+    },
+    {
+      id: "multi_grep_available",
+      status: "skipped",
+      message: "multi_grep availability was skipped by --skip-smoke.",
+    },
+    {
+      id: "recall_equivalence",
+      status: "skipped",
+      message: "Recall equivalence was skipped by --skip-smoke.",
+    },
+  ] satisfies DoctorCheck[];
+}
+
+function smokeChecks(smokeResult: Extract<FffSmokeResult, { ok: true }>) {
+  return [
+    {
+      id: "smoke_grep",
+      status: "passed",
+      message: "Live grep smoke test passed.",
+    },
+    {
+      id: "multi_grep_available",
+      status: smokeResult.multiGrep === "supported" ? "passed" : "warning",
+      message:
+        smokeResult.multiGrep === "supported"
+          ? "multi_grep is available."
+          : "multi_grep is unavailable; sequential fallback remains healthy.",
+      ...(smokeResult.multiGrep === "supported"
+        ? {}
+        : {
+            recommendedAction:
+              "Upgrade FFF MCP when convenient to enable multi_grep acceleration.",
+          }),
+    },
+    {
+      id: "recall_equivalence",
+      status: smokeResult.recallEquivalence === "passed" ? "passed" : "warning",
+      message:
+        smokeResult.recallEquivalence === "passed"
+          ? "multi_grep recall matched sequential fallback."
+          : "Recall equivalence was not proven because sequential fallback was used.",
+    },
+  ] satisfies DoctorCheck[];
 }
 
 async function installFffMcp(input: InstallFffMcpInput) {
@@ -315,9 +599,48 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const options = parseArgs(argv);
+  const orphans = options.json
+    ? await collectOrphanDiagnostics(options)
+    : undefined;
+  let sourceDiagnostics: DoctorSourceDiagnostics | undefined;
+  if (options.json) {
+    try {
+      sourceDiagnostics = await collectSourceDiagnostics(
+        options.env ?? process.env
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify(doctorDiagnosticsErrorEnvelope(error, orphans), null, 2)
+      );
+      process.exitCode =
+        error instanceof DoctorDiagnosticsError ? error.exitCode : 4;
+      return;
+    }
+  }
   const result = await checkFffMcp(options);
 
   if (result.ok) {
+    if (options.json) {
+      if (orphans?.status === "failed") {
+        console.error(
+          JSON.stringify(
+            doctorOrphanErrorEnvelope(orphans, sourceDiagnostics),
+            null,
+            2
+          )
+        );
+        process.exitCode = 4;
+        return;
+      }
+      console.log(
+        JSON.stringify(
+          doctorSuccessEnvelope(result, orphans, sourceDiagnostics),
+          null,
+          2
+        )
+      );
+      return;
+    }
     console.log("FFF MCP preflight passed.");
     console.log(`command: ${result.command}`);
     if (result.resolvedPath) {
@@ -341,6 +664,18 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (options.json) {
+    console.error(
+      JSON.stringify(
+        doctorFffErrorEnvelope(result, orphans, sourceDiagnostics),
+        null,
+        2
+      )
+    );
+    process.exitCode = 3;
+    return;
+  }
+
   console.error(result.reason);
   console.error(`PATH: ${result.path}`);
   console.error("");
@@ -352,19 +687,251 @@ export async function main(argv = process.argv.slice(2)) {
     console.error(
       "To let doctor run that command explicitly: agent-session-search-doctor --ensure-fff --yes"
     );
+  } else if (result.recommendedAction) {
+    console.error(`Recommended action: ${result.recommendedAction}`);
   }
   console.error("Review the installer before running it if desired:");
   console.error(`  ${FFF_MCP_INSTALLER_URL}`);
   process.exitCode = 3;
 }
 
+async function collectOrphanDiagnostics(
+  options: CheckFffMcpOptions
+): Promise<DoctorOrphansDiagnostics | null> {
+  if (options.reapOrphans) {
+    try {
+      const result = await reapOrphanFffMcpProcesses();
+      return {
+        mode: "reap",
+        status: result.failed.length ? "failed" : "passed",
+        found: result.found,
+        reaped: result.reaped,
+        failed: result.failed,
+      };
+    } catch (error) {
+      return {
+        mode: "reap",
+        status: "failed",
+        found: [],
+        reaped: [],
+        failed: [],
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  if (options.listOrphans) {
+    try {
+      return {
+        mode: "list",
+        status: "passed",
+        found: await findOrphanFffMcpProcesses(),
+      };
+    } catch (error) {
+      return {
+        mode: "list",
+        status: "failed",
+        found: [],
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  return null;
+}
+
+async function collectSourceDiagnostics(
+  env: NodeJS.ProcessEnv
+): Promise<DoctorSourceDiagnostics> {
+  const configPath = searchOptionsFromEnv(env).configPath;
+
+  try {
+    const { command: _command, ...diagnostics } = await inspectSessionSources({
+      configPath,
+    });
+    return diagnostics;
+  } catch (error) {
+    const pathForMessage = configPath ?? "default config path";
+    if (error instanceof SyntaxError) {
+      throw new DoctorDiagnosticsError(
+        "user_input_error",
+        `Config JSON is invalid at ${pathForMessage}: ${error.message}`,
+        1
+      );
+    }
+    throw new DoctorDiagnosticsError(
+      "tool_environment_error",
+      `Config could not be read at ${pathForMessage}: ${errorMessage(error)}`,
+      3
+    );
+  }
+}
+
+function doctorSuccessEnvelope(
+  result: Extract<CheckFffMcpResult, { ok: true }>,
+  orphans: DoctorOrphansDiagnostics | null = null,
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+) {
+  return {
+    tool: "agent-session-search-doctor",
+    contractVersion: "1.0",
+    ok: true,
+    command: result.command,
+    ...(result.resolvedPath ? { resolvedPath: result.resolvedPath } : {}),
+    version: result.version,
+    requiredRelease: result.requiredRelease,
+    recommendedRelease: result.recommendedRelease,
+    installCommand: result.installCommand,
+    checks: result.checks,
+    sourceDiagnostics,
+    orphans,
+  };
+}
+
+function doctorFffErrorEnvelope(
+  result: Extract<CheckFffMcpResult, { ok: false }>,
+  orphans: DoctorOrphansDiagnostics | null = null,
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+) {
+  return doctorErrorEnvelope({
+    code: "tool_environment_error",
+    message: result.reason,
+    exitCode: 3,
+    canEnsureFff: result.canEnsureFff,
+    recommendedAction: result.recommendedAction,
+    suggestedCommand: result.canEnsureFff
+      ? "agent-session-search-doctor --ensure-fff --yes"
+      : undefined,
+    requiredRelease: result.requiredRelease,
+    recommendedRelease: result.recommendedRelease,
+    installCommand: result.installCommand,
+    checks: result.checks,
+    orphans,
+    sourceDiagnostics,
+  });
+}
+
+function doctorOrphanErrorEnvelope(
+  orphans: DoctorOrphansDiagnostics,
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+) {
+  return doctorErrorEnvelope({
+    code: "upstream_failure",
+    message:
+      orphans.reason ??
+      (orphans.mode === "reap"
+        ? "One or more orphan fff-mcp processes could not be reaped"
+        : "Failed to list orphan fff-mcp processes"),
+    exitCode: 4,
+    orphans,
+    sourceDiagnostics,
+  });
+}
+
+function doctorDiagnosticsErrorEnvelope(
+  error: unknown,
+  orphans: DoctorOrphansDiagnostics | null = null
+) {
+  if (error instanceof DoctorDiagnosticsError) {
+    return doctorErrorEnvelope({
+      code: error.code,
+      message: error.message,
+      exitCode: error.exitCode,
+      orphans,
+    });
+  }
+  return doctorErrorEnvelope({
+    code: "upstream_failure",
+    message: errorMessage(error),
+    exitCode: 4,
+    orphans,
+  });
+}
+
+function doctorParseErrorEnvelope(error: DoctorParseError) {
+  return doctorErrorEnvelope({
+    code: "user_input_error",
+    message: error.message,
+    exitCode: 1,
+    hint: error.suggestion.hint,
+    suggestedCommand: error.suggestion.suggestedCommand,
+  });
+}
+
+function doctorUpstreamErrorEnvelope(error: unknown) {
+  return doctorErrorEnvelope({
+    code: "upstream_failure",
+    message: error instanceof Error ? error.message : String(error),
+    exitCode: 4,
+  });
+}
+
+function doctorErrorEnvelope({
+  code,
+  message,
+  exitCode,
+  hint,
+  suggestedCommand,
+  canEnsureFff,
+  recommendedAction,
+  requiredRelease,
+  recommendedRelease,
+  installCommand,
+  checks = [],
+  sourceDiagnostics = null,
+  orphans = null,
+}: {
+  code: DoctorErrorCode;
+  message: string;
+  exitCode: 1 | 3 | 4;
+  hint?: string;
+  suggestedCommand?: string;
+  canEnsureFff?: boolean;
+  recommendedAction?: string;
+  requiredRelease?: string;
+  recommendedRelease?: string;
+  installCommand?: string;
+  checks?: DoctorCheck[];
+  sourceDiagnostics?: DoctorSourceDiagnostics | null;
+  orphans?: DoctorOrphansDiagnostics | null;
+}) {
+  return {
+    tool: "agent-session-search-doctor",
+    contractVersion: "1.0",
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(hint ? { hint } : {}),
+      ...(suggestedCommand ? { suggestedCommand } : {}),
+      ...(canEnsureFff === undefined ? {} : { canEnsureFff }),
+      ...(recommendedAction ? { recommendedAction } : {}),
+    },
+    ...(requiredRelease ? { requiredRelease } : {}),
+    ...(recommendedRelease ? { recommendedRelease } : {}),
+    ...(installCommand ? { installCommand } : {}),
+    checks,
+    sourceDiagnostics,
+    orphans,
+    exitCode,
+  };
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function parseArgs(argv: string[]): CheckFffMcpOptions {
   const options: CheckFffMcpOptions = {};
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === "--json") {
+      options.json = true;
+      continue;
+    }
     if (arg === "--command") {
       const command = argv[index + 1];
-      if (!command) {
+      if (!command || isDoctorOption(command)) {
         throw new DoctorParseError("--command requires a value", {
           hint: "Pass the fff-mcp binary after --command.",
           suggestedCommand: "agent-session-search-doctor --command <bin>",
@@ -417,6 +984,15 @@ function parseArgs(argv: string[]): CheckFffMcpOptions {
       }
     );
   }
+  if (options.listOrphans && options.reapOrphans) {
+    throw new DoctorParseError(
+      "--list-orphans and --reap-orphans cannot be used together",
+      {
+        hint: "Choose --list-orphans for a read-only diagnostic, or --reap-orphans for explicit process cleanup.",
+        suggestedCommand: "agent-session-search-doctor --list-orphans",
+      }
+    );
+  }
   return options;
 }
 
@@ -425,6 +1001,7 @@ function isHelpRequest(argv: string[]) {
 }
 
 const KNOWN_DOCTOR_OPTIONS = [
+  "--json",
   "--command",
   "--skip-smoke",
   "--list-orphans",
@@ -435,6 +1012,7 @@ const KNOWN_DOCTOR_OPTIONS = [
 ] as const;
 
 const BOOLEAN_DOCTOR_OPTIONS = new Set<string>([
+  "--json",
   "--skip-smoke",
   "--list-orphans",
   "--reap-orphans",
@@ -442,6 +1020,12 @@ const BOOLEAN_DOCTOR_OPTIONS = new Set<string>([
   "--yes",
   "--help",
 ]);
+
+function isDoctorOption(value: string) {
+  return KNOWN_DOCTOR_OPTIONS.includes(
+    value as (typeof KNOWN_DOCTOR_OPTIONS)[number]
+  );
+}
 
 function unknownOptionError(option: string, argv: string[]) {
   const suggestedOption = suggestKnownOption(option);
@@ -583,6 +1167,7 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
       client: await createFffMcpClient(root, {
         command: input.command,
         env: input.env,
+        stderr: input.suppressStderr ? "pipe" : undefined,
       }),
       timeoutMs: 5_000,
       emptyResultRetryAttempts: 10,
@@ -685,18 +1270,38 @@ async function findOnPath(command: string, path: string) {
   return undefined;
 }
 
+export function handleDoctorEntrypointError(
+  error: unknown,
+  argv = process.argv.slice(2)
+) {
+  if (argv.includes("--json")) {
+    console.error(
+      JSON.stringify(
+        error instanceof DoctorParseError
+          ? doctorParseErrorEnvelope(error)
+          : doctorUpstreamErrorEnvelope(error),
+        null,
+        2
+      )
+    );
+    process.exitCode = error instanceof DoctorParseError ? 1 : 4;
+    return;
+  }
+  if (error instanceof DoctorParseError) {
+    console.error(error.message);
+    if (error.suggestion.hint) {
+      console.error(`Hint: ${error.suggestion.hint}`);
+    }
+    console.error(`Suggested command: ${error.suggestion.suggestedCommand}`);
+    console.error(doctorHelpText());
+  } else {
+    console.error(error instanceof Error ? error.message : error);
+  }
+  process.exitCode = error instanceof DoctorParseError ? 1 : 4;
+}
+
 if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
-    if (error instanceof DoctorParseError) {
-      console.error(error.message);
-      if (error.suggestion.hint) {
-        console.error(`Hint: ${error.suggestion.hint}`);
-      }
-      console.error(`Suggested command: ${error.suggestion.suggestedCommand}`);
-      console.error(doctorHelpText());
-    } else {
-      console.error(error instanceof Error ? error.message : error);
-    }
-    process.exitCode = error instanceof DoctorParseError ? 1 : 4;
+    handleDoctorEntrypointError(error);
   });
 }

@@ -34,7 +34,9 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("--path <path>");
       expect(output).toContain("--max-results <n>");
       expect(output).toContain("--version");
-      expect(output).toContain("agent-session-search-doctor");
+      expect(output).toContain(
+        "Run agent-session-search-doctor --json for agent-readable FFF diagnostics."
+      );
       expect(output).toContain("search_sessions");
       expect(output).not.toContain("query: help");
     } finally {
@@ -80,7 +82,7 @@ describe("CLI argument parsing", () => {
       const output = JSON.parse(log.mock.calls[0]?.[0] as string) as {
         tool: string;
         contractVersion: string;
-        commands: Array<{ name: string }>;
+        commands: Array<{ name: string; usage: string; output: string }>;
         contract: {
           warnings: Record<string, string>;
           warningEnvelope: { fields: string[]; recovery: string };
@@ -99,8 +101,18 @@ describe("CLI argument parsing", () => {
           "capabilities",
           "robot-docs guide",
           "--robot-triage",
+          "doctor",
         ])
       );
+      const doctorCommand = output.commands.find(
+        (command) => command.name === "doctor"
+      );
+      expect(doctorCommand).toMatchObject({
+        usage: expect.stringContaining("agent-session-search-doctor [--json]"),
+        output: expect.stringContaining("sourceDiagnostics"),
+      });
+      expect(doctorCommand?.output).toContain("stderr");
+      expect(doctorCommand?.output).toContain("0/1/3/4");
       expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
       expect(output.contract.warnings.no_sources_selected).toContain(
         "sources --json"
@@ -367,6 +379,7 @@ describe("CLI argument parsing", () => {
       const output = log.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(output).toContain("Agent guide: agent-session-search");
       expect(output).toContain("capabilities --json");
+      expect(output).toContain("agent-session-search-doctor --json");
       expect(output).toContain("more.evidence");
       expect(output).toContain("search_sessions");
     } finally {
@@ -392,7 +405,12 @@ describe("CLI argument parsing", () => {
       expect(output.recommendedCommands).toContain(
         'agent-session-search "auth token timeout" --json'
       );
-      expect(output.healthChecks).toContain("agent-session-search-doctor");
+      expect(output.healthChecks).toContain(
+        "agent-session-search-doctor --json"
+      );
+      expect(output.healthChecks).toContain(
+        "agent-session-search-doctor --json --list-orphans"
+      );
     } finally {
       log.mockRestore();
     }

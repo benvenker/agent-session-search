@@ -14,7 +14,7 @@ Fix:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
-agent-session-search-doctor
+agent-session-search-doctor --json
 ```
 
 Review the installer first if needed: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The required and documented stable FFF MCP release for this package is `v0.9.6`.
@@ -39,7 +39,7 @@ Fix:
 
 ```bash
 agent-session-search-doctor --ensure-fff --yes
-agent-session-search-doctor
+agent-session-search-doctor --json
 ```
 
 ## FFF `multi_grep` Falls Back
@@ -52,10 +52,10 @@ multi_grep_fallback
 
 Cause: `multi_grep` is absent, failed, or did not match the sequential `grep` union during the recall-equivalence probe.
 
-Fix: no action is required for correctness. Agent Session Search uses sequential `grep` as the authoritative fallback and reports the fallback reason in `metadata.backend`. Run doctor to inspect installed version, `multi_grep` support, and recall-equivalence status:
+Fix: no action is required for correctness. Agent Session Search uses sequential `grep` as the authoritative fallback and reports the fallback reason in `metadata.backend`. Run doctor JSON to inspect installed version, `multi_grep` support, and recall-equivalence status:
 
 ```bash
-agent-session-search-doctor
+agent-session-search-doctor --json
 ```
 
 Upgrade FFF only when you want the faster backend path:
@@ -167,16 +167,16 @@ Cause: a previous MCP client or CLI process crashed after spawning FFF children.
 Inspect first:
 
 ```bash
-agent-session-search-doctor --list-orphans
+agent-session-search-doctor --json --list-orphans
 ```
 
 Clean up:
 
 ```bash
-agent-session-search-doctor --reap-orphans
+agent-session-search-doctor --json --reap-orphans
 ```
 
-`--reap-orphans` kills matching orphaned `fff-mcp` processes with `SIGKILL` and does not prompt.
+`--reap-orphans` kills matching orphaned `fff-mcp` processes with `SIGKILL` and does not prompt. In JSON mode, listing returns `orphans.mode: "list"` with `found`; reaping returns `orphans.mode: "reap"` with `found`, `reaped`, and `failed`.
 
 ## Mistyped Flags
 
@@ -189,6 +189,33 @@ agent-session-search --jason "auth token timeout"
 ```
 
 Human output includes usage and a suggested command. With `--json`, the error is written to stderr as a JSON envelope with `error.code: "user_input_error"`.
+
+Doctor JSON follows the same stream rules:
+
+```bash
+agent-session-search-doctor --json --wat
+```
+
+The command exits `1`, leaves stdout empty, and writes a concise stderr object:
+
+```json
+{
+  "tool": "agent-session-search-doctor",
+  "contractVersion": "1.0",
+  "ok": false,
+  "error": {
+    "code": "user_input_error",
+    "message": "Unknown option: --wat",
+    "suggestedCommand": "agent-session-search-doctor help"
+  },
+  "checks": [],
+  "sourceDiagnostics": null,
+  "orphans": null,
+  "exitCode": 1
+}
+```
+
+Successful doctor JSON exits `0` and writes stdout only. Missing or stale `fff-mcp` exits `3` with `error.code: "tool_environment_error"` on stderr; unexpected upstream failures exit `4` with `error.code: "upstream_failure"` on stderr.
 
 ## All Attempted Sources Failed
 

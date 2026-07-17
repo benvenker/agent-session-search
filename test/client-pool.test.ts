@@ -93,7 +93,13 @@ describe("createFffBackendPool", () => {
           },
           async listTools() {
             calls.push({ tool: "list_tools" });
-            return ["grep", "multi_grep"];
+            return [
+              { name: "grep", inputSchema: { type: "object" as const } },
+              {
+                name: "multi_grep",
+                inputSchema: { type: "object" as const },
+              },
+            ];
           },
         };
       },

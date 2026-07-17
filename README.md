@@ -14,7 +14,7 @@ Agent Session Search wraps [FFF][fff]. It keeps raw session files as the source 
 
 - Exposes one MCP tool: `search_sessions`.
 - Ships a matching CLI: `agent-session-search`.
-- Uses `agent-session-search-doctor` to verify `fff-mcp` and inspect orphaned FFF children.
+- Uses `agent-session-search-doctor --json` to expose agent-readable FFF, source, and orphan diagnostics.
 - Searches local text transcript roots only. It does not add embeddings, summaries, or a custom session database.
 
 ## Install
@@ -28,7 +28,7 @@ Install the package:
 
 ```bash
 npm install -g @benvenker/agent-session-search
-agent-session-search-doctor
+agent-session-search-doctor --json
 ```
 
 If `fff-mcp` is missing, the package postinstall prints non-destructive install guidance. It does not change a user-owned FFF installation.
@@ -37,10 +37,10 @@ Manual FFF install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash
-agent-session-search-doctor
+agent-session-search-doctor --json
 ```
 
-Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current required and documented stable FFF MCP release for this package is `v0.9.6`; doctor reports the installed version, multi_grep support, recall-equivalence smoke status, and the same upgrade command.
+Review the installer before piping it to a shell: <https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh>. The current required and documented stable FFF MCP release for this package is `v0.9.6`; doctor JSON reports the installed version, multi_grep support, recall-equivalence smoke status, source diagnostics, orphan diagnostics when requested, and the same upgrade command. Success writes one JSON object to stdout; parse and runtime failures write one JSON object to stderr with exit code `1`, `3`, or `4`.
 
 ## Quick Start
 

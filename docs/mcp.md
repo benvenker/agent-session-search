@@ -4,7 +4,38 @@ The server exposes one MCP tool: `search_sessions`.
 
 The implementation returns JSON as MCP text content. It does not currently advertise an `outputSchema`; this behavior is pinned by tests while the FastMCP wrapper path returns successful tool results as string/content-style values.
 
-The stdio server checks the external `fff-mcp` binary before the MCP handshake. If `fff-mcp` is missing or below `v0.9.6`, `agent-session-search-mcp` exits with code `3` and prints install/upgrade guidance. Run `agent-session-search-doctor` to diagnose, or `agent-session-search-doctor --ensure-fff --yes` when you explicitly want doctor to run the official installer.
+The stdio server checks the external `fff-mcp` binary before the MCP handshake. If `fff-mcp` is missing or below `v0.9.6`, `agent-session-search-mcp` exits with code `3` and prints install/upgrade guidance. Run `agent-session-search-doctor --json` for agent-readable setup diagnostics, or `agent-session-search-doctor --ensure-fff --yes` when you explicitly want doctor to run the official installer.
+
+Doctor JSON is a CLI diagnostic surface, not an MCP tool. Success writes one object to stdout with `ok: true`, `contractVersion: "1.0"`, backend identity fields, structured `checks`, `sourceDiagnostics`, and `orphans`; parse and runtime failures write one object to stderr with `ok: false`, `error.code`, and `exitCode`. A success object carries backend identity such as `"command":"fff-mcp"` and source health under `"sourceDiagnostics":{"configPath": ...}`. Exit codes match the CLI convention: `0` success, `1` user-input error, `3` tool-environment error, and `4` upstream failure.
+
+Compact success excerpt with `checks` shortened:
+
+```json
+{
+  "tool": "agent-session-search-doctor",
+  "contractVersion": "1.0",
+  "ok": true,
+  "command": "fff-mcp",
+  "resolvedPath": "/usr/local/bin/fff-mcp",
+  "version": "fff-mcp 0.9.6",
+  "requiredRelease": "v0.9.6",
+  "recommendedRelease": "v0.9.6",
+  "installCommand": "curl -fsSL https://raw.githubusercontent.com/dmtrKovalenko/fff.nvim/main/install-mcp.sh | bash",
+  "checks": [
+    {
+      "id": "command_found",
+      "status": "passed",
+      "message": "fff-mcp was found."
+    }
+  ],
+  "sourceDiagnostics": {
+    "configPath": "/home/user/.config/agent-session-search/config.json",
+    "sources": [],
+    "warnings": []
+  },
+  "orphans": null
+}
+```
 
 ## Input
 
@@ -138,4 +169,4 @@ Source-filter warnings such as `unknown_source` and `no_sources_selected` includ
 
 `broad_evidence_capped` means an unscoped evidence request hit the default breadth cap. Switch back to candidates, expand a promising group with `more.groupCandidates`, then request focused evidence for the selected path.
 
-`all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor`.
+`all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor --json`.

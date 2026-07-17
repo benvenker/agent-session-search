@@ -1,8 +1,18 @@
+---
+title: "Search Pipeline Prototype Synthesis"
+type: synthesis
+date: 2026-05-29
+status: completed
+verified: code-evidence
+accuracy: high
+status_notes: "Implemented on main; this audit verified closed Beads and current code/test evidence, but did not rerun the full validation suite."
+evidence:
+  - ".beads/issues.jsonl closes bd-3tv and child search-pipeline Beads."
+  - "src/search.ts contains parallel fanout, candidate ranking, project-aware ranking, and debug ranking paths."
+  - "src/roots.ts and test/root-resolver.test.ts cover Codex archived-session source coverage."
+---
+
 # Search Pipeline Prototype Synthesis
-
-Date: 2026-05-29
-
-Status: implemented on `main`. Parallel fanout, candidate ranking, project-aware boosting, ranking debug output, and Codex archived-session coverage now live in `src/search.ts`, `src/roots.ts`, and the focused tests under `test/search.test.ts` and `test/root-resolver.test.ts`. Keep this file as the planning record, not the current backlog.
 
 ## Summary
 

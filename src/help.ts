@@ -56,7 +56,7 @@ export function cliHelpText() {
     "  Use query for a concise recall task, queries for short literal probes, operationalContext for cwd/branch/reason, and callerSession when the caller knows its live session id.",
     "",
     "Setup:",
-    "  Run agent-session-search-doctor to verify the FFF backend.",
+    "  Run agent-session-search-doctor --json for agent-readable FFF diagnostics.",
     "  Set AGENT_SESSION_SEARCH_CONFIG to use a custom config file.",
   ].join("\n");
 }
@@ -113,9 +113,9 @@ export function cliCapabilities(version: string) {
       {
         name: "doctor",
         usage:
-          "agent-session-search-doctor [--skip-smoke] [--list-orphans] [--reap-orphans] | agent-session-search-doctor --ensure-fff --yes",
+          "agent-session-search-doctor [--json] [--skip-smoke] [--list-orphans] [--reap-orphans] | agent-session-search-doctor --ensure-fff --yes",
         output:
-          "FFF backend setup diagnostics including required v0.9.6 compatibility, explicit repair, multi_grep support, and recall-equivalence status.",
+          "--json prints the v1 doctor diagnostics envelope: success on stdout, parse/runtime errors on stderr, exit codes 0/1/3/4, structured checks, sourceDiagnostics, and explicit orphan results when requested.",
       },
     ],
     resultModes: [
@@ -159,7 +159,7 @@ export function cliCapabilities(version: string) {
         broad_evidence_capped:
           "Switch to candidates mode, expand one more.groupCandidates payload when useful, then request focused evidence for selected paths.",
         all_sources_failed:
-          "Run agent-session-search sources --json and agent-session-search-doctor, or use the rg fallback command included in the warning message.",
+          "Run agent-session-search sources --json and agent-session-search-doctor --json, or use the rg fallback command included in the warning message.",
       },
       warningEnvelope: {
         fields: ["source?", "root?", "code", "message", "recommendedAction?"],
@@ -230,7 +230,7 @@ export function robotDocsGuide() {
     "Discovery:",
     "  agent-session-search capabilities --json",
     "  agent-session-search --robot-triage",
-    "  agent-session-search-doctor",
+    "  agent-session-search-doctor --json",
     "",
     "Contract notes:",
     "- FFF is the search engine.",
@@ -264,9 +264,9 @@ export function robotTriage(version: string) {
       "agent-session-search sources --json",
     ],
     healthChecks: [
-      "agent-session-search-doctor",
+      "agent-session-search-doctor --json",
       "agent-session-search-doctor --ensure-fff --yes",
-      "agent-session-search-doctor --list-orphans",
+      "agent-session-search-doctor --json --list-orphans",
     ],
     commonNextSteps: [
       "Start with candidates mode and inspect candidate_groups in priority order.",
@@ -279,26 +279,29 @@ export function robotTriage(version: string) {
 
 export function doctorHelpText() {
   return [
-    "Usage: agent-session-search-doctor [--command <bin>] [--skip-smoke] [--list-orphans] [--reap-orphans]",
+    "Usage: agent-session-search-doctor [--json] [--command <bin>] [--skip-smoke] [--list-orphans] [--reap-orphans]",
     "       agent-session-search-doctor --ensure-fff --yes",
     "       agent-session-search-doctor help",
     "",
     "Verify the FFF backend used by agent-session-search.",
     "Fails when fff-mcp is missing or below the required minimum. Reports installed version, stable release guidance, multi_grep support, and recall-equivalence status without upgrading automatically.",
+    "With --json, success writes one diagnostics envelope to stdout and parse/runtime errors write one diagnostics envelope to stderr.",
     "",
     "Options:",
+    "  --json                Print the v1 diagnostics envelope for agents.",
     "  --command <bin>       Check a specific fff-mcp binary. Defaults to fff-mcp.",
     "  --skip-smoke          Skip the live temporary-file grep smoke test.",
     "  --ensure-fff          Run the official FFF MCP installer when repair is needed. Requires --yes.",
     "  --yes                 Confirm --ensure-fff may install or upgrade fff-mcp.",
-    "  --list-orphans        List orphaned fff-mcp processes after preflight.",
-    "  --reap-orphans        Kill orphaned fff-mcp processes after preflight.",
+    "  --list-orphans        List orphaned fff-mcp processes; in JSON mode attaches the result to the envelope.",
+    "  --reap-orphans        Kill orphaned fff-mcp processes; in JSON mode attaches the result to the envelope.",
     "  -h, --help            Show this help.",
     "",
     "Examples:",
     "  agent-session-search-doctor",
+    "  agent-session-search-doctor --json --skip-smoke",
     "  agent-session-search-doctor --ensure-fff --yes",
-    "  agent-session-search-doctor --list-orphans",
+    "  agent-session-search-doctor --json --list-orphans",
     "  agent-session-search-doctor --command /usr/local/bin/fff-mcp --skip-smoke",
   ].join("\n");
 }

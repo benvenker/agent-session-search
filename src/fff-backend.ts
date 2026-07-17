@@ -3,13 +3,21 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type {
+  CallToolResult,
+  ListToolsResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import type {
   SearchBackendMetadata,
   SearchResult,
   SearchWarning,
   SourceName,
 } from "./types.js";
 import { trackChildProcessPid } from "./child-process-cleanup.js";
-import { DetachedStdioClientTransport } from "./detached-stdio-transport.js";
+import {
+  DetachedStdioClientTransport,
+  type StdioServerParameters,
+} from "./detached-stdio-transport.js";
 import { ensureFffMcpCompatible } from "./fff-runtime.js";
 import { pathMatchesInclude } from "./roots.js";
 
@@ -33,10 +41,17 @@ export type FffToolResult = {
   isError?: boolean;
 };
 
+export type FffToolDefinition = Tool;
+export type FffRawToolResult = CallToolResult;
+
 export type FffClient = {
   grep(input: FffGrepInput): Promise<FffToolResult>;
   multiGrep?(input: FffMultiGrepInput): Promise<FffToolResult>;
-  listTools?(): Promise<string[]>;
+  listTools?(): Promise<FffToolDefinition[]>;
+  callTool?(input: {
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<FffRawToolResult>;
   close?(): Promise<void>;
 };
 
@@ -45,6 +60,7 @@ export type McpToolClient = {
     name: string;
     arguments?: Record<string, unknown>;
   }): Promise<unknown>;
+  listTools?(input?: { cursor?: string }): Promise<ListToolsResult>;
   close(): Promise<void>;
 };
 
@@ -242,7 +258,7 @@ export class OneRootFffBackend {
     try {
       if (this.multiGrepStatus.state === "unknown") {
         const tools = await this.options.client.listTools?.();
-        if (tools && !tools.includes("multi_grep")) {
+        if (tools && !tools.some((tool) => tool.name === "multi_grep")) {
           return {
             warnings: [
               this.warning(
@@ -532,7 +548,7 @@ export class FffMcpClient implements FffClient {
   ) {}
 
   async grep(input: FffGrepInput): Promise<FffToolResult> {
-    return (await this.client.callTool({
+    return (await this.callTool({
       name: "grep",
       arguments: {
         query: input.query,
@@ -542,7 +558,7 @@ export class FffMcpClient implements FffClient {
   }
 
   async multiGrep(input: FffMultiGrepInput): Promise<FffToolResult> {
-    return (await this.client.callTool({
+    return (await this.callTool({
       name: "multi_grep",
       arguments: {
         patterns: input.patterns,
@@ -551,21 +567,25 @@ export class FffMcpClient implements FffClient {
     })) as FffToolResult;
   }
 
-  async listTools(): Promise<string[]> {
-    const listTools = (
-      this.client as McpToolClient & {
-        listTools?: () => Promise<{ tools?: Array<{ name?: string }> }>;
-      }
-    ).listTools;
-    if (!listTools) {
+  async callTool(input: {
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<FffRawToolResult> {
+    return (await this.client.callTool(input)) as FffRawToolResult;
+  }
+
+  async listTools(): Promise<FffToolDefinition[]> {
+    if (!this.client.listTools) {
       return [];
     }
-    const result = await listTools.call(this.client);
-    return (
-      result.tools
-        ?.map((tool) => tool.name)
-        .filter((name): name is string => typeof name === "string") ?? []
-    );
+    const tools: FffToolDefinition[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await this.client.listTools({ cursor });
+      tools.push(...result.tools);
+      cursor = result.nextCursor;
+    } while (cursor);
+    return tools;
   }
 
   async close(): Promise<void> {
@@ -584,6 +604,7 @@ export type CreateFffMcpClientOptions = {
   command?: string;
   args?: string[];
   env?: NodeJS.ProcessEnv;
+  stderr?: StdioServerParameters["stderr"];
 };
 
 export async function createFffMcpClient(
@@ -605,6 +626,7 @@ export async function createFffMcpClient(
     command: options.command ?? "fff-mcp",
     args: [...args, root],
     env: options.env ? stringEnv(options.env) : undefined,
+    stderr: options.stderr,
   });
   const client = new Client({ name: "agent-session-search", version: "0.1.0" });
 

@@ -195,7 +195,7 @@ describe("OneRootFffBackend", () => {
         };
       },
       async listTools() {
-        return ["grep", "multi_grep"];
+        return [tool("grep"), tool("multi_grep")];
       },
     };
 
@@ -265,7 +265,7 @@ describe("OneRootFffBackend", () => {
         };
       },
       async listTools() {
-        return ["grep", "multi_grep"];
+        return [tool("grep"), tool("multi_grep")];
       },
     };
 
@@ -490,6 +490,86 @@ describe("OneRootFffBackend", () => {
     ]);
   });
 
+  it("lists complete paginated MCP tool definitions", async () => {
+    const calls: unknown[] = [];
+    const mcpClient = {
+      async callTool() {
+        throw new Error("not used");
+      },
+      async listTools(input: { cursor?: string } = {}) {
+        calls.push(input);
+        if (!input.cursor) {
+          return {
+            tools: [
+              {
+                name: "grep",
+                description: "Search files",
+                inputSchema: {
+                  type: "object" as const,
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+                outputSchema: {
+                  type: "object" as const,
+                  properties: { hits: { type: "array" } },
+                },
+                annotations: { readOnlyHint: true },
+                execution: { taskSupport: "forbidden" as const },
+              },
+            ],
+            nextCursor: "page-2",
+          };
+        }
+        return {
+          tools: [
+            {
+              name: "multi_grep",
+              description: "Search multiple patterns",
+              inputSchema: {
+                type: "object" as const,
+                properties: { patterns: { type: "array" } },
+                required: ["patterns"],
+              },
+              annotations: { readOnlyHint: true },
+            },
+          ],
+        };
+      },
+      async close() {},
+    };
+
+    const client = new FffMcpClient(mcpClient);
+
+    await expect(client.listTools()).resolves.toEqual([
+      {
+        name: "grep",
+        description: "Search files",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+        },
+        outputSchema: {
+          type: "object",
+          properties: { hits: { type: "array" } },
+        },
+        annotations: { readOnlyHint: true },
+        execution: { taskSupport: "forbidden" },
+      },
+      {
+        name: "multi_grep",
+        description: "Search multiple patterns",
+        inputSchema: {
+          type: "object",
+          properties: { patterns: { type: "array" } },
+          required: ["patterns"],
+        },
+        annotations: { readOnlyHint: true },
+      },
+    ]);
+    expect(calls).toEqual([{}, { cursor: "page-2" }]);
+  });
+
   it("removes an owned temporary FFF database directory when closed", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-cleanup-"));
     await writeFile(join(tmp, "frecency.mdb"), "");
@@ -614,4 +694,13 @@ async function eventuallySearch(
     latest = await backend.search(input);
   }
   return latest;
+}
+
+function tool(name: string) {
+  return {
+    name,
+    inputSchema: {
+      type: "object" as const,
+    },
+  };
 }
