@@ -110,13 +110,19 @@ export class OneRootFffBackend {
       return this.searchWithGatedMultiGrep(input);
     }
 
+    const sequential = await this.searchSequential(input);
     const fallbackReason =
       input.patterns.length > 1 && !this.options.client.multiGrep
         ? "multi_grep_unavailable"
         : undefined;
-    const sequential = await this.searchSequential(input);
     return {
       ...sequential,
+      warnings: fallbackReason
+        ? [
+            ...sequential.warnings,
+            this.multiGrepFallbackWarning(fallbackReason),
+          ]
+        : sequential.warnings,
       backend: {
         mode: fallbackReason ? "sequential_grep_fallback" : "sequential_grep",
         ...(fallbackReason ? { fallbackReason } : {}),
@@ -276,7 +282,9 @@ export class OneRootFffBackend {
       const response = await withTimeout(
         this.options.client.multiGrep!({
           patterns: input.patterns,
-          maxResults: input.maxResults,
+          maxResults: shouldDeferBackendCap(input)
+            ? undefined
+            : input.maxResults,
         }),
         this.options.timeoutMs,
         input.patterns.join(" OR ")
@@ -456,15 +464,17 @@ export class OneRootFffBackend {
         continue;
       }
 
-      results.push({
-        source: this.options.source,
-        root: this.options.root,
-        path: normalizePath(this.options.root, currentPath),
-        line: Number(match[1]),
-        content: match[2],
-        pattern: matchedPatterns[0],
-        patterns: matchedPatterns,
-      });
+      mergeSearchResults(results, [
+        {
+          source: this.options.source,
+          root: this.options.root,
+          path: normalizePath(this.options.root, currentPath),
+          line: Number(match[1]),
+          content: match[2],
+          pattern: matchedPatterns[0],
+          patterns: matchedPatterns,
+        },
+      ]);
     }
 
     return results;

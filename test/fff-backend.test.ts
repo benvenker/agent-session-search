@@ -163,7 +163,18 @@ describe("OneRootFffBackend", () => {
         pattern: "first",
       },
     ]);
-    expect(result.warnings).toEqual([]);
+    expect(result.backend).toEqual({
+      mode: "sequential_grep_fallback",
+      fallbackReason: "multi_grep_unavailable",
+    });
+    expect(result.warnings).toMatchObject([
+      {
+        source: "codex",
+        root: "/tmp/session-root",
+        code: "multi_grep_fallback",
+        recommendedAction: expect.stringContaining("Sequential grep"),
+      },
+    ]);
     expect(calls).toEqual([{ query: "first", maxResults: 1 }]);
   });
 
@@ -240,6 +251,143 @@ describe("OneRootFffBackend", () => {
     ]);
   });
 
+  it("deduplicates repeated multi_grep lines while preserving inferred matched patterns", async () => {
+    const client: FffClient = {
+      async grep() {
+        return {
+          content: [
+            { type: "text", text: "session.jsonl\n 7: auth token timeout" },
+          ],
+          isError: false,
+        };
+      },
+      async multiGrep() {
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                "session.jsonl",
+                " 7: auth token timeout",
+                " 7: auth token timeout",
+              ].join("\n"),
+            },
+          ],
+          isError: false,
+        };
+      },
+      async listTools() {
+        return [tool("grep"), tool("multi_grep")];
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+    });
+
+    const result = await backend.search({
+      patterns: ["auth", "token"],
+      maxResults: 5,
+    });
+
+    expect(result).toEqual({
+      backend: { mode: "multi_grep" },
+      warnings: [],
+      results: [
+        {
+          source: "codex",
+          root: "/tmp/session-root",
+          path: "/tmp/session-root/session.jsonl",
+          line: 7,
+          content: "auth token timeout",
+          pattern: "auth",
+          patterns: ["auth", "token"],
+        },
+      ],
+    });
+  });
+
+  it("defers multi_grep backend caps until after include filtering", async () => {
+    const calls: unknown[] = [];
+    const client: FffClient = {
+      async grep(input) {
+        calls.push({ tool: "grep", ...input });
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                "config.json",
+                " 1: auth token refresh",
+                "sessions/selected.jsonl",
+                " 2: auth token refresh",
+              ].join("\n"),
+            },
+          ],
+          isError: false,
+        };
+      },
+      async multiGrep(input) {
+        calls.push({ tool: "multi_grep", ...input });
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                "config.json",
+                " 1: auth token refresh",
+                "sessions/selected.jsonl",
+                " 2: auth token refresh",
+              ].join("\n"),
+            },
+          ],
+          isError: false,
+        };
+      },
+      async listTools() {
+        return [tool("grep"), tool("multi_grep")];
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+    });
+
+    const result = await backend.search({
+      patterns: ["auth", "refresh"],
+      maxResults: 1,
+      include: ["sessions/*.jsonl"],
+    });
+
+    expect(result).toEqual({
+      backend: { mode: "multi_grep" },
+      warnings: [],
+      results: [
+        {
+          source: "codex",
+          root: "/tmp/session-root",
+          path: "/tmp/session-root/sessions/selected.jsonl",
+          line: 2,
+          content: "auth token refresh",
+          pattern: "auth",
+          patterns: ["auth", "refresh"],
+        },
+      ],
+    });
+    expect(calls).toEqual([
+      { tool: "grep", query: "auth", maxResults: undefined },
+      {
+        tool: "multi_grep",
+        patterns: ["auth", "refresh"],
+        maxResults: undefined,
+      },
+    ]);
+  });
+
   it("falls back to sequential grep when multi_grep fails the recall-equivalence probe", async () => {
     const client: FffClient = {
       async grep(input) {
@@ -295,6 +443,113 @@ describe("OneRootFffBackend", () => {
     expect(result.results.map((hit) => hit.pattern)).toEqual([
       "first",
       "second",
+    ]);
+  });
+
+  it("falls back to sequential grep when multi_grep errors as an unknown tool", async () => {
+    const calls: unknown[] = [];
+    const client: FffClient = {
+      async grep(input) {
+        calls.push({ tool: "grep", ...input });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${input.query}.jsonl\n 1: ${input.query} content`,
+            },
+          ],
+          isError: false,
+        };
+      },
+      async multiGrep(input) {
+        calls.push({ tool: "multi_grep", ...input });
+        return {
+          content: [{ type: "text", text: "Unknown tool: multi_grep" }],
+          isError: true,
+        };
+      },
+      async listTools() {
+        return [tool("grep"), tool("multi_grep")];
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+    });
+
+    const result = await backend.search({
+      patterns: ["first", "second"],
+      maxResults: 5,
+    });
+
+    expect(result.backend).toEqual({
+      mode: "sequential_grep_fallback",
+      fallbackReason: "multi_grep_backend_error",
+    });
+    expect(result.warnings).toMatchObject([
+      {
+        source: "codex",
+        root: "/tmp/session-root",
+        code: "multi_grep_backend_error",
+        message: "Unknown tool: multi_grep",
+      },
+      {
+        source: "codex",
+        root: "/tmp/session-root",
+        code: "multi_grep_fallback",
+        recommendedAction: expect.stringContaining("Sequential grep"),
+      },
+    ]);
+    expect(result.results.map((hit) => hit.pattern)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(calls).toEqual([
+      { tool: "grep", query: "first", maxResults: 5 },
+      { tool: "grep", query: "second", maxResults: 4 },
+      { tool: "multi_grep", patterns: ["first", "second"], maxResults: 5 },
+    ]);
+  });
+
+  it("does not route line-context evidence through multi_grep", async () => {
+    const calls: unknown[] = [];
+    const client: FffClient = {
+      async grep(input) {
+        calls.push({ tool: "grep", ...input });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${input.query}.jsonl\n 1: ${input.query} content`,
+            },
+          ],
+          isError: false,
+        };
+      },
+      async multiGrep(input) {
+        calls.push({ tool: "multi_grep", ...input });
+        throw new Error("multi_grep must not be used for context searches");
+      },
+    };
+
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root: "/tmp/session-root",
+      client,
+    });
+
+    const result = await backend.search({
+      patterns: ["first", "second"],
+      context: 2,
+    });
+
+    expect(result.backend).toEqual({ mode: "sequential_grep" });
+    expect(result.warnings).toEqual([]);
+    expect(calls).toEqual([
+      { tool: "grep", query: "first", maxResults: undefined },
+      { tool: "grep", query: "second", maxResults: undefined },
     ]);
   });
 
@@ -415,12 +670,19 @@ describe("OneRootFffBackend", () => {
 
     await expect(
       backend.search({ patterns: ["first", "second"], maxResults: 5 })
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       backend: {
         mode: "sequential_grep_fallback",
         fallbackReason: "multi_grep_unavailable",
       },
-      warnings: [],
+      warnings: [
+        {
+          source: "codex",
+          root: "/tmp/session-root",
+          code: "multi_grep_fallback",
+          recommendedAction: expect.stringContaining("Sequential grep"),
+        },
+      ],
       results: [],
     });
     expect(calls).toEqual([
@@ -704,6 +966,70 @@ describe("OneRootFffBackend", () => {
             },
           ],
         });
+      } finally {
+        await backend.close();
+      }
+    }
+  );
+
+  (liveFffMcp ? it : it.skip)(
+    "gates live fff-mcp multi_grep against sequential recall before promotion",
+    async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-fff-"));
+      const root = join(tmp, "root");
+      const db = join(tmp, "db");
+      await mkdir(root);
+      await mkdir(db);
+      await writeFile(
+        join(root, "session.jsonl"),
+        ["before", "auth token smoke", "refresh smoke", "after", ""].join("\n")
+      );
+
+      const client = await createFffMcpClient(root, {
+        args: [
+          "--no-update-check",
+          "--frecency-db",
+          join(db, "frecency.mdb"),
+          "--history-db",
+          join(db, "history.mdb"),
+        ],
+      });
+      const backend = new OneRootFffBackend({
+        source: "codex",
+        root,
+        client,
+        timeoutMs: 2_000,
+      });
+
+      try {
+        const supportsMultiGrep = (await client.listTools()).some(
+          (candidate) => candidate.name === "multi_grep"
+        );
+        const result = await eventuallySearch(backend, {
+          patterns: ["auth token", "refresh"],
+          maxResults: 5,
+        });
+
+        expect(result.results.map((hit) => hit.path)).toEqual([
+          join(root, "session.jsonl"),
+          join(root, "session.jsonl"),
+        ]);
+        expect(result.results.map((hit) => hit.content).sort()).toEqual([
+          "auth token smoke",
+          "refresh smoke",
+        ]);
+        if (supportsMultiGrep) {
+          expect(result.backend).toEqual({ mode: "multi_grep" });
+          expect(result.warnings).toEqual([]);
+        } else {
+          expect(result.backend).toEqual({
+            mode: "sequential_grep_fallback",
+            fallbackReason: "multi_grep_unavailable",
+          });
+          expect(result.warnings).toMatchObject([
+            { code: "multi_grep_fallback" },
+          ]);
+        }
       } finally {
         await backend.close();
       }
