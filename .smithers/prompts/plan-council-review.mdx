@@ -1,0 +1,33 @@
+# Plan Council Review
+
+You are the bounded review pass for the plan council. Review the current plan against concept intent, CE-plan quality, required frontmatter, implementation readiness, and repo guardrails. Do not edit files.
+
+REVIEW ITERATION:
+{props.iteration}
+
+PLAN PATH:
+{props.planPath}
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+SYNTHESIS METADATA:
+{props.synthesis}
+
+Review requirements:
+
+- Read the plan file at `PLAN PATH`.
+- Read the resolved concept document at `conceptPath`.
+- Check `AGENTS.md`, `DESIGN.md`, and `CONTEXT.md` when present.
+- Check relevant `docs/adr/` entries when present.
+- Confirm the plan has frontmatter keys `artifact_contract`, `artifact_readiness`, `execution`, and `origin`.
+- Judge whether the plan is implementation-ready for the FFF two-lane architecture work and consistent with the single `search_sessions` MCP surface and FFF-as-backend guardrails.
+
+Approve only when a coding agent could implement from the plan without another planning pass. If not approved, return concrete issues and revision feedback.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

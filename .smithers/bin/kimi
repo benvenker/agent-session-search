@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# kimi shim for Smithers KimiAgent: translate upstream kimi CLI flags to the
+# locally installed kimi-code 0.26.x flag surface. Lives earlier on PATH than
+# ~/.kimi-code/bin so KimiAgent's `kimi` spawn resolves here.
+#
+# Dropped (unsupported by kimi-code 0.26): --print, --final-message-only,
+# --thinking/--no-thinking, --work-dir <dir> (handled via cd instead).
+# Everything else passes through verbatim. Note: kimi-code 0.26 rejects
+# combining --prompt with --yolo, so no approval flag is added.
+set -euo pipefail
+
+out=()
+workdir=""
+while (($#)); do
+  case "$1" in
+    --print | --final-message-only | --thinking | --no-thinking)
+      shift
+      ;;
+    --work-dir)
+      workdir="${2:-}"
+      shift 2
+      ;;
+    --session)
+      # kimi-code 0.26 --session only resumes existing sessions; Smithers
+      # always passes a fresh UUID, which errors. Drop it: Smithers tasks
+      # are one-shot and retries simply start a fresh session.
+      shift 2
+      ;;
+    *)
+      out+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$workdir" ]]; then
+  cd "$workdir"
+fi
+
+exec /home/ben/.kimi-code/bin/kimi "${out[@]}"

@@ -13,6 +13,7 @@ export {
   Codex56LunaMaxAgent,
   Codex56SolHighAgent,
   Codex56SolMaxAgent,
+  Codex56SolXHighAgent,
   CodexAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
@@ -20,6 +21,7 @@ export {
   createCodex56LunaMaxAgent,
   createCodex56SolHighAgent,
   createCodex56SolMaxAgent,
+  createCodex56SolXHighAgent,
 } from "./codex";
 export { OpenCodeAgent } from "./opencode";
 export { AntigravityAgent } from "./antigravity";

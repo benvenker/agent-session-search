@@ -1,0 +1,33 @@
+# Plan Council Revise
+
+You are the bounded revision pass for the plan council. Edit the current plan in place to resolve the review issues. Do not create a new plan path unless the current path is missing.
+
+REVISION ITERATION:
+{props.iteration}
+
+PLAN PATH:
+{props.planPath}
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+REVIEW OUTPUT:
+{props.review}
+
+Revision requirements:
+
+- Read the plan file at `PLAN PATH`.
+- Read the resolved concept document at `conceptPath`.
+- Read `AGENTS.md`, `DESIGN.md`, and `CONTEXT.md` when present.
+- Resolve every review issue you can without expanding scope beyond the concept.
+- Preserve the required frontmatter keys: `artifact_contract`, `artifact_readiness`, `execution`, and `origin`.
+- Keep the result implementation-ready and CE-plan formatted.
+
+Return metadata about the in-place revision. If any issue remains unresolved, explain it in `remainingIssues`.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

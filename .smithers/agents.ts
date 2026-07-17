@@ -1,10 +1,12 @@
 // smithers-source: generated
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { type AgentLike, KimiAgent } from "smithers-orchestrator";
 import { type ReviewPanelAgents } from "./components/Review";
 import { type PlannerCandidate } from "./components/PlannerPanel";
 import {
+  ClaudeCodeFableAgent,
   ClaudeCodeOpusAgent,
   ClaudeCodeOpusHighAgent,
   ClaudeCodeOpusMaxAgent,
@@ -17,12 +19,14 @@ import {
   Codex56LunaMaxAgent,
   Codex56SolHighAgent,
   Codex56SolMaxAgent,
+  Codex56SolXHighAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
   createCodex55MedAgent,
   createCodex56LunaMaxAgent,
   createCodex56SolHighAgent,
   createCodex56SolMaxAgent,
+  createCodex56SolXHighAgent,
 } from "./agents/codex";
 import { Gemini31ProAgent } from "./agents/gemini";
 import { OpenCodeAgent } from "./agents/opencode";
@@ -53,12 +57,14 @@ export {
   Codex56LunaMaxAgent,
   Codex56SolHighAgent,
   Codex56SolMaxAgent,
+  Codex56SolXHighAgent,
   createCodex55HighAgent,
   createCodex55LowAgent,
   createCodex55MedAgent,
   createCodex56LunaMaxAgent,
   createCodex56SolHighAgent,
   createCodex56SolMaxAgent,
+  createCodex56SolXHighAgent,
 } from "./agents/codex";
 export { Gemini31ProAgent } from "./agents/gemini";
 export { OpenCodeAgent } from "./agents/opencode";
@@ -75,11 +81,24 @@ export {
   createPiGpt55High,
 } from "./agents/pi";
 
+// kimi-code 0.26.x lacks the upstream kimi CLI flags Smithers' KimiAgent
+// passes (--print, --final-message-only, --thinking, --work-dir, fresh-uuid
+// --session). The shim at .smithers/bin/kimi translates them; prepend it to
+// PATH so the agent's `kimi` spawn resolves to the shim first.
+const kimiShimBin = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "bin"
+);
+const kimiShimEnv = {
+  PATH: `${kimiShimBin}:${process.env.PATH}`,
+};
+
 export const providers = {
   kimiK3: new KimiAgent({
     model: "kimi-code/k3",
     configDir: path.join(homedir(), ".kimi-code"),
     cwd: process.cwd(),
+    env: kimiShimEnv,
   }),
   codex: Codex55HighAgent,
   claudeOpus: ClaudeCodeOpusAgent,
@@ -90,7 +109,16 @@ export const providers = {
   codex55Low: Codex55LowAgent,
   codex56SolMax: Codex56SolMaxAgent,
   codex56SolHigh: Codex56SolHighAgent,
+  codex56SolXHigh: Codex56SolXHighAgent,
   codex56LunaMax: Codex56LunaMaxAgent,
+  kimiK3Thinking: new KimiAgent({
+    model: "kimi-code/k3",
+    thinking: true,
+    configDir: path.join(homedir(), ".kimi-code"),
+    cwd: process.cwd(),
+    env: kimiShimEnv,
+  }),
+  fable: ClaudeCodeFableAgent,
   gemini31Pro: Gemini31ProAgent,
   pi: PiGpt55High,
   minimaxM3: PiMiniMaxM3,

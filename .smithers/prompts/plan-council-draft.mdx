@@ -1,0 +1,41 @@
+# Plan Council Draft
+
+You are one planner in a three-provider plan council. Produce one independent implementation-ready planning draft for the FFF two-lane architecture concept. Do not edit production code.
+
+AUTHOR:
+{props.author}
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+DRAFT OUTPUT PATH:
+{props.draftPath}
+
+Context to read before drafting:
+
+- The resolved concept document at `conceptPath`.
+- `AGENTS.md`.
+- `DESIGN.md`.
+- `CONTEXT.md` when present.
+- Relevant `docs/adr/` entries when present.
+- The `ce-plan` skill if available; otherwise follow this fallback contract: make the draft actionable, implementation-sequenced, explicit about files/modules/tests, and clear about risks and validation.
+
+Write the full markdown draft to `DRAFT OUTPUT PATH`. The draft should preserve useful disagreements and tradeoffs, but it must converge on a concrete implementation path rather than staying abstract.
+
+The markdown draft must include:
+
+- A concise statement of concept intent.
+- Recommended implementation shape.
+- Ordered implementation steps.
+- Files/modules likely to change.
+- Tests and validation commands.
+- Risks, constraints, and open questions that would change implementation order.
+
+Return only metadata about the written draft.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

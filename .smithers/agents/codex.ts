@@ -89,6 +89,21 @@ export function createCodex56SolHighAgent(env?: AgentEnv, readOnly = false) {
 
 export const Codex56SolHighAgent = createCodex56SolHighAgent();
 
+export function createCodex56SolXHighAgent(env?: AgentEnv, readOnly = false) {
+  return new SmithersCodexAgent({
+    model: "gpt-5.6-sol",
+    cwd: process.cwd(),
+    skipGitRepoCheck: true,
+    env,
+    sandbox: readOnly ? "read-only" : undefined,
+    config: {
+      model_reasoning_effort: "xhigh",
+    },
+  });
+}
+
+export const Codex56SolXHighAgent = createCodex56SolXHighAgent();
+
 export function createCodex56LunaMaxAgent(env?: AgentEnv, readOnly = false) {
   return new SmithersCodexAgent({
     model: "gpt-5.6-luna",

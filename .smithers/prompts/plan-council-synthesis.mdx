@@ -1,0 +1,49 @@
+# Plan Council Synthesis
+
+You are the synthesis planner. Read the concept and all three planner drafts, then write one CE-plan-formatted implementation-ready plan.
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+PLANNER DRAFT METADATA:
+{props.drafts}
+
+NEXT PLAN PATH HINT:
+{props.planPathHint}
+
+SEQUENCE HINT:
+{props.sequenceHint}
+
+Use the next zero-padded path matching:
+
+`docs/plans/2026-07-16-NNN-feat-fff-two-lane-architecture-plan.md`
+
+Use the provided hint unless the file already exists when you write the plan; if it exists, recompute the next available `NNN`.
+
+Required context:
+
+- The resolved concept document at `conceptPath`.
+- The three draft files at each `draftPath`.
+- `AGENTS.md`.
+- `DESIGN.md`.
+- `CONTEXT.md` when present.
+- Relevant `docs/adr/` entries when present.
+- The `ce-plan` skill if available.
+
+Write one implementation-ready markdown plan to the selected plan path. The plan must include YAML frontmatter with these top-level keys:
+
+- `artifact_contract`
+- `artifact_readiness`
+- `execution`
+- `origin`
+
+The plan body must be practical enough for a coding agent to execute without another design pass. Include scope, explicit non-goals, implementation sequence, affected files/modules, testing/validation, rollback or risk notes, and open questions only when they change execution order.
+
+Return metadata about the written plan. Set `frontmatterVerified` to true only after checking the written file contains all required frontmatter keys. Set `draftsUsed` to the three draft paths actually read.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.
