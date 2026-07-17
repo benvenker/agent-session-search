@@ -89,6 +89,8 @@ export type OneRootFffSearchOutput = {
 
 const DEFAULT_EMPTY_RESULT_RETRY_ATTEMPTS = 3;
 const DEFAULT_EMPTY_RESULT_RETRY_DELAY_MS = 100;
+const DEFAULT_TOOL_DISCOVERY_TIMEOUT_MS = 15_000;
+const MAX_TOOL_DISCOVERY_PAGES = 50;
 
 export class OneRootFffBackend {
   private hasCompletedSearch = false;
@@ -580,8 +582,26 @@ export class FffMcpClient implements FffClient {
     }
     const tools: FffToolDefinition[] = [];
     let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+    let pages = 0;
     do {
-      const result = await this.client.listTools({ cursor });
+      if (cursor !== undefined) {
+        if (seenCursors.has(cursor)) {
+          throw new Error(`FFF tools/list repeated cursor: ${cursor}`);
+        }
+        seenCursors.add(cursor);
+      }
+      pages += 1;
+      if (pages > MAX_TOOL_DISCOVERY_PAGES) {
+        throw new Error(
+          `FFF tools/list exceeded ${MAX_TOOL_DISCOVERY_PAGES} pages`
+        );
+      }
+      const result = await withTimeout(
+        this.client.listTools({ cursor }),
+        DEFAULT_TOOL_DISCOVERY_TIMEOUT_MS,
+        "tools/list"
+      );
       tools.push(...result.tools);
       cursor = result.nextCursor;
     } while (cursor);

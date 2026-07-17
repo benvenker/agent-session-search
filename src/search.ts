@@ -133,8 +133,17 @@ export class CoordinatedSessionSearch implements SessionSearch {
     }));
     const warnings = [...resolvedRoots.warnings];
     const rawResults: SearchResult[] = [];
+    const managedRouter =
+      this.options.createBackend || !this.defaultBackendPool
+        ? undefined
+        : this.defaultBackendPool.createRouter(searchedSources);
     const createBackend =
-      this.options.createBackend ?? this.defaultBackendPool!.createBackend;
+      this.options.createBackend ??
+      ((source: ResolvedSessionSource) =>
+        this.defaultBackendPool!.createBackendFromRouter(
+          source,
+          managedRouter!
+        ));
     let unscopedEvidenceCapReached = false;
     const backendMetadata: SearchBackendMetadata[] = [];
 

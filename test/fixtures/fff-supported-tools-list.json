@@ -1,0 +1,97 @@
+[
+  {
+    "name": "find_files",
+    "description": "Fuzzy file search by name. Searches FILE NAMES, not file contents. Use it when you need to find a file, not a definition. Use grep instead for searching code content (definitions, usage patterns). Supports fuzzy matching, path prefixes ('src/'), and glob constraints ('name **/src/*.{ts,tsx} !test/'). IMPORTANT: Keep queries SHORT — prefer 1-2 terms max. Multiple words are a waterfall (each narrows results), NOT OR. If unsure, start broad with 1 term and refine.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "description": "Cursor from previous result. Only use if previous results weren't sufficient.",
+          "type": ["string", "null"]
+        },
+        "maxResults": {
+          "description": "Max results (default 20).",
+          "format": "double",
+          "type": ["number", "null"]
+        },
+        "query": {
+          "description": "Fuzzy search query. Supports path prefixes and glob constraints.",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "FindFilesParams"
+    }
+  },
+  {
+    "name": "grep",
+    "description": "Search file contents. Search for bare identifiers (e.g. 'InProgressQuote', 'ActorAuth'), NOT code syntax or regex. Filter files with constraints (e.g. '*.rs query', 'src/ query'). Use filename, directory (ending with /) or glob expressions to prefilter. See server instructions for constraint syntax and core rules.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "description": "Cursor from previous result. Only use if previous results weren't sufficient.",
+          "type": ["string", "null"]
+        },
+        "maxResults": {
+          "description": "Max matching lines (default 20).",
+          "format": "double",
+          "type": ["number", "null"]
+        },
+        "output_mode": {
+          "description": "Output format (default 'content').",
+          "type": ["string", "null"]
+        },
+        "query": {
+          "description": "Search text or regex query with optional constraint prefixes.\nMatches within single lines only — use ONE specific term, not multiple words.",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "GrepParams"
+    }
+  },
+  {
+    "name": "multi_grep",
+    "description": "Search file contents for lines matching ANY of multiple patterns (OR logic). IMPORTANT: This returns files where ANY query matches, NOT all patterns. Patterns are literal text — NEVER escape special characters (no \\( \\) \\. etc). Faster than regex alternation for literal text. See server instructions for constraint syntax.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "constraints": {
+          "description": "File constraints (e.g. '*.{ts,tsx} !test/'). ALWAYS provide when possible.",
+          "type": ["string", "null"]
+        },
+        "context": {
+          "description": "Context lines before/after each match.",
+          "format": "double",
+          "type": ["number", "null"]
+        },
+        "cursor": {
+          "description": "Cursor from previous result.",
+          "type": ["string", "null"]
+        },
+        "maxResults": {
+          "description": "Max matching lines (default 20).",
+          "format": "double",
+          "type": ["number", "null"]
+        },
+        "output_mode": {
+          "description": "Output format (default 'content').",
+          "type": ["string", "null"]
+        },
+        "patterns": {
+          "description": "Patterns to match (OR logic). Include all naming conventions: snake_case, PascalCase, camelCase.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["patterns"],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "MultiGrepParams"
+    }
+  }
+]

@@ -1,10 +1,11 @@
 # Agent Session Search Context
 
-Agent Session Search is a local TypeScript ESM package for searching coding-agent session history. It ships a local MCP server, a CLI, and a setup/diagnostic command so agents and humans can recover prior work across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and configured custom roots.
+Agent Session Search is a local TypeScript ESM package for searching coding-agent session history. It ships a managed local MCP server, a CLI, and a setup/diagnostic command so agents and humans can recover prior work across Codex, Claude Code, Cursor, Pi, Hermes, Pool, and configured custom roots. A separate native MCP lane is being introduced as an explicit opt-in for audited raw FFF access.
 
 ## Product Shape
 
-- The public MCP surface is the single `search_sessions` tool.
+- The managed MCP surface is the single `search_sessions` tool.
+- The native MCP lane, when shipped, is a separate opt-in binary with source-bound, namespaced, policy-approved FFF tools.
 - The CLI uses the same search flow and result shape as the MCP server.
 - `agent-session-search-doctor` is for setup, FFF health checks, and orphaned `fff-mcp` process cleanup.
 - CLI and doctor parse errors are user-input failures. They should fail before search or preflight, print usage, and include a suggested command when a close flag spelling is available.
@@ -16,12 +17,16 @@ FFF is the search backend. This repo wraps `fff-mcp` by resolving source roots, 
 
 Do not add custom indexing, embeddings, SQLite stores, markdown session exports, or durable aggregation without a new design pass. Missing or unreadable roots should produce warnings while other roots continue.
 
+Native FFF calls are bound to one configured source's canonical root. Managed `include` patterns are not native security boundaries; they remain managed-lane post-search filters.
+
 ## Key Modules
 
 - `src/roots.ts`: built-in roots, user config loading, source enablement, and path normalization.
 - `src/query-rewriter.ts`: deterministic query rewriting and literal probe generation.
 - `src/fff-backend.ts`: FFF child process calls and backend result adaptation.
 - `src/client-pool.ts` and `src/child-process-cleanup.ts`: FFF child lifecycle and cleanup behavior.
+- `src/fff-capability-router.ts`: complete FFF tool discovery and raw source-bound tool routing over resolved source snapshots.
+- `src/fff-native-policy.ts`: fail-closed native exposure classification, schema projection, validation helpers, and call budgets.
 - `src/search.ts`: fanout coordination, filtering, candidate ranking, result grouping, and response shaping.
 - `src/tool.ts` and `src/types.ts`: MCP tool input/output contracts and shared types.
 - `src/server.ts`: MCP server entry point.
@@ -30,10 +35,11 @@ Do not add custom indexing, embeddings, SQLite stores, markdown session exports,
 
 ## Behavioral Guardrails
 
-- Keep the one-tool MCP boundary unless `DESIGN.md` changes.
+- Keep the managed one-tool MCP boundary unless `DESIGN.md` changes.
+- Do not auto-expose newly discovered FFF tools; native exposure requires checked-in local policy.
 - Prefer small, testable modules behind that boundary.
 - Keep query rewriting deterministic by default.
-- Keep output close to FFF hits: ranked candidates, evidence groups, evidence hits, warnings, and debug diagnostics.
+- Keep managed output close to FFF hits: ranked candidates, evidence groups, evidence hits, warnings, and debug diagnostics.
 - Preserve canonical absolute paths in user-visible results.
 - Use source-level warnings for partial failures instead of failing the whole search.
 - Keep parse-error behavior agent-readable: CLI JSON failures use `error.code: "user_input_error"` on stderr, while human output includes usage and a copy-pasteable next command.

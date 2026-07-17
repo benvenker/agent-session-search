@@ -570,6 +570,37 @@ describe("OneRootFffBackend", () => {
     expect(calls).toEqual([{}, { cursor: "page-2" }]);
   });
 
+  it("bounds tools/list pagination loops", async () => {
+    const repeatedCursorClient = new FffMcpClient({
+      async callTool() {
+        throw new Error("not used");
+      },
+      async listTools() {
+        return { tools: [], nextCursor: "same-page" };
+      },
+      async close() {},
+    });
+
+    await expect(repeatedCursorClient.listTools()).rejects.toThrow(
+      "FFF tools/list repeated cursor: same-page"
+    );
+
+    const tooManyPagesClient = new FffMcpClient({
+      async callTool() {
+        throw new Error("not used");
+      },
+      async listTools(input: { cursor?: string } = {}) {
+        const page = input.cursor ? Number(input.cursor) : 0;
+        return { tools: [], nextCursor: String(page + 1) };
+      },
+      async close() {},
+    });
+
+    await expect(tooManyPagesClient.listTools()).rejects.toThrow(
+      "FFF tools/list exceeded 50 pages"
+    );
+  });
+
   it("removes an owned temporary FFF database directory when closed", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-cleanup-"));
     await writeFile(join(tmp, "frecency.mdb"), "");

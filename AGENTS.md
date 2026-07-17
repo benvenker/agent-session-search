@@ -5,7 +5,7 @@ Repo-local guidance for coding agents working in this project.
 ## Project Shape
 
 - This is a TypeScript ESM package that exposes a local MCP server and CLI for searching coding-agent session history.
-- Keep the public MCP surface centered on the single `search_sessions` tool.
+- Keep the managed MCP surface centered on the single `search_sessions` tool; raw FFF access belongs only in the separate opt-in native MCP lane described by `DESIGN.md`.
 - Treat FFF as the search engine. Do not add custom indexing, embeddings, SQLite search stores, markdown session exports, or session aggregation unless explicitly requested.
 - Preserve canonical absolute paths in search results and keep source/root metadata attached to hits.
 - Use `DESIGN.md` as the current design record. Track deferred implementation work in Beads instead of reviving the completed PRD.
@@ -60,7 +60,7 @@ Prototype in throwaway worktrees when useful, but merge durable findings before 
 
 ## Implementation Notes
 
-- Prefer small, testable modules behind the single MCP tool: root resolution, query rewriting, FFF backend, fanout coordination, path normalization, and response shaping.
+- Prefer small, testable modules behind the managed MCP tool and native opt-in policy boundary: root resolution, query rewriting, FFF backend/router, fanout coordination, path normalization, response shaping, and fail-closed native exposure.
 - Missing or unreadable source roots should produce warnings without failing the whole search.
 - Query rewriting should be deterministic by default and emit a small set of literal FFF-friendly patterns.
 - Keep output close to the FFF result shape. Do not add opaque ranking signals or automatic summarization.

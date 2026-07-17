@@ -6,14 +6,15 @@ This file replaces the completed PRD. It keeps the design decisions that still m
 
 Agent Session Search is a local TypeScript ESM package that exposes:
 
-- one MCP server binary: `agent-session-search-mcp`
-- one public MCP tool: `search_sessions`
+- one managed MCP server binary: `agent-session-search-mcp`
+- one managed MCP tool: `search_sessions`
+- one planned opt-in native MCP server binary: `agent-session-search-native-mcp`
 - one CLI binary: `agent-session-search`
 - one setup/diagnostic binary: `agent-session-search-doctor`
 
 The product searches local coding-agent session history across configured source roots. Raw session files remain the source of truth. FFF provides lexical search through `fff-mcp`. This package handles source-root resolution, deterministic query rewriting, fanout, path normalization, candidate ranking, response shaping, and CLI discovery commands.
 
-The public MCP surface stays centered on `search_sessions`. Do not add lower-level MCP tools for root resolution, query rewriting, FFF child calls, or excerpt reads unless the one-tool boundary changes.
+The managed MCP surface stays centered on `search_sessions` and must continue to advertise exactly that one tool. Lower-level FFF access belongs only in the separate opt-in native MCP lane, where locally approved upstream tools are namespaced and source-bound. Do not add lower-level MCP tools for root resolution, query rewriting, FFF child calls, or excerpt reads to the managed server.
 
 ## Non-Goals
 
@@ -68,6 +69,14 @@ Each FFF child indexes one real source root. Do not use a mirror directory; it c
 
 If one source fails, the response includes source-level warnings and continues with other searchable roots. If all attempted sources fail, the response includes an `all_sources_failed` warning with an `rg` fallback command for exhaustive proof-style search.
 
+## FFF Capability Router And Native Lane
+
+`src/fff-capability-router.ts` is the shared FFF capability boundary. It binds an immutable resolved-source snapshot to a root-keyed FFF client pool, preserves complete upstream MCP tool definitions, and routes raw tool calls to one named healthy source. The managed lane uses this router internally but keeps all parsing, include filtering, path normalization, ranking, response shaping, and warnings inside `search_sessions`.
+
+The native lane is a separate opt-in server binary, not a mode on `search_sessions`. It may expose only policy-approved read-only FFF tools under namespaced names such as `fff_grep` and `fff_multi_grep`, with a required `source` argument and raw upstream result fields. `src/fff-native-policy.ts` is the fail-closed policy layer: tools are classified locally, checked by full-definition fingerprint, projected with a required source enum, validated before routing, and bounded by process-local call, concurrency, timeout, result-count, and serialized-result limits. Unknown tools, definition drift, unsafe schemas, source collisions, reserved names, and unapproved classifications remain diagnostic-only until a reviewed package update changes policy.
+
+Native source binding is root-wide. Managed `include` patterns are post-search filters owned by `search_sessions`; they are not a native-lane security boundary and must not be documented as one. Native diagnostics and documentation must disclose the selected canonical root next to any managed include patterns so users understand the privacy and context-size tradeoff before registering the opt-in server.
+
 ## MCP Tool
 
 `search_sessions` accepts the shape defined in `src/tool.ts` and `src/types.ts`:
@@ -121,7 +130,7 @@ agent-session-search-doctor
 agent-session-search-doctor --list-orphans
 ```
 
-`capabilities --json` is the machine-readable contract for commands, modes, environment variables, exit codes, and the single MCP tool. `sources --json` is CLI-only source/config inspection; do not turn it into a second MCP tool.
+`capabilities --json` is the machine-readable contract for commands, modes, environment variables, exit codes, the managed MCP tool, and any separate opt-in native entrypoint. Native tools must not appear in the managed `mcp.tools` array. `sources --json` is CLI-only source/config inspection; do not turn it into a managed MCP tool.
 
 `agent-session-search-doctor` handles setup and FFF health checks. It verifies that `fff-mcp` is on `PATH`, can run a live smoke test, and can list or reap orphaned `fff-mcp` processes from crashed sessions.
 
@@ -157,5 +166,6 @@ Track concrete follow-up work in Beads. Keep this section short; treat it as des
 
 - Structured MCP output: revisit `outputSchema` and `structuredContent` if FastMCP supports successful structured tool results cleanly.
 - Automatic cross-agent current-session demotion: `callerSession` supports any source when the caller provides a reliable id, but automatic per-agent environment discovery should only be added for documented runtime signals that exactly match a candidate `sessionId`.
-- Read-only Code Mode: consider a small typed API only if composing lower-level operations from sandboxed code becomes clearly more useful than the current one-tool MCP surface.
+- Read-only Code Mode: consider a small typed API only if composing lower-level operations from sandboxed code becomes clearly more useful than the managed one-tool MCP surface and the opt-in native lane.
+- Importable SDK or CLI-native call API: defer until a prototype proves global-install module resolution, API shape, and agent ergonomics are worth productizing.
 - Richer evidence excerpts: revisit surrounding-line or byte-window reads only if candidate/evidence modes stop being enough. Keep any expansion inside `search_sessions` unless the one-tool boundary changes.
