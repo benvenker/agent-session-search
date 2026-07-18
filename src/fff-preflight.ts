@@ -8,7 +8,11 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { isEntrypoint } from "./entrypoint.js";
-import { createFffMcpClient, OneRootFffBackend } from "./fff-backend.js";
+import {
+  createFffMcpClient,
+  type FffClient,
+  OneRootFffBackend,
+} from "./fff-backend.js";
 import {
   assessFffMcpVersionGuidance,
   FFF_MCP_INSTALL_COMMAND,
@@ -78,6 +82,7 @@ type FffSmokeInput = {
   command: string;
   env: NodeJS.ProcessEnv;
   suppressStderr?: boolean;
+  createClient?: (root: string) => Promise<FffClient>;
 };
 
 type InstallFffMcpInput = {
@@ -89,6 +94,7 @@ type FffSmokeResult =
       ok: true;
       multiGrep: "supported" | "fallback";
       recallEquivalence: "passed" | "failed";
+      fallbackReason?: string;
     }
   | {
       ok: false;
@@ -604,7 +610,9 @@ function smokeChecks(smokeResult: Extract<FffSmokeResult, { ok: true }>) {
       message:
         smokeResult.recallEquivalence === "passed"
           ? "multi_grep recall matched sequential fallback."
-          : "Recall equivalence was not proven because sequential fallback was used.",
+          : smokeResult.fallbackReason === "multi_grep_recall_probe_failed"
+            ? "multi_grep recall diverged from sequential results; multi-pattern searches use sequential fallback."
+            : "Recall equivalence was not proven because sequential fallback was used.",
     },
   ] satisfies DoctorCheck[];
 }
@@ -1257,38 +1265,56 @@ function damerauLevenshtein(left: string, right: string) {
   return distances[left.length]![right.length]!;
 }
 
-async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
+export async function runFffSmokeTest(
+  input: FffSmokeInput
+): Promise<FffSmokeResult> {
   const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-fff-smoke-"));
   const root = join(tmp, "root");
-  const token = "agent-session-search-doctor-smoke-token";
+  // Distinct per-pattern hits, requested above the cap that fff-mcp 0.9.6
+  // multi_grep silently truncates to, so the same recall gate that demotes
+  // multi_grep at runtime can fail here instead of reporting a false green.
+  const tokenA = "agent-session-search-doctor-smoke-token-alpha";
+  const tokenB = "agent-session-search-doctor-smoke-token-beta";
+  const hitsPerPattern = 6;
   let backend: OneRootFffBackend | undefined;
 
   try {
     await mkdir(root);
-    await writeFile(join(root, "session.jsonl"), `before\n${token}\nafter\n`);
+    const lines = [
+      "before",
+      ...Array.from({ length: hitsPerPattern }, (_, i) => `${tokenA}-${i}`),
+      "middle",
+      ...Array.from({ length: hitsPerPattern }, (_, i) => `${tokenB}-${i}`),
+      "after",
+    ];
+    await writeFile(join(root, "session.jsonl"), `${lines.join("\n")}\n`);
+    const createClient =
+      input.createClient ??
+      ((clientRoot: string) =>
+        createFffMcpClient(clientRoot, {
+          command: input.command,
+          env: input.env,
+          stderr: input.suppressStderr ? "pipe" : undefined,
+        }));
     backend = new OneRootFffBackend({
       source: "doctor" as SourceName,
       root,
-      client: await createFffMcpClient(root, {
-        command: input.command,
-        env: input.env,
-        stderr: input.suppressStderr ? "pipe" : undefined,
-      }),
+      client: await createClient(root),
       timeoutMs: 5_000,
       emptyResultRetryAttempts: 10,
       emptyResultRetryDelayMs: 50,
     });
     const output = await backend.search({
-      patterns: [token, "doctor-smoke-token"],
-      maxResults: 2,
+      patterns: [tokenA, tokenB],
+      maxResults: hitsPerPattern * 2,
     });
-    const foundToken = output.results.some((result) =>
-      result.content.includes(token)
+    const foundAllTokens = [tokenA, tokenB].every((token) =>
+      output.results.some((result) => result.content.includes(token))
     );
-    if (!foundToken) {
+    if (!foundAllTokens) {
       return {
         ok: false,
-        reason: `searched a temporary file for ${token}, but FFF returned ${output.results.length} result(s)`,
+        reason: `searched a temporary file for ${tokenA} and ${tokenB}, but FFF returned ${output.results.length} result(s)`,
       };
     }
     const promoted = output.backend?.mode === "multi_grep";
@@ -1296,6 +1322,9 @@ async function runFffSmokeTest(input: FffSmokeInput): Promise<FffSmokeResult> {
       ok: true,
       multiGrep: promoted ? "supported" : "fallback",
       recallEquivalence: promoted ? "passed" : "failed",
+      ...(output.backend?.fallbackReason
+        ? { fallbackReason: output.backend.fallbackReason }
+        : {}),
     };
   } catch (error) {
     return {

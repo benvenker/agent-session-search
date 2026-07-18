@@ -10,8 +10,10 @@ import {
   handleDoctorEntrypointError,
   main,
   reapOrphanFffMcpProcesses,
+  runFffSmokeTest,
   runNativeToolsSmoke,
 } from "../src/fff-preflight.js";
+import type { FffClient } from "../src/fff-backend.js";
 import {
   assessFffMcpVersion,
   assessFffMcpVersionGuidance,
@@ -646,6 +648,53 @@ describe("FFF preflight command", () => {
           status: "warning",
           message:
             "Recall equivalence was not proven because sequential fallback was used.",
+        },
+      ]);
+    }
+  }, 60_000);
+
+  it("reports recall divergence when the smoke probe fails recall equivalence", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-checks-recall-diverged-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.6\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+
+    const result = await checkFffMcp({
+      command: "fff-mcp",
+      env: {
+        PATH: fakeBin,
+      },
+      smoke: async () => ({
+        ok: true,
+        multiGrep: "fallback",
+        recallEquivalence: "failed",
+        fallbackReason: "multi_grep_recall_probe_failed",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expectDoctorChecks({ checks: result.checks }, [
+        { id: "command_found", status: "passed" },
+        { id: "version_minimum", status: "passed" },
+        { id: "smoke_grep", status: "passed" },
+        {
+          id: "multi_grep_available",
+          status: "warning",
+          message:
+            "multi_grep is unavailable; sequential fallback remains healthy.",
+          recommendedAction:
+            "Upgrade FFF MCP when convenient to enable multi_grep acceleration.",
+        },
+        {
+          id: "recall_equivalence",
+          status: "warning",
+          message:
+            "multi_grep recall diverged from sequential results; multi-pattern searches use sequential fallback.",
         },
       ]);
     }
@@ -1538,6 +1587,95 @@ describe("FFF preflight command", () => {
     ]);
   }, 60_000);
 });
+
+describe("runFffSmokeTest recall probe", () => {
+  it("promotes multi_grep when its recall matches sequential grep", async () => {
+    const result = await runFffSmokeTest({
+      command: "fff-mcp",
+      env: {},
+      createClient: fakeSmokeClient(),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      multiGrep: "supported",
+      recallEquivalence: "passed",
+    });
+  });
+
+  it("demotes multi_grep when recall diverges like fff-mcp 0.9.6", async () => {
+    const result = await runFffSmokeTest({
+      command: "fff-mcp",
+      env: {},
+      createClient: fakeSmokeClient({ perPatternCap: 5 }),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      multiGrep: "fallback",
+      recallEquivalence: "failed",
+      fallbackReason: "multi_grep_recall_probe_failed",
+    });
+  });
+});
+
+function fakeSmokeClient(options: { perPatternCap?: number } = {}) {
+  return async (root: string): Promise<FffClient> => {
+    const sessionPath = join(root, "session.jsonl");
+
+    const matchingLines = async (patterns: string[]) => {
+      const raw = await readFile(sessionPath, "utf8");
+      return raw
+        .split("\n")
+        .map((content, index) => ({ content, line: index + 1 }))
+        .filter((entry) =>
+          patterns.some((pattern) => entry.content.includes(pattern))
+        );
+    };
+
+    const payload = (entries: Array<{ content: string; line: number }>) => ({
+      content: [
+        {
+          type: "text",
+          text: [
+            sessionPath,
+            ...entries.map((entry) => ` ${entry.line}: ${entry.content}`),
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const cap = (
+      entries: Array<{ content: string; line: number }>,
+      maxResults: number | undefined
+    ) =>
+      typeof maxResults === "number" ? entries.slice(0, maxResults) : entries;
+
+    return {
+      grep: async (input) => {
+        const entries = await matchingLines([input.query]);
+        return payload(cap(entries, input.maxResults));
+      },
+      multiGrep: async (input) => {
+        if (options.perPatternCap === undefined) {
+          const entries = await matchingLines(input.patterns);
+          return payload(cap(entries, input.maxResults));
+        }
+        // Mimics fff-mcp 0.9.6: multi_grep silently truncates each pattern's
+        // hits, so recall diverges from sequential grep at the same cap.
+        const picked: Array<{ content: string; line: number }> = [];
+        for (const pattern of input.patterns) {
+          picked.push(
+            ...(await matchingLines([pattern])).slice(0, options.perPatternCap)
+          );
+        }
+        picked.sort((left, right) => left.line - right.line);
+        return payload(cap(picked, input.maxResults));
+      },
+      close: async () => {},
+    };
+  };
+}
 
 function preflightSourceArgs() {
   return [
