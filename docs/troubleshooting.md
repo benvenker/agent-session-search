@@ -25,6 +25,20 @@ To let doctor run the official installer explicitly:
 agent-session-search-doctor --ensure-fff --yes
 ```
 
+## Repo `dist` Commands Fail With `permission denied`
+
+Symptom:
+
+```text
+./dist/cli.js: Permission denied
+```
+
+(exit code 126), when invoking a built entrypoint directly from a source checkout.
+
+Cause: `tsc` emits `dist/` files without the executable bit. `npm run build` restores it via `scripts/chmod-bins.mjs`; published and globally installed packages are unaffected because npm chmods `bin` entries at install time.
+
+Fix: run `npm run build` after cloning or pulling before invoking `dist/` bins directly, or invoke them with `node dist/...`.
+
 ## `fff-mcp` Is Older Than Recommended
 
 Symptom:
