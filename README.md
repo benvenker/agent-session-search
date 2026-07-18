@@ -259,6 +259,8 @@ npm run dev:cli -- "auth token timeout" --json
 
 `npm run check:fff` runs the same FFF dependency preflight exposed as `agent-session-search-doctor` in the installed package.
 
+`npm run build` also restores executable bits on the `dist/` entrypoints (tsc drops them), so run it after cloning or pulling before invoking `dist/` bins directly — `node dist/...` works regardless.
+
 ## Limitations
 
 - Search is lexical. If the text never appears in a session file or planned probe, Agent Session Search cannot infer it semantically.
