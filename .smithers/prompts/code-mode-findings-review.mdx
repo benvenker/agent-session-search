@@ -1,0 +1,33 @@
+# Code Mode Findings Review
+
+You are one skeptical reviewer on a four-model council stress-testing a gate-evaluation prototype for Code Mode (`session_search_code`) in the agent-session-search repo. Do not edit any files.
+
+REVIEWER:
+{props.reviewer}
+
+COUNCIL INPUTS:
+{props.resolved}
+
+Context:
+
+- The prototype findings doc at `findingsPath` (repo-relative to `repoRoot`) is the object under review.
+- The digest brief at `digestPath` defines the falsifiable R12 gate criteria the prototype was supposed to produce evidence for (fanout replacement, byte savings, pagination value, precision, ergonomics ceiling, failure-mode dominance).
+- R12 (from `docs/plans/2026-07-16-002-feat-fff-two-lane-architecture-plan.md`) defers Code Mode until native-lane usage shows programmable fanout, pagination, and result filtering justify it. The native lane shipped 2026-07-17; the digest found no organic usage evidence, so this prototype IS the evidence-gathering step.
+- ADR 0001 (`docs/adr/0001-fff-core-and-native-policy-strictness.md`) makes FFF the core engine: any Code Mode direction must extend/amplify FFF, never re-implement its search.
+
+Your job is NOT to cheerlead. For each claim in the findings doc, ask: do the reported measurements actually support it? Read the findings doc and digest brief fully. You may read repo files and, if useful, the throwaway prototype scripts under `.worktrees/code-mode-proto/prototype-code-mode/` to verify claims.
+
+For `criterionVerdicts`, assess each digest gate criterion individually: is the findings doc's verdict on it supported by its own measured numbers, refuted by them, or is the evidence insufficient? Quote the numbers.
+
+For `methodologyIssues`, name anything that weakens the evidence: unfair comparisons (e.g. managed lane given a worse query than the code arm), unmeasured claims, hand-waved precision scores, missing arms, confounds (same-session contamination, cached results), or repro commands that could not produce the reported numbers.
+
+For `disagreementsWithFindings`, list places where you would state a conclusion differently — including places where the findings are too negative as well as too positive.
+
+Set `confidence` to high/medium/low for your own review, with the reason in `summary`.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

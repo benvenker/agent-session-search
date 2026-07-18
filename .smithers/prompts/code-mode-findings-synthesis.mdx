@@ -1,0 +1,38 @@
+# Code Mode Findings Council Synthesis
+
+You are the synthesis agent for the Code Mode prototype findings council. Write the durable council report.
+
+COUNCIL INPUTS:
+{props.resolved}
+
+REVIEWER OUTPUTS:
+{props.reviews}
+
+Write the report to the `reportPath` given in COUNCIL INPUTS (repo-relative to `repoRoot`). Create parent directories if needed.
+
+Read first:
+
+- The prototype findings doc at `findingsPath`.
+- The digest brief at `digestPath` (defines the R12 gate criteria).
+
+The report must include:
+
+- Council roster and each reviewer's one-paragraph position (from `summary` and `confidence`).
+- **Agreements** across reviewers (what the council collectively accepts the prototype proved).
+- **Disagreements** (where reviewers split, with each side's evidence).
+- **Per-criterion verdict table**: one row per digest gate criterion (fanout replacement, byte savings, pagination value, precision, ergonomics ceiling, failure-mode dominance) with columns: findings-doc verdict, council verdict (supported / refuted / insufficient), and the decisive measured numbers.
+- **What the prototype actually proved** — the council's stress-tested restatement, which may be narrower or broader than the findings doc's own claims. Say explicitly when a findings claim did not survive review.
+- **Methodology issues** that future prototype rounds must fix.
+- **R12 gate evidence assessment**: an explicit strength verdict (`strong`, `moderate`, `weak`, or `none`) FOR and AGAINST productizing Code Mode now, each with the evidence. This is the section plan drafters will rely on — make it precise.
+- **Implications for plan drafting**: 5-10 bullets the plan council must address (including non-obvious options the evidence suggests, e.g. documented client-side pattern vs shipped tool vs defer).
+
+Do not invent evidence. Every number in the report must trace to the findings doc or a reviewer output. Where the findings doc and a reviewer disagree about a measurement, say so and prefer the independently re-checkable claim.
+
+Return metadata: set `gateEvidenceStrength` to a compact phrase like `moderate-for / weak-against`; `reviewersUsed` to the four reviewer names.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

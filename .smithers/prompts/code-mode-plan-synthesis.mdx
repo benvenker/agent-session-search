@@ -1,0 +1,53 @@
+# Code Mode Plan Synthesis
+
+You are the synthesis planner. Read the concept and all three planner drafts, then write one CE-plan-formatted implementation-ready plan for the Code Mode (`session_search_code`) decision.
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+PLANNER DRAFT METADATA:
+{props.drafts}
+
+NEXT PLAN PATH HINT:
+{props.planPathHint}
+
+SEQUENCE HINT:
+{props.sequenceHint}
+
+Use the next zero-padded path matching:
+
+`docs/plans/2026-07-18-NNN-feat-session-search-code-plan.md`
+
+Use the provided hint unless the file already exists when you write the plan; if it exists, recompute the next available `NNN`.
+
+Required context:
+
+- The resolved concept document at `conceptPath` and the artifacts it indexes: the digest brief, the prototype findings doc, and the findings-council report.
+- The three draft files at each `draftPath`.
+- `docs/plans/2026-07-16-002-feat-fff-two-lane-architecture-plan.md` (R12), `docs/adr/0001-fff-core-and-native-policy-strictness.md` (FFF-as-core), `AGENTS.md`, `DESIGN.md`, `CONTEXT.md`, `docs/agents/prototyping.md`.
+- The `ce-plan` skill if available.
+
+Write one implementation-ready markdown plan to the selected plan path. The plan must include YAML frontmatter with these top-level keys:
+
+- `artifact_contract`
+- `artifact_readiness`
+- `execution`
+- `origin`
+
+The plan body must be practical enough for a coding agent to execute without another design pass. It MUST contain:
+
+- A summary that states the synthesized R12 gate recommendation up front (proceed / proceed-as-documented-pattern / defer / decline) with the decisive measured evidence.
+- A dedicated **R12 gate recommendation** section tying the verdict to the prototype measurements and the findings-council assessment.
+- Where the drafts disagreed, what this plan decides and why.
+- If any form of implementation is recommended: scope, explicit non-goals (server-side arbitrary code execution remains out; FFF search is never re-implemented), implementation units with files/modules/tests, verification gates, rollback notes, and open questions only when they change execution order.
+- A dedicated **implementation venue** section recommending whether implementation proceeds in a git worktree, with reasoning.
+- An **evidence-maintenance** section: how R12 evidence keeps accumulating and what triggers revisiting the decision.
+
+Return metadata about the written plan. Set `frontmatterVerified` to true only after checking the written file contains all required frontmatter keys. Set `draftsUsed` to the three draft paths actually read.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.

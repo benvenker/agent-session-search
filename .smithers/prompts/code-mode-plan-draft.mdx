@@ -1,0 +1,38 @@
+# Code Mode Plan Draft
+
+You are one planner in a three-provider plan council. Produce one independent implementation-ready planning draft for the Code Mode (`session_search_code`) decision in the agent-session-search repo. Do not edit production code.
+
+AUTHOR:
+{props.author}
+
+RESOLVED CONCEPT INPUT:
+{props.concept}
+
+DRAFT OUTPUT PATH:
+{props.draftPath}
+
+Context to read before drafting:
+
+- The resolved concept document at `conceptPath`. It bundles the digest brief, the prototype findings, and the findings-council report — read the underlying documents it indexes (`docs/investigations/code-mode/`, `docs/prototypes/findings/`).
+- `docs/plans/2026-07-16-002-feat-fff-two-lane-architecture-plan.md` — R12 and the deferred-frontends criteria this plan must answer.
+- `docs/adr/0001-fff-core-and-native-policy-strictness.md` — FFF-as-core: any direction must extend/amplify FFF, never re-implement its search.
+- `AGENTS.md`, `DESIGN.md`, `CONTEXT.md`, `docs/agents/prototyping.md`.
+- The `ce-plan` skill if available; otherwise follow this fallback contract: make the draft actionable, implementation-sequenced, explicit about files/modules/tests, and clear about risks and validation.
+
+This is a GATE-EVALUATION plan, not a foregone implementation. Your draft MUST take an explicit position on:
+
+1. **R12 gate verdict** — does the prototype+council evidence show programmable fanout, pagination, and result filtering justify Code Mode? Options include: proceed to implement a shipped `session_search_code`; proceed but as a documented client-side pattern only; defer pending more evidence; or decline. Justify with the measured evidence, not vibes.
+2. **If proceeding in any form:** the implementation shape (where it lives, execution model, trust/sandbox story, relationship to the native lane and to the CLI-first SDK fallback), ordered implementation units, files/modules, tests/validation commands, risks, rollback, and explicit non-goals (server-side arbitrary code execution stays out).
+3. **Implementation venue:** whether implementation (if any) should proceed in a git worktree, and why.
+4. **Evidence-maintenance:** how the R12 gate evidence should keep accumulating (usage instrumentation, follow-up prototype rounds, revisit triggers) so the decision does not freeze on one prototype round.
+
+Write the full markdown draft to `DRAFT OUTPUT PATH`. Preserve useful disagreements and tradeoffs, but converge on a concrete path rather than staying abstract. The draft must include: concept intent; your R12 verdict with evidence; recommended shape; ordered steps; files/modules; tests/validation; risks and order-changing open questions.
+
+Return only metadata about the written draft.
+
+REQUIRED OUTPUT:
+{props.schema}
+
+Return ONLY raw JSON matching the required output schema.
+Do not include prose, markdown, headings, commentary, or code fences.
+The first character of your response must be `{` and the last character must be `}`.
