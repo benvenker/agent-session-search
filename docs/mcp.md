@@ -90,7 +90,7 @@ Default mode. `resultsShape` is `candidate_groups`. Results are ordered static m
 
 Top-level `metadata` includes `contractVersion`, backend mode, limits, and count semantics. Backend mode is one of `multi_grep`, `sequential_grep`, `sequential_grep_fallback`, or `custom`; fallback responses include `metadata.backend.fallbackReason`.
 
-Candidate groups include `id`, `priority`, `label`, `guidance`, `patternIds`, `assignedCandidateCount`, `hitCount`, `shownLeadCount`, `hasMore`, and `leads`. Counts use `{ "value": number, "relation": "eq" | "gte" }` so callers can tell exact counts from lower bounds. Empty groups are omitted.
+Candidate groups include `id`, `priority`, `label`, `guidance`, `patternIds`, `assignedCandidateCount`, `hitCount`, `shownLeadCount`, `hasMore`, and `leads`. `assignedCandidateCount` and `hitCount` use `{ "value": number, "relation": "eq" | "gte" }` so callers can tell exact counts from lower bounds; `shownLeadCount` is a plain number of leads included in the current response. Empty groups are omitted.
 
 Concise default response shape:
 
@@ -111,7 +111,7 @@ Concise default response shape:
       "id": "exact_or_structured",
       "label": "Exact or structured evidence",
       "assignedCandidateCount": { "value": 3, "relation": "eq" },
-      "shownLeadCount": { "value": 1, "relation": "eq" },
+      "shownLeadCount": 1,
       "hasMore": true,
       "more": {
         "groupCandidates": {

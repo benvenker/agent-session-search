@@ -155,7 +155,7 @@ export function cliCapabilities(version: string) {
       resultShape:
         'Default candidates mode returns resultsShape: "candidate_groups" with ordered match groups, count relation semantics, hasMore, and copy-ready follow-ups.',
       countRelationSemantics:
-        'Counts use { value, relation } where relation is "eq" for exact counts and "gte" for lower bounds when caps or backend budgets prevent exact totals.',
+        'assignedCandidateCount and hitCount use { value, relation } where relation is "eq" for exact counts and "gte" for lower bounds when caps or backend budgets prevent exact totals; shownLeadCount is a plain number.',
       followUps: {
         groupExpansion:
           "Expand a group by copying more.groupCandidates exactly into search_sessions.groupCandidates or replaying it with agent-session-search --json --group-candidates @payload.json.",
@@ -209,7 +209,7 @@ export function cliCapabilities(version: string) {
               priority: 0,
               assignedCandidateCount: { value: 3, relation: "eq" },
               hitCount: { value: 8, relation: "eq" },
-              shownLeadCount: { value: 1, relation: "eq" },
+              shownLeadCount: 1,
               hasMore: true,
               more: { groupCandidates: "<server-prepared payload>" },
               leads: [
