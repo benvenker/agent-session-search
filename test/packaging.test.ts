@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -58,22 +59,27 @@ describe("package build and tarball", () => {
       await access(join(process.cwd(), binTarget));
     }
 
-    const { stderr } = await execFileAsync(
-      "node",
-      [join(process.cwd(), packageJson.bin["agent-session-search"])],
-      {
-        cwd: process.cwd(),
-      }
-    ).catch((error: unknown) => {
-      const execError = error as {
-        stderr?: string;
-        stdout?: string;
-        code?: number;
-      };
-      expect(execError.code).toBe(1);
-      return { stderr: execError.stderr ?? "", stdout: execError.stdout ?? "" };
-    });
-    expect(stderr).toContain("Usage: agent-session-search");
+    for (const binTarget of Object.values(packageJson.bin)) {
+      const stats = await stat(join(process.cwd(), binTarget));
+      const isOwnerExecutable = (stats.mode & 0o100) !== 0;
+      expect(isOwnerExecutable).toBe(true);
+    }
+
+    const cliHelp = await execFileAsync(
+      join(process.cwd(), packageJson.bin["agent-session-search"]),
+      ["--help"],
+      { cwd: process.cwd() }
+    );
+    expect(`${cliHelp.stdout}\n${cliHelp.stderr}`).toContain(
+      "Usage: agent-session-search"
+    );
+
+    const doctorHelp = await execFileAsync(
+      join(process.cwd(), packageJson.bin["agent-session-search-doctor"]),
+      ["--help"],
+      { cwd: process.cwd() }
+    );
+    expect(doctorHelp.stdout).toContain("Usage: agent-session-search-doctor");
 
     const installRoot = await mkdtemp(
       join(tmpdir(), "agent-session-search-install-")
