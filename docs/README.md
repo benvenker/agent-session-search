@@ -14,6 +14,6 @@ Use these docs for reference material:
 Project-level context:
 
 - [Design record](../DESIGN.md)
-- [Architecture decisions](adr/)
+- Architecture decisions: [`docs/adr/`](https://github.com/benvenker/agent-session-search/tree/main/docs/adr) in the source repository (not shipped in the npm package).
 - [Agent guidance](../AGENTS.md)
 - [Contribution policy](../CONTRIBUTING.md)
