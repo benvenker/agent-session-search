@@ -2,6 +2,7 @@
 title: "feat: Add FFF-native progressive evidence groups"
 type: feat
 date: 2026-06-18
+status: completed
 deepened: 2026-06-18
 ---
 

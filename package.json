@@ -25,8 +25,7 @@
     "CONTRIBUTING.md",
     "DESIGN.md",
     "LICENSE",
-    "docs/*.md",
-    "docs/maintainers/*.md",
+    "docs",
     "scripts/postinstall.mjs",
     "README.md"
   ],

@@ -2,7 +2,8 @@
 title: "feat: FFF two-lane architecture — capability router core and opt-in native lane"
 type: feat
 date: 2026-07-17
-status: open
+status: completed
+status_notes: "U1–U6 (capability router, fail-closed native policy, opt-in native lane, multi_grep gate) implemented and shipped in v0.7.0. Code Mode and SDK remain deferred frontends per R12; the Code Mode gate evaluation lives on the code-mode-planning branch (pending merge) and ADR 0001 covers native policy."
 verified: code-evidence
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

@@ -58,8 +58,9 @@ describe("README documentation", () => {
     ) as { files: string[] };
 
     expect(packageJson.files).toContain("CONTRIBUTING.md");
-    expect(packageJson.files).toContain("docs/*.md");
-    expect(packageJson.files).toContain("docs/maintainers/*.md");
+    // The whole docs tree ships: reference docs, plans (with status
+    // frontmatter), ADRs, and investigations are part of the public record.
+    expect(packageJson.files).toContain("docs");
   });
 
   it("pins the grouped progressive-evidence docs contract", async () => {

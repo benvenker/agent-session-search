@@ -2,6 +2,7 @@
 title: "fix: Repair Smithers Fan-In Follow-Up Gaps"
 type: fix
 date: 2026-06-17
+status: completed
 ---
 
 # fix: Repair Smithers Fan-In Follow-Up Gaps

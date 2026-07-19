@@ -2,7 +2,8 @@
 title: "feat: Add agent-native doctor JSON diagnostics"
 type: feat
 date: 2026-07-16
-status: open
+status: completed
+status_notes: "Implemented and shipped in v0.7.0 (ba5f8a5); doctor JSON lane verified by the 2026-07-17 native-lane eval."
 verified: code-evidence
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready

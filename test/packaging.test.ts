@@ -138,6 +138,9 @@ describe("package build and tarball", () => {
     expect(installedPaths).toContain("AGENTS.md");
     expect(installedPaths).toContain("DESIGN.md");
     expect(installedPaths).toContain("scripts/postinstall.mjs");
+    expect(installedPaths).toContain("docs/native-mcp.md");
+    expect(installedPaths).toContain("docs/plans/README.md");
+    expect(installedPaths).toContain("docs/maintainers/release.md");
     expect(installedPaths).not.toContain("dist/test/packaging.test.js");
     for (const forbiddenPrefix of [
       ".agents/",
