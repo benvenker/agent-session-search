@@ -25,7 +25,7 @@ npm pack --pack-destination "$tmpdir"
 mkdir "$tmpdir/app"
 cd "$tmpdir/app"
 npm init -y
-npm install --foreground-scripts --no-audit --no-fund "$tmpdir"/agent-session-search-*.tgz
+npm install --foreground-scripts --no-audit --no-fund "$tmpdir"/*.tgz
 npx agent-session-search-doctor
 npx agent-session-search "auth token timeout" --json
 ```
