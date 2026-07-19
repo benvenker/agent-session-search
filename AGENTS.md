@@ -80,6 +80,6 @@ Prototype in throwaway worktrees when useful, but merge durable findings before 
 
 ## Session Recall
 
-- Start non-trivial tasks with procedural memory: `cm context "<one-line task description>" --json` returns relevant rules, anti-patterns, and past-session snippets. Treat its output as advisory, not authoritative.
+- Start non-trivial tasks with procedural memory: `cm context "<one-line task description>" --json --log-context` returns relevant rules, anti-patterns, and past-session snippets. Treat its output as advisory, not authoritative. The `--log-context` flag records rule usage for cm's implicit feedback loop — keep it on.
 - For session archaeology ("what did we decide about X?"), search the local corpus with cass: `cass search "KEYWORD" --workspace /data/projects/agent-session-search --json --fields minimal --limit 20`. Refresh only when `cass status --json` reports `index.stale`, and cap every `cass index` call with `timeout`.
-- After significant work, harvest it: `cm reflect --days 1 --json` (background with `setsid timeout 1800 ... &` for long runs) so future tasks inherit the lessons.
+- Leave feedback for the learning loop when a cited rule helps or hurts: inline comments (`// [cass: helpful b-xxx]` / `// [cass: harmful b-xxx]`, parsed by the nightly reflect) or immediate `cm mark <id> --helpful|--harmful`. Manual `cm reflect --days 1 --json` after significant work is optional, not required.
