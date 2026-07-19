@@ -6,15 +6,15 @@ Use this directory for accepted plans and PRDs that should guide implementation 
 
 Every plan carries a `status` field in its frontmatter: `open` (accepted, not yet implemented), `completed` (implemented on main), or `superseded` (replaced by a newer plan). This index is the quick read; the frontmatter is the record.
 
-| Plan                                           | Status                                                                          | Notes                                                      |
-| ---------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| 2026-07-18-001 Code Mode R12 gate              | open — pending branch `code-mode-planning`, not on main and not in this package | Shipped tool declined; docs-only recipe + revisit protocol |
-| 2026-07-16-002 FFF two-lane architecture       | completed                                                                       | Shipped in v0.7.0; Code Mode/SDK deferred per R12          |
-| 2026-07-16-001 FFF two-lane architecture       | superseded                                                                      | Replaced by -002                                           |
-| 2026-07-16-001 Doctor JSON diagnostics         | completed                                                                       | Shipped in v0.7.0                                          |
-| 2026-06-18-001 FFF-native progressive evidence | completed                                                                       | Progressive evidence groups v2 contract                    |
-| 2026-06-17-001 Smithers fan-in follow-ups      | completed                                                                       | —                                                          |
-| search-pipeline-prototype-synthesis            | completed                                                                       | Historical synthesis                                       |
+| Plan                                           | Status     | Notes                                                                                              |
+| ---------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| 2026-07-18-001 Code Mode R12 gate              | open       | Shipped tool declined; docs-only recipe + revisit protocol; U1–U4 await an implementation worktree |
+| 2026-07-16-002 FFF two-lane architecture       | completed  | Shipped in v0.7.0; Code Mode/SDK deferred per R12                                                  |
+| 2026-07-16-001 FFF two-lane architecture       | superseded | Replaced by -002                                                                                   |
+| 2026-07-16-001 Doctor JSON diagnostics         | completed  | Shipped in v0.7.0                                                                                  |
+| 2026-06-18-001 FFF-native progressive evidence | completed  | Progressive evidence groups v2 contract                                                            |
+| 2026-06-17-001 Smithers fan-in follow-ups      | completed  | —                                                                                                  |
+| search-pipeline-prototype-synthesis            | completed  | Historical synthesis                                                                               |
 
 Planning stages in this repo:
 
