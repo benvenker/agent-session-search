@@ -359,8 +359,18 @@ describe("CLI argument parsing", () => {
     const fakeBin = join(fakePath, "bin");
     const fakeFffMcp = join(fakeBin, "fff-mcp");
     await mkdir(fakeBin);
-    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\\n'\n");
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 0.9.5\n'\n");
     await chmod(fakeFffMcp, 0o755);
+
+    // Hermetic roots: do not depend on HOME-derived default sources, which
+    // are missing in clean environments (CI) and change the warning codes.
+    const fixtureRoot = join(fakePath, "sessions");
+    const fixtureConfig = join(fakePath, "config.json");
+    await mkdir(fixtureRoot);
+    await writeFile(
+      fixtureConfig,
+      JSON.stringify({ roots: [{ name: "fixture", path: fixtureRoot }] })
+    );
 
     const result = await execFileAsync(
       process.execPath,
@@ -376,6 +386,7 @@ describe("CLI argument parsing", () => {
         env: {
           ...sourceProcessEnv(),
           PATH: fakeBin,
+          AGENT_SESSION_SEARCH_CONFIG: fixtureConfig,
         },
       }
     );

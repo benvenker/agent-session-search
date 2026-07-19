@@ -268,6 +268,42 @@ describe("package build and tarball", () => {
         ],
       })
     );
+
+    // Native tool discovery needs a real MCP-speaking fff-mcp (printf fakes
+    // cannot complete the upstream handshake). When fff-mcp is unavailable
+    // (CI), assert the installed native server fails cleanly pre-handshake
+    // instead; discovery coverage lives in test/native-mcp-smoke.test.ts.
+    const hasFffMcp = await execFileAsync("fff-mcp", ["--version"]).then(
+      () => true,
+      () => false
+    );
+
+    if (!hasFffMcp) {
+      const missingFffResult = await execFileAsync(installedNativeServer, [], {
+        cwd: appRoot,
+        env: stringEnv({
+          PATH: `${emptyBin}${delimiter}${dirname(process.execPath)}`,
+          AGENT_SESSION_SEARCH_CONFIG: nativeConfig,
+          AGENT_SESSION_SEARCH_FFF_DB_DIR: nativeDb,
+          NODE_NO_WARNINGS: "1",
+        }),
+      }).catch((error: unknown) => {
+        const execError = error as {
+          code?: number;
+          stdout?: string;
+          stderr?: string;
+        };
+        expect(execError.code).toBe(3);
+        return {
+          stdout: execError.stdout ?? "",
+          stderr: execError.stderr ?? "",
+        };
+      });
+      expect(missingFffResult.stderr).toContain(
+        "fff-mcp was not found on PATH"
+      );
+      return;
+    }
     const nativeTransport = new StdioClientTransport({
       command: installedNativeServer,
       args: [],

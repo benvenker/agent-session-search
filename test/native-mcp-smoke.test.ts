@@ -11,6 +11,15 @@ import { FFF_NATIVE_METADATA_KEY } from "../src/fff-native-policy.js";
 
 const execFileAsync = promisify(execFile);
 
+// The handshake-dependent smoke below needs a real MCP-speaking fff-mcp;
+// printf fakes cannot complete listTools. CI intentionally has no fff-mcp,
+// so probe availability once at collection time and skip when absent (the
+// missing-FFF pre-handshake test above still runs everywhere).
+const hasFffMcp = await execFileAsync("fff-mcp", ["--version"]).then(
+  () => true,
+  () => false
+);
+
 describe("native MCP stdio smoke path", () => {
   it("exits with the pre-handshake FFF compatibility code when fff-mcp is missing", async () => {
     const tmp = await mkdtemp(
@@ -54,89 +63,93 @@ describe("native MCP stdio smoke path", () => {
     expect(result.stderr).toContain("fff-mcp was not found on PATH");
   }, 60_000);
 
-  it("lists native tools and calls fff_grep against a fixture root", async () => {
-    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-native-"));
-    const root = join(tmp, "sessions");
-    const db = join(tmp, "fff-db");
-    const configPath = join(tmp, "config.json");
-    await mkdir(root);
-    await mkdir(db);
-    await writeFile(
-      join(root, "session.jsonl"),
-      "before\nnative raw smoke token\nafter\n"
-    );
-    await writeFile(
-      configPath,
-      JSON.stringify({
-        roots: [{ name: "smoke", path: root, include: ["*.jsonl"] }],
-      })
-    );
-    const canonicalRoot = await realpath(root);
-    const transport = new StdioClientTransport({
-      command: process.execPath,
-      args: ["--import", "tsx", "src/native-server.ts"],
-      cwd: process.cwd(),
-      env: fixtureSearchEnv(configPath, db),
-      stderr: "pipe",
-    });
-    const client = new Client({
-      name: "agent-session-search-native-smoke",
-      version: "0.1.0",
-    });
-
-    try {
-      await client.connect(transport);
-      expect(client.getServerVersion()).toMatchObject({
-        name: "agent-session-search-native",
-      });
-      const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toEqual(
-        expect.arrayContaining(["fff_native_capabilities", "fff_grep"])
+  it.skipIf(!hasFffMcp)(
+    "lists native tools and calls fff_grep against a fixture root",
+    async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-native-"));
+      const root = join(tmp, "sessions");
+      const db = join(tmp, "fff-db");
+      const configPath = join(tmp, "config.json");
+      await mkdir(root);
+      await mkdir(db);
+      await writeFile(
+        join(root, "session.jsonl"),
+        "before\nnative raw smoke token\nafter\n"
       );
-      const grep = tools.tools.find((tool) => tool.name === "fff_grep");
-      expect((grep?.inputSchema.properties as any).source.enum).toContain(
-        "smoke"
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          roots: [{ name: "smoke", path: root, include: ["*.jsonl"] }],
+        })
       );
-
-      const capabilities = await client.callTool({
-        name: "fff_native_capabilities",
-        arguments: {},
+      const canonicalRoot = await realpath(root);
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ["--import", "tsx", "src/native-server.ts"],
+        cwd: process.cwd(),
+        env: fixtureSearchEnv(configPath, db),
+        stderr: "pipe",
       });
-      const capabilityText = (capabilities as CallToolResult).content.find(
-        (entry): entry is { type: "text"; text: string } =>
-          entry.type === "text"
-      ) as { text: string } | undefined;
-      expect(JSON.parse(capabilityText?.text ?? "{}")).toMatchObject({
-        coverage: "root-wide",
-        sourceCoverage: expect.arrayContaining([
-          expect.objectContaining({
-            name: "smoke",
-            root: canonicalRoot,
-            nativeCoverage: "root-wide",
-            managedInclude: ["*.jsonl"],
-          }),
-        ]),
+      const client = new Client({
+        name: "agent-session-search-native-smoke",
+        version: "0.1.0",
       });
 
-      const result = await eventuallyCallGrep(client, {
-        source: "smoke",
-        query: "native raw smoke token",
-        maxResults: 3,
-      });
-      expect(JSON.stringify(result.content)).toContain(
-        "native raw smoke token"
-      );
-      expect(result._meta).toMatchObject({
-        [FFF_NATIVE_METADATA_KEY]: {
+      try {
+        await client.connect(transport);
+        expect(client.getServerVersion()).toMatchObject({
+          name: "agent-session-search-native",
+        });
+        const tools = await client.listTools();
+        expect(tools.tools.map((tool) => tool.name)).toEqual(
+          expect.arrayContaining(["fff_native_capabilities", "fff_grep"])
+        );
+        const grep = tools.tools.find((tool) => tool.name === "fff_grep");
+        expect((grep?.inputSchema.properties as any).source.enum).toContain(
+          "smoke"
+        );
+
+        const capabilities = await client.callTool({
+          name: "fff_native_capabilities",
+          arguments: {},
+        });
+        const capabilityText = (capabilities as CallToolResult).content.find(
+          (entry): entry is { type: "text"; text: string } =>
+            entry.type === "text"
+        ) as { text: string } | undefined;
+        expect(JSON.parse(capabilityText?.text ?? "{}")).toMatchObject({
+          coverage: "root-wide",
+          sourceCoverage: expect.arrayContaining([
+            expect.objectContaining({
+              name: "smoke",
+              root: canonicalRoot,
+              nativeCoverage: "root-wide",
+              managedInclude: ["*.jsonl"],
+            }),
+          ]),
+        });
+
+        const result = await eventuallyCallGrep(client, {
           source: "smoke",
-          root: canonicalRoot,
-          tool: "grep",
-        },
-      });
-    } finally {
-      await client.close();
-    }
-  }, 60_000);
+          query: "native raw smoke token",
+          maxResults: 3,
+        });
+        expect(JSON.stringify(result.content)).toContain(
+          "native raw smoke token"
+        );
+        expect(result._meta).toMatchObject({
+          [FFF_NATIVE_METADATA_KEY]: {
+            source: "smoke",
+            root: canonicalRoot,
+            tool: "grep",
+          },
+        });
+      } finally {
+        await client.close();
+      }
+    },
+    60_000
+  );
 });
 
 async function eventuallyCallGrep(
