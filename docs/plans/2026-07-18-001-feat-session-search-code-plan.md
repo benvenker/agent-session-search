@@ -2,6 +2,7 @@
 title: "feat: Code Mode R12 gate — documented client-side pattern, shipped tool declined"
 type: docs
 date: 2026-07-18
+status: open
 author: plan-council-synthesis
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
@@ -90,7 +91,7 @@ R12 of `docs/plans/2026-07-16-002-feat-fff-two-lane-architecture-plan.md` gates 
 - AE1. An MCP client listing the managed server after this work still sees only `search_sessions`; no `session_search_code` symbol exists in any shipped schema.
 - AE2. An advanced agent follows `docs/investigations/code-mode/recipe.md` from a separate TypeScript worktree, starts the installed native command, calls `fff_native_capabilities`, then issues a bounded approved `fff_grep`/`fff_multi_grep` against an advertised source.
 - AE3. Documentation-contract tests fail if the recipe implies a shipped code tool, a typed result schema, a package-internal import, semantic parsing of presentation text, or promotion of the prototype harness.
-- AE4. The installed native command passes the same capabilities smoke the recipe describes. The recipe itself is repo-only documentation: `package.json` `files` ships flat `docs/*.md` (shipped-feature docs) only, and this plan authorizes no `package.json` change — the experimental recipe deliberately stays out of the npm tarball, consistent with its not-a-product-surface status.
+- AE4. The installed native command passes the same capabilities smoke the recipe describes. The recipe rides the npm tarball with the rest of the `docs/` tree (main commit e24d8fd broadened `files` from flat `docs/*.md` to `docs`, so `docs/investigations/` material ships); its experimental status is carried by placement and labeling, not by exclusion from the package.
 - AE5. A future investigator reads `docs/investigations/code-mode/revisit-protocol.md` and can classify organic usage, build a fair battery, reject a contaminated round, and reach either a new productionization plan or a terminal decline without inventing methodology.
 
 ### Scope Boundaries
@@ -215,8 +216,8 @@ flowchart TB
 - **Test scenarios:**
   - Happy path: fixture client calls capabilities before mirrored tools, fans out bounded calls to two sources, and receives results with correct per-source provenance — no cross-source attribution.
   - Error path: an unknown/unadvertised tool call fails; the example has no route around native policy validation.
-  - Packaging: tarball file list includes flat `docs/*.md` and excludes `docs/investigations/`; installed native binary lists capabilities and an approved tool (Covers AE4).
-  - Docs contract: every command in the recipe is copy-paste runnable from repo root; the `docs/native-mcp.md` pointer references the recipe's source-repository URL (no package-relative link that would break in the tarball) and is the only inbound pointer; `README.md`/`docs/README.md` do not link or present Code Mode (negative assertion); assertions fail on typed-schema, package-import, or parser-promising language (Covers AE3).
+  - Packaging: tarball file list includes `docs/investigations/code-mode/recipe.md` (via the `docs` tree entry); installed native binary lists capabilities and an approved tool (Covers AE4).
+  - Docs contract: every command in the recipe is copy-paste runnable from repo root; the `docs/native-mcp.md` pointer is a package-relative link to the recipe (valid in the tarball since the `docs` tree ships, main e24d8fd) and is the only inbound pointer; `README.md`/`docs/README.md` do not link or present Code Mode (negative assertion); assertions fail on typed-schema, package-import, or parser-promising language (Covers AE3).
   - Docs review: the example prints/returns opaque envelopes; no test or doc depends on parsing cursor or decisive-hit meaning from presentation text (Covers AE2, R5).
 - **Verification:** Targeted smoke, packaging, and docs tests prove the documented protocol without adding a production helper, public API, or `src/` diff.
 
@@ -340,7 +341,7 @@ Recorded after synthesis; these constrain Q1/bead-1 and any round-2 rerun withou
 - Managed tool list, native tool list, CLI commands, package exports, and all of `src/` are unchanged.
 - The recipe is fresh-authored, capabilities-first, source-bound, budget-aware, default-page-size, session-id-decontaminated, structural-over-lexical, and explicit about its project-local SDK dependency and installed-command launch path.
 - Neither docs nor tests promote the prototype harness or parse raw presentation text as a contract.
-- The packed tarball keeps its current docs surface (flat `docs/*.md` only — no `package.json` `files` change); the installed native command passes the capabilities smoke.
+- The packed tarball ships `docs/investigations/code-mode/recipe.md` via the `docs` tree entry; the installed native command passes the capabilities smoke.
 - `docs/investigations/code-mode/revisit-protocol.md` defines the ledger, observation procedure, triggers, fair-rerun contract, reopen thresholds, and the 90-day terminal decision.
 - Three follow-up Beads exist with the stated links.
 - Implementation landed from a fresh worktree; no prototype scaffolding, stray snippets, or unrelated changes in the final diff.
