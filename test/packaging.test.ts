@@ -48,7 +48,8 @@ describe("package build and tarball", () => {
   });
 
   it("ships executable bin entries without local agent files or tests", async () => {
-    await execFileAsync("npm", ["run", "build"], { cwd: process.cwd() });
+    // dist/ is built once by the global setup; rebuilding here would delete it
+    // out from under suites that spawn binaries from it.
 
     const packageJson = JSON.parse(
       await readFile(join(process.cwd(), "package.json"), "utf8")

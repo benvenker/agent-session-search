@@ -379,10 +379,7 @@ describe("parseCassCompatArgv", () => {
     });
     expect(operationalInitializations).toBe(0);
 
-    execFileSync("npm", ["run", "build"], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    // dist/ is built once by the global setup; see scripts/vitest-dist-setup.mjs.
     const startedAt = performance.now();
     const result = await execFileAsync(
       process.execPath,
