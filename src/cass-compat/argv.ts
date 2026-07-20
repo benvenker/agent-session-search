@@ -50,18 +50,13 @@ export function parseCassCompatArgv(
 ): ParseCassCompatArgvResult {
   const [verb, ...tokens] = argv;
   if (verb === "--version") {
-    return {
-      ok: true,
-      command: { verb: "version" },
-      warnings: unknownFlagWarnings(tokens, []),
-    };
+    return parsed({ verb: "version" }, unknownFlagWarnings(tokens, []));
   }
   if (verb === "health" || verb === "stats") {
-    return {
-      ok: true,
-      command: { verb, json: tokens.includes("--json") },
-      warnings: unknownFlagWarnings(tokens, ["--json"]),
-    };
+    return parsed(
+      { verb, json: tokens.includes("--json") },
+      unknownFlagWarnings(tokens, ["--json"])
+    );
   }
   if (verb === "search") {
     return parseSearch(tokens);
@@ -72,22 +67,18 @@ export function parseCassCompatArgv(
     const match = /^(\d+)d?$/.exec(duration);
     const sinceDays = Number(match?.[1]);
     if (!match || !Number.isSafeInteger(sinceDays) || sinceDays <= 0) {
-      return {
-        ok: false,
-        completion: completeUsageError(
-          "Invalid value for --since: expected a positive whole number of days"
-        ),
-      };
+      return usageError(
+        "Invalid value for --since: expected a positive whole number of days"
+      );
     }
-    return {
-      ok: true,
-      command: {
+    return parsed(
+      {
         verb: "timeline",
         sinceDays,
         json: tokens.includes("--json"),
       },
-      warnings: unknownFlagWarnings(tokens, ["--since", "--json"]),
-    };
+      unknownFlagWarnings(tokens, ["--since", "--json"])
+    );
   }
   if (verb === "export") {
     const formatIndex = tokens.indexOf("--format");
@@ -96,35 +87,23 @@ export function parseCassCompatArgv(
     const exportPath =
       terminatorIndex >= 0 ? tokens.slice(terminatorIndex + 1).join(" ") : "";
     if (exportPath === "") {
-      return {
-        ok: false,
-        completion: completeUsageError("Missing export path after --"),
-      };
+      return usageError("Missing export path after --");
     }
     if (format !== "markdown" && format !== "text") {
-      return {
-        ok: false,
-        completion: completeUsageError(
-          `Unsupported export format: ${format ?? "(missing)"}`
-        ),
-      };
+      return usageError(`Unsupported export format: ${format ?? "(missing)"}`);
     }
-    return {
-      ok: true,
-      command: {
+    return parsed(
+      {
         verb: "export",
         format,
         path: exportPath,
       },
-      warnings: unknownFlagWarnings(tokens, ["--format"], true),
-    };
+      unknownFlagWarnings(tokens, ["--format"], true)
+    );
   }
-  return {
-    ok: false,
-    completion: completeUsageError(
-      `Unsupported cass compatibility verb: ${verb ?? "(missing)"}`
-    ),
-  };
+  return usageError(
+    `Unsupported cass compatibility verb: ${verb ?? "(missing)"}`
+  );
 }
 
 function parseSearch(tokens: readonly string[]): ParseCassCompatArgvResult {
@@ -182,12 +161,20 @@ function parseSearch(tokens: readonly string[]): ParseCassCompatArgvResult {
   }
 
   if (command.query === "") {
-    return {
-      ok: false,
-      completion: completeUsageError("Missing search query after --"),
-    };
+    return usageError("Missing search query after --");
   }
+  return parsed(command, warnings);
+}
+
+function parsed(
+  command: CassCompatCommand,
+  warnings: string[]
+): ParseCassCompatArgvResult {
   return { ok: true, command, warnings };
+}
+
+function usageError(message: string): ParseCassCompatArgvResult {
+  return { ok: false, completion: completeUsageError(message) };
 }
 
 function unknownFlagWarning(flag: string): string {
@@ -225,18 +212,12 @@ function parsePositiveInteger(value: string | undefined): number | undefined {
 }
 
 function missingValue(flag: string): ParseCassCompatArgvResult {
-  return {
-    ok: false,
-    completion: completeUsageError(`Missing value for ${flag}`),
-  };
+  return usageError(`Missing value for ${flag}`);
 }
 
 function invalidPositiveInteger(flag: string): ParseCassCompatArgvResult {
-  return {
-    ok: false,
-    completion: completeUsageError(
-      `Invalid value for ${flag}: expected a positive whole number`
-    ),
-  };
+  return usageError(
+    `Invalid value for ${flag}: expected a positive whole number`
+  );
 }
 import { completeUsageError, type CassCompatCompletion } from "./output.js";
