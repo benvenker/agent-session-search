@@ -1017,6 +1017,39 @@ describe("CLI argument parsing", () => {
     expect(output.error.suggestedCommand).toBe("agent-session-search --json");
   });
 
+  it("keeps npm dev CLI JSON errors parseable under Node warnings", async () => {
+    const {
+      NODE_NO_WARNINGS: _nodeNoWarnings,
+      NODE_OPTIONS: _nodeOptions,
+      ...env
+    } = process.env;
+    const result = await execFileAsync(
+      "npm",
+      ["run", "--silent", "dev:cli", "--", "cass", "--json", "--dsys", "7"],
+      { cwd: process.cwd(), env }
+    ).catch((error: unknown) => {
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: number;
+      };
+      expect(execError.code).toBe(1);
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    });
+
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: {
+        code: "user_input_error",
+        message: expect.stringContaining("did you mean --days?"),
+        suggestedCommand: expect.stringContaining("--days 7"),
+      },
+    });
+  });
+
   it("prints missing group candidate payload files as JSON user input errors", async () => {
     const missingPath = join(
       tmpdir(),

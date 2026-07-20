@@ -42,7 +42,7 @@
     "smoke": "vitest run test/mcp-smoke.test.ts",
     "check:beads:closeout": "node scripts/check-beads-closeout.mjs",
     "dev:mcp": "tsx src/server.ts",
-    "dev:cli": "tsx src/cli.ts",
+    "dev:cli": "node --no-warnings --import tsx src/cli.ts",
     "prepare": "husky"
   },
   "dependencies": {
