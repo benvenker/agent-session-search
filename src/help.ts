@@ -77,6 +77,10 @@ export function cliCapabilities(version: string) {
       policy:
         "The managed MCP server exposes exactly one tool. Native FFF access is a separate opt-in server, never a mode of search_sessions.",
       managedEntrypoint: "agent-session-search-mcp",
+      cassCompatEntrypoint: {
+        command: "agent-session-search-cass-shim",
+        optIn: true,
+      },
       nativeEntrypoint: {
         command: "agent-session-search-native-mcp",
         optIn: true,

@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { describe, expect, it } from "vitest";
@@ -54,6 +55,9 @@ describe("package build and tarball", () => {
     ) as {
       bin: Record<string, string>;
     };
+    expect(packageJson.bin["agent-session-search-cass-shim"]).toBe(
+      "dist/cass-shim.js"
+    );
 
     for (const binTarget of Object.values(packageJson.bin)) {
       await access(join(process.cwd(), binTarget));
@@ -99,6 +103,21 @@ describe("package build and tarball", () => {
     );
     expect(tarballs).toHaveLength(1);
     const tarball = tarballs[0] ?? "";
+    const tarManifest = await execFileAsync("tar", [
+      "-tzf",
+      join(packDestination, tarball),
+    ]);
+    const packedPaths = tarManifest.stdout.trim().split("\n");
+    expect(packedPaths).toContain("package/dist/cass-shim.js");
+    expect(packedPaths).toContain("package/dist/cass-compat/run.js");
+    expect(packedPaths).toContain("package/docs/cass-shim.md");
+    expect(
+      packedPaths.find(
+        (path) =>
+          path.startsWith("package/test/") ||
+          path.startsWith("package/test/fixtures/")
+      )
+    ).toBeUndefined();
 
     await execFileAsync("npm", ["init", "-y"], { cwd: appRoot });
     const emptyBin = join(installRoot, "empty-bin");
@@ -132,6 +151,8 @@ describe("package build and tarball", () => {
     ).map((path) => path.replaceAll("\\", "/"));
 
     expect(installedPaths).toContain("dist/cli.js");
+    expect(installedPaths).toContain("dist/cass-shim.js");
+    expect(installedPaths).toContain("dist/cass-compat/run.js");
     expect(installedPaths).toContain("dist/fff-preflight.js");
     expect(installedPaths).toContain("dist/native-server.js");
     expect(installedPaths).toContain("dist/server.js");
@@ -139,6 +160,7 @@ describe("package build and tarball", () => {
     expect(installedPaths).toContain("DESIGN.md");
     expect(installedPaths).toContain("scripts/postinstall.mjs");
     expect(installedPaths).toContain("docs/native-mcp.md");
+    expect(installedPaths).toContain("docs/cass-shim.md");
     expect(installedPaths).toContain("docs/plans/README.md");
     expect(installedPaths).toContain("docs/maintainers/release.md");
     expect(installedPaths).not.toContain("dist/test/packaging.test.js");
@@ -185,6 +207,71 @@ describe("package build and tarball", () => {
       ".bin",
       "agent-session-search-native-mcp"
     );
+    const installedCassShim = join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      "agent-session-search-cass-shim"
+    );
+    const versionStartedAt = performance.now();
+    const installedShimVersion = await execFileAsync(
+      installedCassShim,
+      ["--version"],
+      { cwd: appRoot }
+    );
+    const versionElapsedMs = performance.now() - versionStartedAt;
+    expect(versionElapsedMs).toBeLessThan(2_000);
+    expect(installedShimVersion.stdout).toMatch(
+      /^agent-session-search-cass-shim .+ \(cass-robot-compat for cm\)\n$/
+    );
+    expect(installedShimVersion.stdout.trim().split("\n")).toHaveLength(1);
+    expect(installedShimVersion.stderr).toBe("");
+
+    const bogusShimResult = await execFileAsync(installedCassShim, [
+      "bogusverb",
+    ]).catch((error: unknown) => {
+      const execError = error as {
+        code?: number;
+        stdout?: string;
+        stderr?: string;
+      };
+      expect(execError.code).toBe(2);
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    });
+    expect(bogusShimResult.stdout).toBe("");
+    const bogusEnvelope = JSON.parse(bogusShimResult.stderr);
+    expect(bogusEnvelope.error).toMatchObject({
+      code: 2,
+      kind: "usage",
+      hint: expect.stringContaining(
+        "--version, health, search, export, timeline, stats"
+      ),
+    });
+    expect(bogusShimResult.stderr.match(/"error"/g)).toHaveLength(1);
+
+    const installedCapabilities = await execFileAsync(
+      installedCli,
+      ["capabilities", "--json"],
+      { cwd: appRoot }
+    );
+    const capabilities = JSON.parse(installedCapabilities.stdout);
+    expect(
+      capabilities.mcp.tools.map((tool: { name: string }) => tool.name)
+    ).toEqual(["search_sessions"]);
+    expect(capabilities.mcp.cassCompatEntrypoint).toEqual({
+      command: "agent-session-search-cass-shim",
+      optIn: true,
+    });
+    expect(
+      capabilities.mcp.tools.find(
+        (tool: { name: string }) =>
+          tool.name === "agent-session-search-cass-shim"
+      )
+    ).toBeUndefined();
+
     const installedCliResult = await execFileAsync(installedCli, [], {
       cwd: appRoot,
     }).catch((error: unknown) => {
