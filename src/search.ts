@@ -972,6 +972,8 @@ function groupFollowup(
     sources: continuationState.searchedSources,
     resultsDisplayMode: "candidates",
     ...(input.paths ? { paths: input.paths } : {}),
+    ...(input.days !== undefined ? { days: input.days } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
     ...(continuationState.maxPatterns !== undefined
       ? { maxPatterns: continuationState.maxPatterns }
       : {}),
@@ -1780,6 +1782,10 @@ function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
     resultsDisplayMode: "candidates",
     groupCandidates: followup,
     ...(followup.paths ? { paths: followup.paths } : {}),
+    ...(followup.days !== undefined ? { days: followup.days } : {}),
+    ...(followup.workspace !== undefined
+      ? { workspace: followup.workspace }
+      : {}),
     ...(followup.maxPatterns !== undefined
       ? { maxPatterns: followup.maxPatterns }
       : {}),

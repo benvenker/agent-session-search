@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -443,12 +450,16 @@ describe("createSessionSearch", () => {
       offset: 6,
       limit: 6,
     });
+    expect(exactGroup.more.groupCandidates).not.toHaveProperty("days");
+    expect(exactGroup.more.groupCandidates).not.toHaveProperty("workspace");
 
     calls.length = 0;
-    await search.searchSessions({
-      query: "auth token timeout",
-      groupCandidates: exactGroup.more.groupCandidates,
-    });
+    await expect(
+      search.searchSessions({
+        query: "auth token timeout",
+        groupCandidates: exactGroup.more.groupCandidates,
+      })
+    ).resolves.toMatchObject({ resultsDisplayMode: "candidates" });
 
     expect(calls).toEqual([
       {
@@ -470,6 +481,115 @@ describe("createSessionSearch", () => {
         },
       },
     ]);
+  });
+
+  it("carries canonical session filters through group candidate replay", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const realWorkspace = join(tmp, "real-workspace");
+    const workspaceAlias = join(tmp, "workspace-alias");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(realWorkspace);
+    await symlink(realWorkspace, workspaceAlias, "dir");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const eligiblePaths = Array.from({ length: 6 }, (_, index) =>
+      join(realWorkspace, `eligible-${index + 1}.jsonl`)
+    );
+    const stalePaths = Array.from({ length: 4 }, (_, index) =>
+      join(realWorkspace, `stale-${index + 1}.jsonl`)
+    );
+    const outsidePaths = Array.from({ length: 4 }, (_, index) =>
+      join(codexRoot, `outside-${index + 1}.jsonl`)
+    );
+    for (const path of [...eligiblePaths, ...stalePaths, ...outsidePaths]) {
+      await writeFile(path, "auth token timeout");
+      await utimes(path, new Date(currentTime), new Date(currentTime));
+    }
+    const staleTime = new Date(currentTime - 90 * 86_400_000);
+    for (const path of stalePaths) {
+      await utimes(path, staleTime, staleTime);
+    }
+    const highDensityResults = (source: any, path: string) =>
+      Array.from({ length: 10 }, (_, index) => ({
+        source: source.name,
+        root: source.root,
+        path,
+        line: index + 1,
+        content: `dense auth token timeout ${index + 1}`,
+        pattern: "auth token timeout",
+      }));
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [],
+              results: [
+                ...stalePaths.flatMap((path) =>
+                  highDensityResults(source, path)
+                ),
+                ...outsidePaths.flatMap((path) =>
+                  highDensityResults(source, path)
+                ),
+                ...eligiblePaths.map((path, index) => ({
+                  source: source.name,
+                  root: source.root,
+                  path,
+                  line: index + 1,
+                  content: `eligible auth token timeout ${index + 1}`,
+                  pattern: "auth token timeout",
+                })),
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxResultsPerSource: 2,
+      days: 30,
+      workspace: workspaceAlias,
+    });
+    const firstGroup = firstPage.results[0] as any;
+    const followup = firstGroup.more.groupCandidates;
+
+    expect(followup).toMatchObject({
+      days: 30,
+      workspace: realWorkspace,
+      offset: 2,
+      limit: 2,
+    });
+    for (const lead of firstGroup.leads) {
+      expect(lead.more.evidence).not.toHaveProperty("days");
+      expect(lead.more.evidence).not.toHaveProperty("workspace");
+    }
+
+    const replay = await search.searchSessions({
+      query: "ignored in favor of server state",
+      groupCandidates: followup,
+    });
+    const replayGroup = replay.results[0] as any;
+
+    expect(replayGroup.leads.map(({ path }: any) => path)).toEqual(
+      eligiblePaths.slice(2, 4)
+    );
+    expect(replayGroup.more.groupCandidates).toMatchObject({
+      days: 30,
+      workspace: realWorkspace,
+      offset: 4,
+      limit: 2,
+    });
   });
 
   it("rejects group follow-ups when the resolved source plan changes", async () => {
