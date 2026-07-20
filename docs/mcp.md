@@ -257,6 +257,7 @@ Warnings are structured and non-fatal unless all attempted sources fail. A warni
 - `multi_grep_fallback`
 - `all_sources_failed`
 - `filters_removed_all_results`
+- `workspace_unknown`
 
 The warning envelope is stable for agents: `source?`, `root?`, `code`, `message`, and `recommendedAction?`. When `recommendedAction` is present, show it alongside the warning and prefer it over inventing a recovery path.
 
@@ -267,4 +268,6 @@ Source-filter warnings such as `unknown_source` and `no_sources_selected` includ
 
 `all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor --json`.
 
-`filters_removed_all_results` means the active session filters removed all otherwise eligible matches. Use its `recommendedAction` to verify the canonical workspace and widen or remove `days` or `workspace`; a nonexistent workspace is a successful empty search with this warning, not a hard failure.
+`workspace_unknown` means no session under the resolved roots is associated with the checked canonical workspace. It is a successful empty search, not a hard failure; verify the path named in `recommendedAction` and retry.
+
+`filters_removed_all_results` means a known workspace or the active session filters produced no eligible matches. Use its `recommendedAction` to widen the query or remove `days` or `workspace`.

@@ -28,7 +28,8 @@ import {
   type GroupCandidatesFingerprintPayload,
 } from "./followup.js";
 import { SearchSessionsInputError } from "./tool.js";
-import { open, realpath, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { open, readdir, realpath, stat } from "node:fs/promises";
 import {
   OneRootFffBackend,
   type CreateFffMcpClientOptions,
@@ -49,6 +50,7 @@ import { planQueryPatterns } from "./query-rewriter.js";
 import {
   applySessionFileFilters,
   prepareSessionFileFilters,
+  resultIsAssociatedWithWorkspace,
   type PreparedSessionFileFilters,
 } from "./session-filters.js";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
@@ -237,15 +239,32 @@ export class CoordinatedSessionSearch implements SessionSearch {
           effectiveInput.paths?.includes(result.path)
         )
       : rawResults;
-    if (
+    const workspaceKnown =
+      effectiveInput.workspace !== undefined && filteredResults.length === 0
+        ? await workspaceHasAssociatedSession(
+            resolvedRoots.sources,
+            sessionFileFilters
+          )
+        : undefined;
+    if (workspaceKnown === false) {
+      const checkedWorkspace = sessionFileFilters.workspace!;
+      warnings.push({
+        code: "workspace_unknown",
+        message: `No session files are associated with workspace ${checkedWorkspace}.`,
+        recommendedAction: `Verify the workspace path ${checkedWorkspace} and retry.`,
+      });
+    } else if (
       hasActiveSessionFilters(effectiveInput) &&
       filteredResults.length === 0 &&
-      totalFilterRemovedCount(filterRemovedCount) > 0
+      (totalFilterRemovedCount(filterRemovedCount) > 0 ||
+        workspaceKnown === true)
     ) {
       warnings.push({
         code: "filters_removed_all_results",
         message: "Active session filters removed every eligible result.",
-        recommendedAction: filterRemovalRecommendedAction(filterRemovedCount),
+        recommendedAction:
+          filterRemovalRecommendedAction(filterRemovedCount) ||
+          "Adjust the query or widen the active session filters.",
       });
     }
     const { results, resultsShape, rankingDebug } = await shapeResults(
@@ -538,6 +557,45 @@ function filterRemovalRecommendedAction(count: FilterRemovedCount) {
     remedies.push("Verify session-file readability and mtime availability.");
   }
   return remedies.join(" ");
+}
+
+async function workspaceHasAssociatedSession(
+  sources: ResolvedSessionSource[],
+  filters: PreparedSessionFileFilters
+) {
+  for (const source of sources) {
+    if (source.status !== "ok") continue;
+    const pendingDirectories = [source.root];
+    while (pendingDirectories.length > 0) {
+      const directory = pendingDirectories.pop()!;
+      let entries: Dirent[];
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          pendingDirectories.push(path);
+          continue;
+        }
+        if (
+          entry.isFile() &&
+          pathMatchesInclude(source.root, path, source.include) &&
+          (await resultIsAssociatedWithWorkspace(
+            { source: source.name, path },
+            filters
+          ))
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 async function canonicalizeSearchResult(

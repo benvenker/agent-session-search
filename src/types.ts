@@ -128,6 +128,7 @@ export type SearchWarningCode =
   | "fff_multi_grep_unavailable"
   | "fff_multi_grep_probe_failed"
   | "filters_removed_all_results"
+  | "workspace_unknown"
   | "source_cleanup_failed"
   | "source_missing"
   | "source_root_missing"

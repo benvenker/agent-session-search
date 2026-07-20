@@ -205,6 +205,12 @@ describe("CLI argument parsing", () => {
       expect(output.contract.warnings.filters_removed_all_results).toContain(
         "--workspace"
       );
+      expect(output.contract.warnings.workspace_unknown).toContain(
+        "canonical workspace"
+      );
+      expect(output.contract.warnings.workspace_unknown).toContain(
+        "verify the path"
+      );
       const searchCommand = output.commands.find(
         (command) => command.name === "search"
       );

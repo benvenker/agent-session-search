@@ -42,6 +42,8 @@ Session filters are deterministic drops applied before result caps, not ranking 
 
 Dash encoding is intentionally lossy: separator punctuation collapses to dashes. Exact segment boundaries prevent sibling and worktree prefix matches, but a residual punctuation collision can still make distinct workspace spellings share an encoded segment. Metadata is the final fallback for eligible text sources, not an unbounded transcript scan.
 
+An empty workspace-filtered search reports `workspace_unknown` when no session under the resolved roots is associated with the checked canonical path. Verify the path in its `recommendedAction` and retry. If the workspace is known but the query or other active filters leave no results, the search instead reports `filters_removed_all_results`.
+
 For group expansion in the CLI, save the exact `more.groupCandidates` object from a candidate group and pass it back unchanged:
 
 ```bash

@@ -192,6 +192,8 @@ export function cliCapabilities(version: string) {
           "Run agent-session-search sources --json and agent-session-search-doctor --json, or use the rg fallback command included in the warning message.",
         filters_removed_all_results:
           "The --days or --workspace filters removed all otherwise eligible results; broaden or remove one filter and retry.",
+        workspace_unknown:
+          "No known session is associated with the canonical workspace; verify the path and retry.",
       },
       warningEnvelope: {
         fields: ["source?", "root?", "code", "message", "recommendedAction?"],

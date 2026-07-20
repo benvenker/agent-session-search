@@ -187,13 +187,7 @@ async function evaluateResult(
   const workspaceMatchedEarly =
     filters.workspaceForms === undefined ||
     (filters.workspaceExists === true &&
-      (filters.workspaceForms.some((workspace) =>
-        pathIsWithin(result.path, workspace)
-      ) ||
-        workspaceEncodedSegmentMatch(
-          result.path,
-          filters.workspaceEncodedForms ?? []
-        )));
+      resultMatchesWorkspacePath(result, filters));
   if (filters.cutoff !== undefined) {
     let mtime: number | undefined;
     try {
@@ -212,23 +206,55 @@ async function evaluateResult(
     if (filters.workspaceExists === false) {
       return { passes: false, reason: "workspace" };
     }
-    let metadataProjectPaths: string[] = [];
-    try {
-      metadataProjectPaths =
-        (await filters.getMetadataProjectPaths?.(result)) ?? [];
-    } catch {
-      // Unreadable metadata is simply unable to prove a workspace match.
-    }
-    const metadataMatches = metadataProjectPaths.some((projectPath) =>
-      filters.workspaceForms?.some((workspace) =>
-        pathIsWithin(projectPath, workspace)
-      )
-    );
-    if (!metadataMatches) {
+    if (!(await resultMatchesWorkspaceMetadata(result, filters))) {
       return { passes: false, reason: "workspace" };
     }
   }
   return { passes: true };
+}
+
+export async function resultIsAssociatedWithWorkspace(
+  result: SessionFileReference,
+  filters: PreparedSessionFileFilters
+): Promise<boolean> {
+  if (filters.workspaceForms === undefined) return true;
+  return (
+    resultMatchesWorkspacePath(result, filters) ||
+    (await resultMatchesWorkspaceMetadata(result, filters))
+  );
+}
+
+function resultMatchesWorkspacePath(
+  result: SessionFileReference,
+  filters: PreparedSessionFileFilters
+) {
+  return (
+    filters.workspaceForms?.some((workspace) =>
+      pathIsWithin(result.path, workspace)
+    ) === true ||
+    workspaceEncodedSegmentMatch(
+      result.path,
+      filters.workspaceEncodedForms ?? []
+    )
+  );
+}
+
+async function resultMatchesWorkspaceMetadata(
+  result: SessionFileReference,
+  filters: PreparedSessionFileFilters
+) {
+  let metadataProjectPaths: string[] = [];
+  try {
+    metadataProjectPaths =
+      (await filters.getMetadataProjectPaths?.(result)) ?? [];
+  } catch {
+    // Unreadable metadata is simply unable to prove a workspace match.
+  }
+  return metadataProjectPaths.some((projectPath) =>
+    filters.workspaceForms?.some((workspace) =>
+      pathIsWithin(projectPath, workspace)
+    )
+  );
 }
 
 function pathIsWithin(candidatePath: string, workspacePath: string): boolean {

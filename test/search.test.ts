@@ -3153,7 +3153,7 @@ describe("createSessionSearch", () => {
     await mkdir(workspace);
     await writeFile(
       configPath,
-      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+      JSON.stringify({ roots: [{ name: "codex", path: tmp }] })
     );
     const currentTime = Date.now();
     const oldPath = join(workspace, "old.jsonl");
@@ -3209,14 +3209,16 @@ describe("createSessionSearch", () => {
     await mkdir(workspace);
     await writeFile(
       configPath,
-      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+      JSON.stringify({ roots: [{ name: "codex", path: tmp }] })
     );
     const currentTime = Date.now();
     const oldPath = join(codexRoot, "old.jsonl");
     const outsidePath = join(codexRoot, "outside.jsonl");
     const missingPath = join(codexRoot, "missing.jsonl");
+    const workspaceSessionPath = join(workspace, "known.jsonl");
     await writeFile(oldPath, "old");
     await writeFile(outsidePath, "outside");
+    await writeFile(workspaceSessionPath, "known workspace session");
     const oldTime = new Date(currentTime - 90 * 86_400_000);
     await utimes(oldPath, oldTime, oldTime);
 
@@ -3377,7 +3379,7 @@ describe("createSessionSearch", () => {
     expect(filterless.metadata).not.toHaveProperty("filters");
   });
 
-  it("nonexistent workspace resolves with canonical filter metadata and one warning", async () => {
+  it("warns workspace_unknown for a nonexistent workspace", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
     const nonexistentWorkspace = join(tmp, "missing-workspace");
@@ -3424,11 +3426,115 @@ describe("createSessionSearch", () => {
       metadata: { filters: { workspace: nonexistentWorkspace } },
     });
     const result = await pending;
+    expect(result.warnings).toContainEqual({
+      code: "workspace_unknown",
+      message: `No session files are associated with workspace ${nonexistentWorkspace}.`,
+      recommendedAction: `Verify the workspace path ${nonexistentWorkspace} and retry.`,
+    });
     expect(
-      result.warnings.filter(
-        ({ code }) => code === "filters_removed_all_results"
-      )
-    ).toHaveLength(1);
+      result.warnings.some(({ code }) => code === "filters_removed_all_results")
+    ).toBe(false);
+  });
+
+  it("keeps filters_removed_all_results for a known workspace whose query misses", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "known-workspace");
+    const encodedRoot = join(
+      codexRoot,
+      workspace.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await mkdir(encodedRoot);
+    await writeFile(join(encodedRoot, "session.jsonl"), "different query");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search() {
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace,
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.warnings.map(({ code }) => code)).toContain(
+      "filters_removed_all_results"
+    );
+    expect(result.warnings.map(({ code }) => code)).not.toContain(
+      "workspace_unknown"
+    );
+  });
+
+  it("warns workspace_unknown for a truncated sibling workspace path", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const knownWorkspace = join(tmp, "themodern");
+    const truncatedSibling = join(tmp, "themoderns");
+    const encodedRoot = join(
+      codexRoot,
+      knownWorkspace.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const sessionPath = join(encodedRoot, "session.jsonl");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(knownWorkspace);
+    await mkdir(encodedRoot);
+    await writeFile(sessionPath, "auth token timeout");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace: truncatedSibling,
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toContainEqual({
+      code: "workspace_unknown",
+      message: `No session files are associated with workspace ${truncatedSibling}.`,
+      recommendedAction: `Verify the workspace path ${truncatedSibling} and retry.`,
+    });
   });
 
   it("filters_removed_all_results aggregates mixed sources into at most one warning", async () => {
