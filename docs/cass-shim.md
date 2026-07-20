@@ -4,7 +4,7 @@
 
 ## Compatibility baseline
 
-The pinned consumer baseline is **cm 0.2.12 (2026-07-19 build)** with the observable contracts of **cass 0.6.22**. Maintainers must re-verify argv, schemas, and cm consumption heuristics on every cm upgrade. The package does not currently ship an automated contract-drift script.
+The pinned consumer baseline is **cm 0.2.12 (2026-07-19 build)** with the observable contracts of **cass 0.6.22**. Maintainers must re-verify argv, schemas, and cm consumption heuristics on every cm upgrade. After building the shim, run `scripts/verify-cm-contract.sh`; it fails loudly when the installed versions or pinned contract probes drift.
 
 The adapter implements exactly six surfaces:
 
@@ -100,6 +100,8 @@ agent-session-search-cass-shim export --format text -- /absolute/session.jsonl
 `agent-session-search-doctor` also reports the shim identity marker, whether `agent-session-search-cass-shim` is present on `PATH`, and whether the current `CASS_PATH` or cm `cassPath` target resolves to that shim. In `--json` mode this appears under `cassShim` with the shared `{name, version, engine}` identity marker.
 
 Then run `cm doctor`, `cm context "recent work" --json`, and `cm reflect --dry-run --days 1` with the environment-scoped `CASS_PATH`. Doctor should show the shim marker and explain that sessions are searched live with no index; it should not diagnose an index as missing. Context should contain real history without degraded fallback, and reflect should process sessions without `UNKNOWN` blocks or export-fallback warnings.
+
+The drift verifier records the exact `CASS_PATH` argv emitted by cm, checks the extracted consumer schema and fallback heuristics, and validates the built shim's robot envelope with `jq`. If it fails, re-verify this document against the new cm/cass build before changing the shim.
 
 ## Rollback
 
