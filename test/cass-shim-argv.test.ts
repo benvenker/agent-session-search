@@ -1,3 +1,6 @@
+import { execFile, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { parseCassCompatArgv } from "../src/cass-compat/argv.js";
 import {
@@ -5,6 +8,11 @@ import {
   completeJsonSuccess,
   completeTextSuccess,
 } from "../src/cass-compat/output.js";
+import { runCassCompat } from "../src/cass-compat/run.js";
+import { runCassShimEntrypoint } from "../src/cass-shim.js";
+
+const execFileAsync = promisify(execFile);
+const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("parseCassCompatArgv", () => {
   it("parses cm search argv including repeated agents and a dash-leading query after --", () => {
@@ -352,5 +360,171 @@ describe("parseCassCompatArgv", () => {
         "Ignoring unknown flag --future for pinned cm 0.2.12 build.",
       ]);
     }
+  });
+
+  it("cold --version exits within cm's 2 second gate without operational initialization", async () => {
+    let operationalInitializations = 0;
+    const direct = await runCassCompat(["--version"], {
+      loadOperationalHandler: async () => {
+        operationalInitializations += 1;
+        throw new Error("operational loader must not run");
+      },
+    });
+
+    expect(direct).toEqual({
+      stdout:
+        "agent-session-search-cass-shim 0.7.1 (cass-robot-compat for cm)\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(operationalInitializations).toBe(0);
+
+    execFileSync("npm", ["run", "build"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+    const startedAt = performance.now();
+    const result = await execFileAsync(
+      process.execPath,
+      ["dist/cass-shim.js", "--version"],
+      { cwd: projectRoot, timeout: 2_000 }
+    );
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(elapsedMs).toBeLessThan(2_000);
+    expect(result.stdout).toBe(
+      "agent-session-search-cass-shim 0.7.1 (cass-robot-compat for cm)\n"
+    );
+    expect(result.stderr).toBe("");
+  });
+
+  it("usage errors do not load operational handlers", async () => {
+    let handlerLoads = 0;
+    const completion = await runCassCompat(["unsupported-verb"], {
+      loadOperationalHandler: async () => {
+        handlerLoads += 1;
+        throw new Error("must not load");
+      },
+    });
+
+    expect(handlerLoads).toBe(0);
+    expect(completion).toMatchObject({ stdout: "", exitCode: 2 });
+    expect(JSON.parse(completion.stderr).error).toMatchObject({
+      code: 2,
+      kind: "usage",
+      retryable: false,
+    });
+  });
+
+  it("health reports live no-index semantics without running a probe", async () => {
+    let operationalInitializations = 0;
+    const completion = await runCassCompat(["health", "--json"], {
+      loadOperationalHandler: async () => {
+        operationalInitializations += 1;
+        throw new Error("health must not initialize operational dependencies");
+      },
+    });
+
+    expect(operationalInitializations).toBe(0);
+    expect(completion).toEqual({
+      stdout:
+        '{\n  "status": "ok",\n  "healthy": true,\n  "explanation": "no index; sessions searched live",\n  "shim": {\n    "name": "agent-session-search-cass-shim",\n    "version": "0.7.1",\n    "engine": "fff-live"\n  }\n}\n',
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("dispatches an injected operational handler to a completed result", async () => {
+    const loadedCommands: unknown[] = [];
+    const completion = await runCassCompat(["stats", "--json", "--future"], {
+      loadOperationalHandler: async (command) => {
+        loadedCommands.push(command);
+        return async (handledCommand) => {
+          expect(handledCommand).toEqual({ verb: "stats", json: true });
+          return completeJsonSuccess({ conversations: 4 });
+        };
+      },
+    });
+
+    expect(loadedCommands).toEqual([{ verb: "stats", json: true }]);
+    expect(completion).toEqual({
+      stdout: '{\n  "conversations": 4\n}\n',
+      stderr: "Ignoring unknown flag --future for pinned cm 0.2.12 build.\n",
+      exitCode: 0,
+    });
+  });
+
+  it("handler exceptions produce exit 9 without partial stdout", async () => {
+    const completion = await runCassCompat(["stats", "--json"], {
+      loadOperationalHandler: async () => async () => {
+        const partialPayload = { conversations: 4 };
+        expect(partialPayload.conversations).toBe(4);
+        throw new Error("boom after preparing partial output");
+      },
+    });
+
+    expect(completion.stdout).toBe("");
+    expect(completion.exitCode).toBe(9);
+    expect(completion.stderr.match(/"error"/g)).toHaveLength(1);
+    expect(JSON.parse(completion.stderr)).toEqual({
+      error: {
+        code: 9,
+        kind: "unknown",
+        message: "boom after preparing partial output",
+        hint: "Retry the command; use ~/.local/bin/cass if the failure persists.",
+        retryable: false,
+      },
+    });
+  });
+
+  it("the executable applies returned stdout stderr and exit exactly once", async () => {
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const exitCodes: number[] = [];
+
+    await runCassShimEntrypoint(["stats", "--json"], {
+      run: async () => ({
+        stdout: "data\n",
+        stderr: "warning\n",
+        exitCode: 0,
+      }),
+      io: {
+        writeStdout: (value) => stdoutWrites.push(value),
+        writeStderr: (value) => stderrWrites.push(value),
+        setExitCode: (value) => exitCodes.push(value),
+      },
+    });
+
+    expect(stdoutWrites).toEqual(["data\n"]);
+    expect(stderrWrites).toEqual(["warning\n"]);
+    expect(exitCodes).toEqual([0]);
+  });
+
+  it("the executable top-level catch emits one exit-9 envelope", async () => {
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const exitCodes: number[] = [];
+
+    await runCassShimEntrypoint(["stats"], {
+      run: async () => {
+        throw new Error("unexpected entrypoint failure");
+      },
+      io: {
+        writeStdout: (value) => stdoutWrites.push(value),
+        writeStderr: (value) => stderrWrites.push(value),
+        setExitCode: (value) => exitCodes.push(value),
+      },
+    });
+
+    expect(stdoutWrites).toEqual([]);
+    expect(stderrWrites).toHaveLength(1);
+    expect(JSON.parse(stderrWrites[0] ?? "").error).toEqual({
+      code: 9,
+      kind: "unknown",
+      message: "unexpected entrypoint failure",
+      hint: "Retry the command; use ~/.local/bin/cass if the failure persists.",
+      retryable: false,
+    });
+    expect(exitCodes).toEqual([9]);
   });
 });
