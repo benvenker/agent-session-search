@@ -11,10 +11,13 @@ Agent Session Search is a local TypeScript ESM package that exposes:
 - one opt-in native MCP server binary: `agent-session-search-native-mcp`
 - one CLI binary: `agent-session-search`
 - one setup/diagnostic binary: `agent-session-search-doctor`
+- one optional cm interoperability binary: `agent-session-search-cass-shim`
 
 The product searches local coding-agent session history across configured source roots. Raw session files remain the source of truth. FFF provides lexical search through `fff-mcp`. This package handles source-root resolution, deterministic query rewriting, fanout, path normalization, candidate ranking, response shaping, and CLI discovery commands.
 
 The managed MCP surface stays centered on `search_sessions` and must continue to advertise exactly that one tool. Lower-level FFF access belongs only in the separate opt-in native MCP lane, where locally approved upstream tools are namespaced and source-bound. Do not add lower-level MCP tools for root resolution, query rewriting, FFF child calls, or excerpt reads to the managed server.
+
+`agent-session-search-cass-shim` is the fifth product bin: an optional cm interoperability subprocess over the same live search engine. It is not a CLI subcommand, a third MCP lane, or a cass repair/passthrough surface.
 
 ## Non-Goals
 
@@ -22,7 +25,7 @@ Do not add these to the mainline product without a new design pass:
 
 - semantic or vector search
 - custom indexes, SQLite stores, or durable derived session databases
-- markdown exports of session history
+- markdown exports of session history, except the bounded shim-only cm interoperability adapter renderer documented in `docs/cass-shim.md`
 - nightly summaries or long-lived aggregation
 - a web UI or TUI
 - full parsers for every agent transcript format

@@ -35,6 +35,7 @@ Native FFF calls are bound to one configured source's canonical root. Managed `i
 - `src/server.ts`: MCP server entry point.
 - `src/cli.ts` and `src/help.ts`: CLI commands and agent-readable help.
 - `src/fff-preflight.ts`: doctor command and FFF availability checks.
+- `src/cass-shim.ts` and `src/cass-compat/`: optional cm interoperability subprocess adapter over the same live, index-free FFF search path.
 
 ## Behavioral Guardrails
 
