@@ -35,6 +35,11 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("--evidence");
       expect(output).toContain("--path <path>");
       expect(output).toContain("--max-results <n>");
+      expect(output).toContain("--days <n>");
+      expect(output).toContain("--workspace <path>");
+      expect(output).toContain(
+        'agent-session-search "auth token timeout" --json --days 7 --workspace /data/projects/agent-session-search'
+      );
       expect(output).toContain("--version");
       expect(output).toContain(
         "Run agent-session-search-doctor --json for agent-readable FFF diagnostics."
@@ -194,6 +199,17 @@ describe("CLI argument parsing", () => {
       );
       expect(output.contract.warnings.missing_root).toContain("sources --json");
       expect(output.contract.warnings.unreadable_root).toContain("permissions");
+      expect(output.contract.warnings.filters_removed_all_results).toContain(
+        "--days"
+      );
+      expect(output.contract.warnings.filters_removed_all_results).toContain(
+        "--workspace"
+      );
+      const searchCommand = output.commands.find(
+        (command) => command.name === "search"
+      );
+      expect(searchCommand?.usage).toContain("--days <n>");
+      expect(searchCommand?.usage).toContain("--workspace <path>");
       expect(output.contract.warningEnvelope.fields).toEqual([
         "source?",
         "root?",
@@ -474,6 +490,8 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("agent-session-search-doctor --json");
       expect(output).toContain("more.evidence");
       expect(output).toContain("search_sessions");
+      expect(output).toContain("deterministic drops");
+      expect(output).toContain("survive group replay");
     } finally {
       log.mockRestore();
     }
@@ -497,6 +515,9 @@ describe("CLI argument parsing", () => {
       });
       expect(output.recommendedCommands).toContain(
         'agent-session-search "auth token timeout" --json'
+      );
+      expect(output.recommendedCommands).toContain(
+        'agent-session-search "auth token timeout" --json --days 7 --workspace /data/projects/agent-session-search'
       );
       expect(output.healthChecks).toContain(
         "agent-session-search-doctor --json"
@@ -530,6 +551,8 @@ describe("CLI argument parsing", () => {
       paths: ["/Users/ben/.codex/sessions/session.jsonl"],
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: false,
     });
     expect(searchInputFromParsedArgs(args)).toEqual({
@@ -541,6 +564,8 @@ describe("CLI argument parsing", () => {
       paths: ["/Users/ben/.codex/sessions/session.jsonl"],
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: undefined,
     });
   });
@@ -573,6 +598,8 @@ describe("CLI argument parsing", () => {
       paths: undefined,
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: undefined,
     });
   });
@@ -599,6 +626,8 @@ describe("CLI argument parsing", () => {
       paths: undefined,
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: undefined,
     });
   });
@@ -637,6 +666,8 @@ describe("CLI argument parsing", () => {
       paths: undefined,
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: undefined,
     });
   });
@@ -713,6 +744,8 @@ describe("CLI argument parsing", () => {
       paths: undefined,
       maxPatterns: undefined,
       maxResultsPerSource: undefined,
+      days: undefined,
+      workspace: undefined,
       debug: true,
     });
 
@@ -764,8 +797,92 @@ describe("CLI argument parsing", () => {
       paths: undefined,
       maxPatterns: 3,
       maxResultsPerSource: 7,
+      days: undefined,
+      workspace: undefined,
       debug: undefined,
     });
+  });
+
+  it("maps days and workspace filters to search input", () => {
+    const args = parseArgs([
+      "auth token timeout",
+      "--days",
+      "7",
+      "--workspace",
+      "/data/projects/agent-session-search",
+    ]);
+
+    expect(args).toMatchObject({
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+    });
+    expect(searchInputFromParsedArgs(args)).toMatchObject({
+      query: "auth token timeout",
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+    });
+  });
+
+  it("rejects invalid days and missing workspace values", () => {
+    for (const value of ["0", "-1", "1.5", "nope"]) {
+      expect(() => parseArgs(["auth", "--days", value])).toThrow(
+        "--days must be a positive integer"
+      );
+    }
+    expect(() => parseArgs(["auth", "--days"])).toThrow(
+      "--days requires a value"
+    );
+    expect(() => parseArgs(["auth", "--workspace"])).toThrow(
+      "--workspace requires a value"
+    );
+  });
+
+  it("suggests days and workspace flag typos exactly", () => {
+    for (const [unknownOption, value, suggestedOption, suggestedCommand] of [
+      ["--dsys", "7", "--days", "agent-session-search auth --days 7"],
+      [
+        "--workspce",
+        "/data/projects",
+        "--workspace",
+        "agent-session-search auth --workspace /data/projects",
+      ],
+    ]) {
+      try {
+        parseArgs(["auth", unknownOption, value]);
+        throw new Error(`expected parseArgs to reject ${unknownOption}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CliParseError);
+        expect((error as CliParseError).suggestion).toEqual({
+          unknownOption,
+          suggestedOption,
+          suggestedCommand,
+        });
+      }
+    }
+  });
+
+  it("rejects days and workspace mixed with group candidate payloads", () => {
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 5,
+    });
+
+    for (const flag of ["--days", "--workspace"]) {
+      const value = flag === "--days" ? "7" : "/data/projects";
+      expect(() =>
+        parseArgs(["--group-candidates", JSON.stringify(followup), flag, value])
+      ).toThrow(
+        expect.objectContaining({ message: expect.stringContaining(flag) })
+      );
+    }
   });
 
   it("rejects unknown options instead of searching for them", () => {
@@ -860,6 +977,26 @@ describe("CLI argument parsing", () => {
         suggestedCommand: "agent-session-search help",
       },
     });
+  });
+
+  it("prints filter parse failures as JSON errors without stdout", async () => {
+    for (const argv of [
+      ["auth", "--days", "0"],
+      ["auth", "--days", "-1"],
+      ["auth", "--days", "1.5"],
+      ["auth", "--days", "nope"],
+      ["auth", "--days"],
+      ["auth", "--workspace"],
+    ]) {
+      const result = await runCliExpectFailure(["--json", ...argv]);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        error: {
+          code: "user_input_error",
+          suggestedCommand: "agent-session-search help",
+        },
+      });
+    }
   });
 
   it("prints JSON typo suggestions on stderr without stdout", async () => {

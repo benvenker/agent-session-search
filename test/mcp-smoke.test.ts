@@ -44,6 +44,7 @@ describe("MCP search_sessions smoke path", () => {
         version: packageJson.version,
       });
       const tools = await client.listTools();
+      expect(tools.tools.map(({ name }) => name)).toEqual(["search_sessions"]);
       const tool = tools.tools.find((candidate) => {
         return candidate.name === "search_sessions";
       });
@@ -54,6 +55,8 @@ describe("MCP search_sessions smoke path", () => {
       expect(tool?.description).toContain('resultsShape: "candidate_groups"');
       expect(tool?.description).toContain("more.groupCandidates");
       expect(tool?.description).toContain("more.evidence");
+      expect(tool?.description).toContain("days");
+      expect(tool?.description).toContain("workspace");
 
       const properties = tool?.inputSchema.properties as
         | Record<string, { description?: string }>
@@ -77,6 +80,8 @@ describe("MCP search_sessions smoke path", () => {
         "candidates"
       );
       expect(properties?.paths.description).toContain("Restrict evidence");
+      expect(properties?.days.description).toContain("modified within");
+      expect(properties?.workspace.description).toContain("workspace");
     } finally {
       await client.close();
     }

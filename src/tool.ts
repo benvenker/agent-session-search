@@ -40,6 +40,19 @@ const groupCandidatesFollowupSchema = z
     maxPatterns: z.number().int().positive().optional(),
     maxResultsPerSource: z.number().int().positive().optional(),
     context: z.number().int().min(0).optional(),
+    days: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Only include sessions modified within this many days."),
+    workspace: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Only include sessions whose path or metadata matches this workspace."
+      ),
     planFingerprint: z.string().min(1),
     fingerprint: z.string().min(1),
     group: z
@@ -118,6 +131,19 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Requested matching-line context. Reserved for backend support; current FFF results remain bounded snippets."
     ),
+  days: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Only include sessions modified within this many days."),
+  workspace: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Only include sessions whose path or metadata matches this workspace."
+    ),
   debug: z
     .boolean()
     .optional()
@@ -192,6 +218,9 @@ export class SearchSessionsInputError
           "<same maxResultsPerSource value as the server-prepared payload, when present>",
         context:
           "<same context value as the server-prepared payload, when present>",
+        days: "<same days value as the server-prepared payload, when present>",
+        workspace:
+          "<same workspace value as the server-prepared payload, when present>",
         planFingerprint: "<server-prepared plan fingerprint>",
         fingerprint: "<server-prepared fingerprint>",
         group: {
@@ -330,6 +359,18 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
       "Invalid group follow-up: top-level context must match groupCandidates.context from the server-prepared payload."
     );
   }
+  if (input.days !== undefined && input.days !== followup.days) {
+    throw new SearchSessionsInputError(
+      "days",
+      "Invalid group follow-up: top-level days must match groupCandidates.days from the server-prepared payload."
+    );
+  }
+  if (input.workspace !== undefined && input.workspace !== followup.workspace) {
+    throw new SearchSessionsInputError(
+      "workspace",
+      "Invalid group follow-up: top-level workspace must match groupCandidates.workspace from the server-prepared payload."
+    );
+  }
   if (!groupCandidatesFingerprintIsValid(followup)) {
     throw new SearchSessionsInputError(
       "groupCandidates.fingerprint",
@@ -418,6 +459,8 @@ function normalizeGroupCandidatesShorthand(
         ? { maxResultsPerSource: input.maxResultsPerSource }
         : {}),
       ...(input.context !== undefined ? { context: input.context } : {}),
+      ...(input.days !== undefined ? { days: input.days } : {}),
+      ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
       planFingerprint: input.planFingerprint,
       fingerprint: input.fingerprint,
       group: input.group,

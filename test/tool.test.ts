@@ -14,6 +14,110 @@ import type { SessionSearch } from "../src/types.js";
 import { groupCandidates } from "./support/followup.js";
 
 describe("search_sessions tool boundary", () => {
+  it("validates days and workspace on top-level and group follow-up inputs", () => {
+    const filters = {
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+    };
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      ...filters,
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(
+      searchSessionsInputSchema.parse({
+        query: "auth token timeout",
+        ...filters,
+        groupCandidates: followup,
+      })
+    ).toMatchObject({
+      ...filters,
+      groupCandidates: filters,
+    });
+
+    for (const days of [1.5, 0, -1]) {
+      expect(
+        searchSessionsInputSchema.safeParse({
+          query: "auth token timeout",
+          days,
+        }).success
+      ).toBe(false);
+      expect(
+        searchSessionsInputSchema.safeParse({
+          query: "auth token timeout",
+          groupCandidates: { ...followup, days },
+        }).success
+      ).toBe(false);
+    }
+    expect(
+      searchSessionsInputSchema.safeParse({
+        query: "auth token timeout",
+        workspace: "",
+      }).success
+    ).toBe(false);
+    expect(
+      searchSessionsInputSchema.safeParse({
+        query: "auth token timeout",
+        groupCandidates: { ...followup, workspace: "" },
+      }).success
+    ).toBe(false);
+  });
+
+  it("teaches exact days and workspace values for group follow-up replay", async () => {
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 10,
+    });
+
+    for (const [invalidField, override] of [
+      ["days", { days: 3 }],
+      ["workspace", { workspace: "/data/projects/other" }],
+    ] as const) {
+      await expect(
+        runSearchSessionsTool(search, {
+          query: "auth token timeout",
+          resultsDisplayMode: "candidates",
+          groupCandidates: followup,
+          ...override,
+        })
+      ).rejects.toMatchObject({
+        code: "invalid_group_followup",
+        invalidField,
+        correctedShape: {
+          groupCandidates: {
+            days: "<same days value as the server-prepared payload, when present>",
+            workspace:
+              "<same workspace value as the server-prepared payload, when present>",
+          },
+        },
+      } satisfies Partial<SearchSessionsInputError>);
+    }
+  });
+
   it("uses a restart-stable group follow-up fingerprint", () => {
     expect(
       groupCandidatesFingerprint({
@@ -30,6 +134,50 @@ describe("search_sessions tool boundary", () => {
         limit: 10,
       })
     ).toBe("gcf1:52e25b6aeccbeaff");
+  });
+
+  it("binds days and workspace into group follow-up fingerprints", async () => {
+    const filtered = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 0,
+      limit: 10,
+    });
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+
+    expect(filtered.fingerprint).not.toBe("gcf1:52e25b6aeccbeaff");
+    await expect(
+      runSearchSessionsTool(search, {
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        groupCandidates: { ...filtered, days: 3 },
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.fingerprint",
+    });
+    await expect(
+      runSearchSessionsTool(search, {
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        groupCandidates: { ...filtered, fingerprint: "gcf1:tampered" },
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.fingerprint",
+    });
   });
 
   it("passes validated input to the shared search library", async () => {
@@ -91,6 +239,8 @@ describe("search_sessions tool boundary", () => {
       maxPatterns: 3,
       maxResultsPerSource: 10,
       context: 2,
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
       debug: true,
     });
 
@@ -108,6 +258,8 @@ describe("search_sessions tool boundary", () => {
         maxPatterns: 3,
         maxResultsPerSource: 10,
         context: 2,
+        days: 7,
+        workspace: "/data/projects/agent-session-search",
         debug: true,
       },
     ]);
@@ -191,6 +343,29 @@ describe("search_sessions tool boundary", () => {
       resultsDisplayMode: "candidates",
       groupCandidates: followup,
     });
+  });
+
+  it("carries days and workspace through group candidate shorthand", () => {
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      days: 7,
+      workspace: "/data/projects/agent-session-search",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 3,
+      limit: 10,
+    });
+
+    const parsed = parseSearchSessionsInput(
+      searchSessionsInputSchema.parse(followup)
+    );
+
+    expect(parsed.groupCandidates).toEqual(followup);
   });
 
   it("rejects edited top-level group candidate follow-up modes", () => {
