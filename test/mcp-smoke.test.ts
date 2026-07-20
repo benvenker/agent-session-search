@@ -57,6 +57,7 @@ describe("MCP search_sessions smoke path", () => {
       expect(tool?.description).toContain("more.evidence");
       expect(tool?.description).toContain("days");
       expect(tool?.description).toContain("workspace");
+      expect(tool?.description).toContain("absolute workspace paths");
 
       const properties = tool?.inputSchema.properties as
         | Record<string, { description?: string }>
@@ -81,7 +82,18 @@ describe("MCP search_sessions smoke path", () => {
       );
       expect(properties?.paths.description).toContain("Restrict evidence");
       expect(properties?.days.description).toContain("modified within");
-      expect(properties?.workspace.description).toContain("workspace");
+      expect(properties?.workspace.description).toContain(
+        "physical path containment"
+      );
+      expect(properties?.workspace.description).toContain(
+        "exact encoded-directory component"
+      );
+      expect(properties?.workspace.description).toContain("never a prefix");
+      expect(properties?.workspace.description).toContain("cwd/projectRoot");
+      expect(properties?.workspace.description).toContain(
+        "subdirectories are included"
+      );
+      expect(properties?.workspace.description).toContain("absolute path");
     } finally {
       await client.close();
     }

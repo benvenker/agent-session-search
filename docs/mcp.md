@@ -81,10 +81,10 @@ Fields:
 | `maxResultsPerSource` | Limit results per source. Explicit caps still apply to focused path evidence.                                    |
 | `context`             | Reserved for backend support. Current FFF results remain bounded matching lines.                                 |
 | `days`                | Positive integer rolling age window based on session-file mtime.                                                 |
-| `workspace`           | Non-empty workspace path used for deterministic session filtering.                                               |
+| `workspace`           | Non-empty workspace path used for deterministic session filtering. MCP clients should pass an absolute path.     |
 | `debug`               | Include query expansion and diagnostics. Candidate ranking diagnostics require candidate mode plus debug.        |
 
-`days` and `workspace` are deterministic filters, not ranking inputs. When both are present they compose with AND: a session must satisfy the rolling cutoff and the workspace predicate. The response echoes supplied values under `metadata.filters`, including the canonical workspace. MCP callers and the companion shim should send an absolute workspace because relative input resolves against the managed server cwd.
+`days` and `workspace` are deterministic filters, not ranking inputs. Workspace matching uses physical path containment, an exact encoded-directory component (never a prefix), or recorded `cwd`/`projectRoot` metadata within the workspace; workspace subdirectories are included. When both filters are present they compose with AND: a session must satisfy the rolling cutoff and the workspace predicate. The response echoes supplied values under `metadata.filters`, including the canonical workspace. MCP clients and the companion shim should pass an absolute workspace path because relative input resolves against the managed server cwd; CLI relative paths resolve against the CLI process cwd.
 
 ## Result Modes
 

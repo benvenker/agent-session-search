@@ -10,6 +10,9 @@ import type {
   SessionSearch,
 } from "./types.js";
 
+const workspaceFilterDescription =
+  "Only include sessions associated with this workspace through physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included. Relative paths resolve against the server process cwd, so MCP clients and shims should pass an absolute path.";
+
 const matchGroupIdSchema = z.enum([
   "exact_or_structured",
   "phrase_or_adjacent_terms",
@@ -50,9 +53,7 @@ const groupCandidatesFollowupSchema = z
       .string()
       .min(1)
       .optional()
-      .describe(
-        "Only include sessions whose path or metadata matches this workspace."
-      ),
+      .describe(workspaceFilterDescription),
     planFingerprint: z.string().min(1),
     fingerprint: z.string().min(1),
     group: z
@@ -137,13 +138,7 @@ export const searchSessionsInputSchema = z.object({
     .positive()
     .optional()
     .describe("Only include sessions modified within this many days."),
-  workspace: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "Only include sessions whose path or metadata matches this workspace."
-    ),
+  workspace: z.string().min(1).optional().describe(workspaceFilterDescription),
   debug: z
     .boolean()
     .optional()

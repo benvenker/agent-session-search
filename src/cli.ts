@@ -237,7 +237,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (arg === "--days") {
-      days = parsePositiveInteger(argv[index + 1], arg);
+      days = parsePositiveInteger(argv[index + 1], arg, argv);
       index += 1;
       continue;
     }
@@ -741,7 +741,11 @@ function suggestResultsDisplayMode(
   return best && best.distance <= 2 ? best.mode : undefined;
 }
 
-function parsePositiveInteger(value: string | undefined, option: string) {
+function parsePositiveInteger(
+  value: string | undefined,
+  option: string,
+  argv?: string[]
+) {
   if (!value) {
     throw inputError(`${option} requires a value`);
   }
@@ -749,7 +753,31 @@ function parsePositiveInteger(value: string | undefined, option: string) {
   if (Number.isInteger(parsed) && parsed > 0) {
     return parsed;
   }
+  if (option === "--days" && argv) {
+    const suggestedValue = "7";
+    return throwInvalidDays(value, argv, suggestedValue);
+  }
   throw inputError(`${option} must be a positive integer`);
+}
+
+function throwInvalidDays(
+  value: string,
+  argv: string[],
+  suggestedValue: string
+): never {
+  const optionIndex = argv.indexOf("--days");
+  const correctedArgs = [...argv];
+  correctedArgs[optionIndex + 1] = suggestedValue;
+  throw new CliParseError(
+    `--days must be a positive integer; received ${JSON.stringify(value)}`,
+    {
+      unknownOption: value,
+      suggestedOption: suggestedValue,
+      suggestedCommand: ["agent-session-search", ...correctedArgs]
+        .map(shellQuote)
+        .join(" "),
+    }
+  );
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {

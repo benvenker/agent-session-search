@@ -39,7 +39,8 @@ export function cliHelpText() {
     "  --max-patterns <n>         Limit expanded literal search patterns.",
     "  --max-results <n>          Limit results per source, including focused --path evidence. Alias: --max-results-per-source.",
     "  --days <n>                 Only include sessions modified within the last n days.",
-    "  --workspace <path>         Only include sessions associated with this workspace.",
+    "  --workspace <path>         Only include sessions associated with this workspace. Relative paths resolve against the CLI process cwd.",
+    "                             Matching uses physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included. MCP clients and shims should pass absolute paths.",
     "  -h, --help                 Show this help.",
     "  -v, --version              Print the package version.",
     "",
@@ -163,6 +164,8 @@ export function cliCapabilities(version: string) {
         'Default candidates mode returns resultsShape: "candidate_groups" with ordered match groups, count relation semantics, hasMore, and copy-ready follow-ups.',
       countRelationSemantics:
         'assignedCandidateCount and hitCount use { value, relation } where relation is "eq" for exact counts and "gte" for lower bounds when caps or backend budgets prevent exact totals; shownLeadCount is a plain number.',
+      workspaceFiltering:
+        "Workspace matching uses physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included. Relative paths resolve against the CLI process cwd, while MCP clients and shims should pass absolute paths.",
       followUps: {
         groupExpansion:
           "Expand a group by copying more.groupCandidates exactly into search_sessions.groupCandidates or replaying it with agent-session-search --json --group-candidates @payload.json.",
@@ -322,6 +325,7 @@ export function robotDocsGuide() {
     "- Candidate ranking uses recency, hit density, project matches, explicit callerSession current-session demotion for any source, and CODEX_THREAD_ID as a Codex fallback.",
     "- Missing roots are warnings; partial success is expected.",
     "- `--days` and `--workspace` are deterministic drops, and their canonical values survive group replay.",
+    "- Workspace matching uses physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included. Relative paths resolve against the CLI process cwd; MCP clients and shims should pass absolute paths.",
     "- The managed MCP server exposes exactly `search_sessions`; the separate opt-in `agent-session-search-native-mcp` server exposes `fff_native_capabilities` plus approved source-bound raw FFF tools.",
     "- Native FFF tools require `source`, return raw FFF presentation text, use root-wide coverage, and do not enforce managed `include` filters.",
   ].join("\n");
@@ -401,7 +405,7 @@ export function mcpSearchSessionsDescription() {
     "Use `operationalContext` for useful context such as cwd, repo/project, branch, recent chat, why the user is searching, and any relevant prompt details that should not become search text.",
     "Use `callerSession` only when you know the live caller source and session id; matching candidates are demoted so the current transcript does not crowd out older useful sessions.",
     "If `queries` is omitted, the tool falls back to deterministic rewriting of `query`.",
-    "Use optional `days` to restrict sessions by modification age and `workspace` to restrict sessions to one workspace; both filters survive candidate-group replay.",
+    "Use optional `days` to restrict sessions by modification age and `workspace` to restrict sessions through physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included and both filters survive candidate-group replay. MCP clients and shims should pass absolute workspace paths because relative paths resolve against the managed server process cwd.",
     'The default `resultsDisplayMode` is `candidates` with `resultsShape: "candidate_groups"`: static match groups ordered from exact/structured evidence through looser fallbacks. Expand a group by passing its `more.groupCandidates` payload under `groupCandidates`, or by echoing that payload exactly when your MCP client supports top-level shorthand, then use a candidate `more.evidence` object when you need matching snippets from a selected session. Unscoped evidence searches are grouped by path and capped by default; pass `paths` for focused raw evidence. Explicit `maxResultsPerSource` still caps focused evidence per source, not per path. Use `debug` only when inspecting query expansion or backend behavior; candidate-mode debug also returns compact ranking explanations.',
   ].join(" ");
 }

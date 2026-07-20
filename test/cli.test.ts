@@ -37,6 +37,17 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("--max-results <n>");
       expect(output).toContain("--days <n>");
       expect(output).toContain("--workspace <path>");
+      expect(output).toContain("physical path containment");
+      expect(output).toContain("exact encoded-directory component");
+      expect(output).toContain("never a prefix");
+      expect(output).toContain("recorded cwd/projectRoot metadata");
+      expect(output).toContain("subdirectories are included");
+      expect(output).toContain(
+        "Relative paths resolve against the CLI process cwd"
+      );
+      expect(output).toContain(
+        "MCP clients and shims should pass absolute paths"
+      );
       expect(output).toContain(
         'agent-session-search "auth token timeout" --json --days 7 --workspace /data/projects/agent-session-search'
       );
@@ -94,6 +105,7 @@ describe("CLI argument parsing", () => {
           metadata: string;
           resultShape: string;
           countRelationSemantics: string;
+          workspaceFiltering: string;
           followUps: { groupExpansion: string; focusedEvidence: string };
           warnings: Record<string, string>;
           warningEnvelope: { fields: string[]; recovery: string };
@@ -143,6 +155,18 @@ describe("CLI argument parsing", () => {
       expect(output.contract.resultShape).toContain("hasMore");
       expect(output.contract.countRelationSemantics).toContain('"eq"');
       expect(output.contract.countRelationSemantics).toContain('"gte"');
+      expect(output.contract.workspaceFiltering).toContain(
+        "exact encoded-directory component"
+      );
+      expect(output.contract.workspaceFiltering).toContain("never a prefix");
+      expect(output.contract.workspaceFiltering).toContain(
+        "recorded cwd/projectRoot metadata"
+      );
+      expect(output.contract.workspaceFiltering).toContain(
+        "subdirectories are included"
+      );
+      expect(output.contract.workspaceFiltering).toContain("CLI process cwd");
+      expect(output.contract.workspaceFiltering).toContain("absolute paths");
       expect(output.contract.followUps.groupExpansion).toContain(
         "more.groupCandidates"
       );
@@ -498,6 +522,15 @@ describe("CLI argument parsing", () => {
       expect(output).toContain("search_sessions");
       expect(output).toContain("deterministic drops");
       expect(output).toContain("survive group replay");
+      expect(output).toContain("physical path containment");
+      expect(output).toContain("exact encoded-directory component");
+      expect(output).toContain("never a prefix");
+      expect(output).toContain("recorded cwd/projectRoot metadata");
+      expect(output).toContain("subdirectories are included");
+      expect(output).toContain("CLI process cwd");
+      expect(output).toContain(
+        "MCP clients and shims should pass absolute paths"
+      );
     } finally {
       log.mockRestore();
     }
@@ -843,6 +876,33 @@ describe("CLI argument parsing", () => {
     );
   });
 
+  it("suggests a corrected invocation for invalid days values", () => {
+    for (const value of ["0", "-1", "1.5", "nope"]) {
+      try {
+        parseArgs([
+          "auth token timeout",
+          "--json",
+          "--days",
+          value,
+          "--workspace",
+          "/data/projects/agent-session-search",
+        ]);
+        throw new Error(`expected parseArgs to reject --days ${value}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CliParseError);
+        expect((error as Error).message).toContain(
+          `received ${JSON.stringify(value)}`
+        );
+        expect((error as CliParseError).suggestion).toEqual({
+          unknownOption: value,
+          suggestedOption: "7",
+          suggestedCommand:
+            "agent-session-search 'auth token timeout' --json --days 7 --workspace /data/projects/agent-session-search",
+        });
+      }
+    }
+  });
+
   it("suggests days and workspace flag typos exactly", () => {
     for (const [unknownOption, value, suggestedOption, suggestedCommand] of [
       ["--dsys", "7", "--days", "agent-session-search auth --days 7"],
@@ -986,11 +1046,24 @@ describe("CLI argument parsing", () => {
   });
 
   it("prints filter parse failures as JSON errors without stdout", async () => {
+    for (const value of ["0", "-1", "1.5", "nope"]) {
+      const result = await runCliExpectFailure([
+        "--json",
+        "auth",
+        "--days",
+        value,
+      ]);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        error: {
+          code: "user_input_error",
+          message: expect.stringContaining(`received ${JSON.stringify(value)}`),
+          suggestedCommand: "agent-session-search --json auth --days 7",
+        },
+      });
+    }
+
     for (const argv of [
-      ["auth", "--days", "0"],
-      ["auth", "--days", "-1"],
-      ["auth", "--days", "1.5"],
-      ["auth", "--days", "nope"],
       ["auth", "--days"],
       ["auth", "--workspace"],
     ]) {
