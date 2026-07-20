@@ -1,4 +1,6 @@
 import { createSessionSearch } from "../search.js";
+import { stat } from "node:fs/promises";
+import { basename, extname } from "node:path";
 import type {
   CandidateGroup,
   SearchSessionsInput,
@@ -13,15 +15,17 @@ import {
   cassCompatAgentForSource,
   sourceForCassCompatAgent,
 } from "./agents.js";
-import { completeJsonSuccess } from "./output.js";
+import { completeError, completeJsonSuccess } from "./output.js";
 
 const CASS_COMPAT_DEFAULT_LIMIT = 10;
 const MAX_OVERFETCH_DELTA = 40;
+export const CASS_SHIM_DEFAULT_LINE_NUMBER = 1;
 
 export type CreateCassCompatSessionSearch = () => SessionSearch;
 
 export type CassCompatSearchHandlerOptions = {
   createSessionSearch?: CreateCassCompatSessionSearch;
+  statPath?: (path: string) => Promise<{ mtimeMs: number }>;
 };
 
 export function createCassCompatSearchHandler(
@@ -63,7 +67,21 @@ async function runSearch(
   const search = factory();
   try {
     const output = await search.searchSessions(input);
-    return completeJsonSuccess(minimalSearchEnvelope(command, output, limit));
+    const totalFailure = output.warnings.find(
+      (warning) => warning.code === "all_sources_failed"
+    );
+    if (totalFailure) {
+      return completeError(
+        9,
+        "unknown",
+        `All session sources failed: ${totalFailure.message}`,
+        "Verify configured session roots and retry the search."
+      );
+    }
+    return completeJsonSuccess(
+      await searchEnvelope(command, output, limit, options.statPath),
+      summarizeWarnings(output)
+    );
   } finally {
     await search.close?.();
   }
@@ -90,18 +108,51 @@ function boundedOverfetch(limit: number): number {
   return limit + delta;
 }
 
-function minimalSearchEnvelope(
+async function searchEnvelope(
   command: CassCompatSearchCommand,
   output: SearchSessionsOutput,
-  limit: number
+  limit: number,
+  statPath: (path: string) => Promise<{ mtimeMs: number }> = stat
 ) {
-  const hits = output.results
+  const groups = output.results
     .filter(isCandidateGroup)
-    .flatMap((group) => group.leads)
-    .slice(0, limit)
-    .map((lead) => ({
-      agent: cassCompatAgentForSource(lead.source) ?? lead.source,
-    }));
+    .sort((left, right) => left.priority - right.priority);
+  const seen = new Set<string>();
+  const selected = [];
+  for (const lead of groups.flatMap((group) => group.leads)) {
+    const key = `${lead.source}\0${lead.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(lead);
+    if (selected.length === limit) break;
+  }
+  const hits = await Promise.all(
+    selected.map(async (lead, index) => {
+      let createdAt: number | undefined;
+      try {
+        const metadata = await statPath(lead.path);
+        if (Number.isFinite(metadata.mtimeMs)) createdAt = metadata.mtimeMs;
+      } catch {
+        // created_at is optional and must be omitted when filesystem metadata fails.
+      }
+      return {
+        title: lead.sessionId ?? basename(lead.path, extname(lead.path)),
+        source_path: lead.path,
+        agent: cassCompatAgentForSource(lead.source) ?? lead.source,
+        snippet: lead.preview,
+        content: lead.preview,
+        score: Math.max(0, Number((1 - index * 0.05).toFixed(2))),
+        line_number: lead.line ?? CASS_SHIM_DEFAULT_LINE_NUMBER,
+        match_type: "local",
+        source_id: "local",
+        origin_kind: "local",
+        ...(command.workspace === undefined
+          ? {}
+          : { workspace: command.workspace }),
+        ...(createdAt === undefined ? {} : { created_at: createdAt }),
+      };
+    })
+  );
   return {
     ...emptySearchEnvelope(command.query, limit),
     count: hits.length,
@@ -129,4 +180,13 @@ function isCandidateGroup(
   result: SearchSessionsOutput["results"][number]
 ): result is CandidateGroup {
   return "leads" in result && Array.isArray(result.leads);
+}
+
+function summarizeWarnings(output: SearchSessionsOutput): string {
+  return output.warnings
+    .map(
+      (warning) =>
+        `Search warning [${warning.code}]${warning.source ? ` ${warning.source}:` : ":"} ${warning.message}\n`
+    )
+    .join("");
 }
