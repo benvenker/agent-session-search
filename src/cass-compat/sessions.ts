@@ -7,6 +7,7 @@ import {
   type ResolveSessionRootsOutput,
   type ResolvedSessionSource,
 } from "../roots.js";
+import { jsonWithTrailingNewline } from "./output.js";
 
 export type CassCompatSessionRecord = {
   source: string;
@@ -170,9 +171,7 @@ export async function enumerateCassCompatSessions(
 export function formatCassCompatWarnings(
   warnings: readonly CassCompatSessionWarning[]
 ): string {
-  return warnings.length === 0
-    ? ""
-    : `${JSON.stringify({ warnings }, null, 2)}\n`;
+  return warnings.length === 0 ? "" : jsonWithTrailingNewline({ warnings });
 }
 
 async function walkRealDirectory(
