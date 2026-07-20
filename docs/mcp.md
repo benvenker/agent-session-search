@@ -165,13 +165,12 @@ Each candidate includes:
 - `groupMemberships`
 - `more.evidence`
 
-When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Prefer the schema-shaped call `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it. Prepared group payloads carry `days` and the canonical `workspace` through replay. The cutoff is rolling rather than snapshot-stable, so each replay evaluates the age window at replay time. Focused `more.evidence` payloads remain path-pinned and do not inherit these filters.
+When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Send `{ "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. The older explicit shape `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` is still accepted, and MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes both forms. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it. Prepared group payloads carry `days` and the canonical `workspace` through replay. The cutoff is rolling rather than snapshot-stable, so each replay evaluates the age window at replay time. Focused `more.evidence` payloads remain path-pinned and do not inherit these filters.
 
 Copy-ready group follow-up call:
 
 ```json
 {
-  "query": "auth token timeout",
   "groupCandidates": {
     "query": "auth token timeout",
     "sources": ["codex"],

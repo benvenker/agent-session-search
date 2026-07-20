@@ -65,6 +65,10 @@ describe("MCP search_sessions smoke path", () => {
       expect(properties?.query.description).toContain(
         "Concise human-readable recall task"
       );
+      expect(tool?.inputSchema).toMatchObject({
+        type: "object",
+        anyOf: [{ required: ["query"] }, { required: ["groupCandidates"] }],
+      });
       expect(properties?.queries.description).toContain(
         "Short literal search probes"
       );
@@ -317,6 +321,26 @@ describe("MCP search_sessions smoke path", () => {
           },
         },
       });
+
+      const conflictingNestedSources = await callSearchSessionsJson(client, {
+        groupCandidates: followup,
+        sources: ["other"],
+      });
+      expect(conflictingNestedSources.output).toMatchObject({ isError: true });
+      expect(conflictingNestedSources.body).toMatchObject({
+        error: {
+          code: "invalid_group_followup",
+          invalidField: "sources",
+          message:
+            "Invalid group follow-up: top-level sources must match groupCandidates.sources from the server-prepared payload.",
+          correctedShape: {
+            groupCandidates: {
+              sources: ["<same source names as the original response>"],
+              resultsDisplayMode: "candidates",
+            },
+          },
+        },
+      });
     } finally {
       await client.close();
     }
@@ -386,7 +410,6 @@ describe("MCP search_sessions smoke path", () => {
       const firstPageLeadPaths = exactGroup.leads.map((lead: any) => lead.path);
 
       const secondPage = await eventuallyCallSearchSessions(client, {
-        query: "auth token timeout",
         groupCandidates: exactGroup.more.groupCandidates,
       });
       expect(secondPage).toMatchObject({

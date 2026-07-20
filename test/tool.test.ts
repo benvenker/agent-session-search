@@ -319,6 +319,43 @@ describe("search_sessions tool boundary", () => {
     });
   });
 
+  it("normalizes nested group candidate follow-up tokens without a top-level query", () => {
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 3,
+      limit: 10,
+    });
+
+    const parsed = parseSearchSessionsInput(
+      searchSessionsInputSchema.parse({
+        groupCandidates: followup,
+      })
+    );
+
+    expect(parsed).toEqual({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      groupCandidates: followup,
+    });
+  });
+
+  it("rejects ordinary searches without a query", () => {
+    expect(
+      searchSessionsInputSchema.safeParse({
+        sources: ["codex"],
+        resultsDisplayMode: "candidates",
+      }).success
+    ).toBe(false);
+  });
+
   it("normalizes exact top-level group candidate follow-up echoes", () => {
     const followup = groupCandidates({
       query: "auth token timeout",
@@ -430,6 +467,43 @@ describe("search_sessions tool boundary", () => {
           },
           offset: 0,
           limit: 10,
+        },
+      },
+    } satisfies Partial<SearchSessionsInputError>);
+  });
+
+  it("rejects malformed nested group follow-up unions with a teaching error", async () => {
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+
+    await expect(
+      runSearchSessionsTool(search, {
+        groupCandidates: {
+          ...groupCandidates({
+            query: "auth token timeout",
+            sources: ["codex"],
+            resultsDisplayMode: "candidates",
+            group: {
+              id: "exact_or_structured",
+              priority: 0,
+              patternIds: ["p1"],
+            },
+            offset: 0,
+            limit: 10,
+          }),
+          sources: 42,
+        },
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "groupCandidates.sources",
+      correctedShape: {
+        groupCandidates: {
+          sources: ["<same source names as the original response>"],
+          resultsDisplayMode: "candidates",
         },
       },
     } satisfies Partial<SearchSessionsInputError>);
@@ -615,6 +689,46 @@ describe("search_sessions tool boundary", () => {
     ).rejects.toMatchObject({
       code: "invalid_group_followup",
       invalidField: "sources",
+    });
+  });
+
+  it("rejects conflicting sibling shorthand on nested group follow-ups", async () => {
+    const search: SessionSearch = {
+      async searchSessions() {
+        throw new Error("search should not run for invalid follow-ups");
+      },
+    };
+    const followup = groupCandidates({
+      query: "auth token timeout",
+      sources: ["codex"],
+      resultsDisplayMode: "candidates",
+      group: {
+        id: "exact_or_structured",
+        priority: 0,
+        patternIds: ["p1"],
+      },
+      offset: 3,
+      limit: 10,
+    });
+
+    await expect(
+      runSearchSessionsTool(search, {
+        groupCandidates: followup,
+        fingerprint: "gcf1:edited",
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "fingerprint",
+    });
+
+    await expect(
+      runSearchSessionsTool(search, {
+        groupCandidates: followup,
+        offset: 4,
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_group_followup",
+      invalidField: "offset",
     });
   });
 
