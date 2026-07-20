@@ -375,7 +375,7 @@ export function doctorHelpText() {
     "       agent-session-search-doctor help",
     "",
     "Verify the FFF backend used by agent-session-search.",
-    "Fails when fff-mcp is missing or below the required minimum. Reports installed version, stable release guidance, multi_grep support, and recall-equivalence status without upgrading automatically.",
+    "Fails when fff-mcp is missing or below the required minimum. Reports installed version, stable release guidance, multi_grep support, recall-equivalence status, and cass compatibility shim activation without upgrading automatically.",
     "With --json, success writes one diagnostics envelope to stdout and parse/runtime errors write one diagnostics envelope to stderr.",
     "",
     "Options:",

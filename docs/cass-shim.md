@@ -97,6 +97,8 @@ agent-session-search-cass-shim stats --json
 agent-session-search-cass-shim export --format text -- /absolute/session.jsonl
 ```
 
+`agent-session-search-doctor` also reports the shim identity marker, whether `agent-session-search-cass-shim` is present on `PATH`, and whether the current `CASS_PATH` or cm `cassPath` target resolves to that shim. In `--json` mode this appears under `cassShim` with the shared `{name, version, engine}` identity marker.
+
 Then run `cm doctor`, `cm context "recent work" --json`, and `cm reflect --dry-run --days 1` with the environment-scoped `CASS_PATH`. Doctor should show the shim marker and explain that sessions are searched live with no index; it should not diagnose an index as missing. Context should contain real history without degraded fallback, and reflect should process sessions without `UNKNOWN` blocks or export-fallback warnings.
 
 ## Rollback
