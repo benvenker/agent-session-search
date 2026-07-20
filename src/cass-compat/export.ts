@@ -145,18 +145,11 @@ function extractCodexMessage(record: unknown): ExportMessage | undefined {
   const role = record.payload.role;
   if (!isExportRole(role)) return undefined;
   if (!Array.isArray(record.payload.content)) return undefined;
-  const text = record.payload.content
-    .flatMap((block) =>
-      isRecord(block) &&
-      (block.type === "input_text" || block.type === "output_text") &&
-      typeof block.text === "string"
-        ? [block.text.trim()]
-        : []
-    )
-    .filter((value) => value !== "")
-    .join("\n");
-  const normalized = nonEmpty(text);
-  return normalized === undefined ? undefined : { role, text: normalized };
+  const text = contentText(record.payload.content, [
+    "input_text",
+    "output_text",
+  ]);
+  return text === undefined ? undefined : { role, text };
 }
 
 function extractPiMessage(record: unknown): ExportMessage | undefined {
@@ -176,12 +169,18 @@ function extractGenericMessage(record: unknown): ExportMessage | undefined {
   return text === undefined ? undefined : { role, text };
 }
 
-function contentText(content: unknown): string | undefined {
+function contentText(
+  content: unknown,
+  blockTypes: readonly string[] = ["text"]
+): string | undefined {
   if (typeof content === "string") return nonEmpty(content);
   if (!Array.isArray(content)) return undefined;
   const text = content
     .flatMap((block) =>
-      isRecord(block) && block.type === "text" && typeof block.text === "string"
+      isRecord(block) &&
+      typeof block.type === "string" &&
+      blockTypes.includes(block.type) &&
+      typeof block.text === "string"
         ? [block.text.trim()]
         : []
     )
