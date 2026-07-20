@@ -12,6 +12,7 @@ agent-session-search "global search" --source codex --source claude --json
 agent-session-search --json --group-candidates @payload.json
 agent-session-search "auth token timeout" --json --evidence --path /absolute/session.jsonl
 agent-session-search "auth token timeout" --json --candidates --debug
+agent-session-search "auth token timeout" --json --days 7 --workspace /data/projects/agent-session-search
 ```
 
 Without `--json`, search output is a short human summary plus warnings. Use `--json` when you need result records. Candidate mode returns `resultsShape: "candidate_groups"`: ordered match groups with compact leads, counts, `hasMore`, optional `more.groupCandidates` group expansion payloads, and per-candidate `more.evidence` payloads.
@@ -34,6 +35,12 @@ Options:
 | `--path <path>`                        | Restrict evidence to a canonical session path. Repeatable. This does not imply `--evidence`.                    |
 | `--max-patterns <n>`                   | Limit expanded literal patterns.                                                                                |
 | `--max-results <n>`                    | Limit results per source. Alias: `--max-results-per-source`. Must be a positive integer.                        |
+| `--days <n>`                           | Keep sessions inside a rolling mtime window. Must be a positive integer.                                        |
+| `--workspace <path>`                   | Keep sessions associated with one workspace; relative paths resolve from the CLI process cwd.                   |
+
+Session filters are deterministic drops applied before result caps, not ranking hints. The days filter computes a rolling mtime window for each invocation and keeps files on or newer than the inclusive cutoff; when `--days` is active, an unstatable session file is dropped. The workspace filter checks canonical workspace containment, an exact dash-encoded segment in the session path, then bounded metadata near the start of eligible text transcripts. When both flags are present, a session must pass both.
+
+Dash encoding is intentionally lossy: separator punctuation collapses to dashes. Exact segment boundaries prevent sibling and worktree prefix matches, but a residual punctuation collision can still make distinct workspace spellings share an encoded segment. Metadata is the final fallback for eligible text sources, not an unbounded transcript scan.
 
 For group expansion in the CLI, save the exact `more.groupCandidates` object from a candidate group and pass it back unchanged:
 

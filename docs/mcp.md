@@ -80,7 +80,11 @@ Fields:
 | `maxPatterns`         | Limit expanded literal patterns.                                                                                 |
 | `maxResultsPerSource` | Limit results per source. Explicit caps still apply to focused path evidence.                                    |
 | `context`             | Reserved for backend support. Current FFF results remain bounded matching lines.                                 |
+| `days`                | Positive integer rolling age window based on session-file mtime.                                                 |
+| `workspace`           | Non-empty workspace path used for deterministic session filtering.                                               |
 | `debug`               | Include query expansion and diagnostics. Candidate ranking diagnostics require candidate mode plus debug.        |
+
+`days` and `workspace` are deterministic filters, not ranking inputs. When both are present they compose with AND: a session must satisfy the rolling cutoff and the workspace predicate. The response echoes supplied values under `metadata.filters`, including the canonical workspace. MCP callers and the companion shim should send an absolute workspace because relative input resolves against the managed server cwd.
 
 ## Result Modes
 
@@ -161,7 +165,7 @@ Each candidate includes:
 - `groupMemberships`
 - `more.evidence`
 
-When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Prefer the schema-shaped call `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it.
+When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Prefer the schema-shaped call `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it. Prepared group payloads carry `days` and the canonical `workspace` through replay. The cutoff is rolling rather than snapshot-stable, so each replay evaluates the age window at replay time. Focused `more.evidence` payloads remain path-pinned and do not inherit these filters.
 
 Copy-ready group follow-up call:
 
@@ -252,6 +256,7 @@ Warnings are structured and non-fatal unless all attempted sources fail. A warni
 - `broad_evidence_capped`
 - `multi_grep_fallback`
 - `all_sources_failed`
+- `filters_removed_all_results`
 
 The warning envelope is stable for agents: `source?`, `root?`, `code`, `message`, and `recommendedAction?`. When `recommendedAction` is present, show it alongside the warning and prefer it over inventing a recovery path.
 
@@ -261,3 +266,5 @@ Source-filter warnings such as `unknown_source` and `no_sources_selected` includ
 `broad_evidence_capped` means an unscoped evidence request hit the default breadth cap. Switch back to candidates, expand a promising group with `more.groupCandidates`, then request focused evidence for the selected path.
 
 `all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor --json`.
+
+`filters_removed_all_results` means the active session filters removed all otherwise eligible matches. Use its `recommendedAction` to verify the canonical workspace and widen or remove `days` or `workspace`; a nonexistent workspace is a successful empty search with this warning, not a hard failure.

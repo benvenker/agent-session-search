@@ -93,11 +93,15 @@ type SearchSessionsInput = {
   maxPatterns?: number;
   maxResultsPerSource?: number;
   context?: number;
+  days?: number;
+  workspace?: string;
   debug?: boolean;
 };
 ```
 
 Set `query` to a concise recall task. Put short literal probes planned by the calling agent in `queries`. Put cwd, branch, repo, and the reason for recall in `operationalContext`; that context explains the search without becoming search text. Put the live caller identity in `callerSession` only when the caller has a reliable source name and session id for itself.
+
+`days` and `workspace` are Session Filters: deterministic drops applied to canonical eligible session files before caps and candidate ranking. They compose with AND, echo canonical values in response metadata, and survive prepared candidate-group replay. Session Filters are never ranking signals; ranking-side project matches remain a separate concern.
 
 The default mode is `candidates` and returns `resultsShape: "candidate_groups"`. Candidate groups are static match groups ordered from exact/structured evidence through loose fallback evidence. Each non-empty group includes count structures, `hasMore`, compact candidate leads, and an optional server-prepared `more.groupCandidates` payload that can be echoed back to the same `search_sessions` tool for the next bounded page of that group. A candidate includes `source`, `root`, canonical `path`, `preview`, match metadata, group memberships, and a server-prepared `more.evidence` payload for focused evidence.
 
