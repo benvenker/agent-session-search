@@ -17,6 +17,8 @@ export type SearchSessionsInput = {
   resultsDisplayMode?: ResultsDisplayMode;
   groupCandidates?: GroupCandidatesFollowupInput;
   paths?: string[];
+  days?: number;
+  workspace?: string;
   maxPatterns?: number;
   maxResultsPerSource?: number;
   context?: number;
@@ -87,6 +89,8 @@ export type GroupCandidatesFollowupInput = {
   sources?: SourceName[] | "all";
   resultsDisplayMode: "candidates";
   paths?: string[];
+  days?: number;
+  workspace?: string;
   maxPatterns?: number;
   maxResultsPerSource?: number;
   context?: number;
@@ -123,6 +127,7 @@ export type SearchWarningCode =
   | "broad_evidence_capped"
   | "fff_multi_grep_unavailable"
   | "fff_multi_grep_probe_failed"
+  | "filters_removed_all_results"
   | "source_cleanup_failed"
   | "source_missing"
   | "source_root_missing"
@@ -181,6 +186,10 @@ export type SearchSessionsMetadata = {
   resultsDisplayMode: ResultsDisplayMode;
   resultsShape: ResultsShape;
   backend: SearchBackendMetadata;
+  filters?: {
+    days?: number;
+    workspace?: string;
+  };
   limits: {
     maxPatterns?: number;
     maxResultsPerSource?: number;
