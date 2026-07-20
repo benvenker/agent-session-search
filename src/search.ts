@@ -54,7 +54,15 @@ import {
   type PreparedSessionFileFilters,
   type SessionFileFilterDropReason,
 } from "./session-filters.js";
-import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  resolve,
+  sep,
+} from "node:path";
 
 export type SessionSearchBackendInput = {
   patterns: string[];
@@ -1435,16 +1443,37 @@ async function addProjectSignal(
   }
 }
 
-async function canonicalProjectPath(value: string) {
-  const expanded =
-    value === "~" || value.startsWith(`~${sep}`)
-      ? `${process.env.HOME ?? ""}${value.slice(1)}`
-      : value;
+export async function canonicalProjectPath(value: string) {
+  if (isUnexpandedHomeProjectPath(value) && !process.env.HOME) {
+    return value;
+  }
+  const expanded = expandHomeProjectPath(value);
   try {
     return await realpath(expanded);
   } catch {
-    return normalize(expanded);
+    if (isUnexpandedHomeProjectPath(expanded)) {
+      return normalize(expanded);
+    }
+    return isAbsolute(expanded) ? normalize(expanded) : resolve(expanded);
   }
+}
+
+function expandHomeProjectPath(value: string) {
+  if (!isUnexpandedHomeProjectPath(value)) {
+    return value;
+  }
+  const home = process.env.HOME;
+  if (!home) {
+    return value;
+  }
+  if (value === "~") {
+    return home;
+  }
+  return join(home, value.slice(2));
+}
+
+function isUnexpandedHomeProjectPath(value: string) {
+  return value === "~" || value.startsWith("~/") || value.startsWith("~\\");
 }
 
 function isLocalPathLike(value: string) {

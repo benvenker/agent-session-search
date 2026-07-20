@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSessionSearch } from "../src/search.js";
+import { canonicalProjectPath, createSessionSearch } from "../src/search.js";
 import { groupCandidates } from "./support/followup.js";
 
 function sleep(ms: number) {
@@ -55,6 +55,63 @@ function candidateLeads(result: { results: any[] }) {
 }
 
 describe("createSessionSearch", () => {
+  it("canonicalizes missing relative project paths to absolute fallbacks", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousCwd = process.cwd();
+    process.chdir(tmp);
+    try {
+      await expect(canonicalProjectPath("project")).resolves.toBe(
+        join(tmp, "project")
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  it("leaves tilde project paths literal when HOME is unset", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousHome = process.env.HOME;
+    const previousCwd = process.cwd();
+    await mkdir(join(tmp, "~", "project"), { recursive: true });
+    process.chdir(tmp);
+    delete process.env.HOME;
+    try {
+      await expect(canonicalProjectPath("~")).resolves.toBe("~");
+      await expect(canonicalProjectPath("~/project")).resolves.toBe(
+        "~/project"
+      );
+      await expect(canonicalProjectPath("~/..")).resolves.toBe("~/..");
+    } finally {
+      process.chdir(previousCwd);
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
+  });
+
+  it("canonicalizes tilde project paths with backslash separators", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousHome = process.env.HOME;
+    await mkdir(join(tmp, "project"), { recursive: true });
+    process.env.HOME = tmp;
+    try {
+      await expect(canonicalProjectPath("~\\project")).resolves.toBe(
+        await realpath(join(tmp, "project"))
+      );
+      await expect(canonicalProjectPath("~/project")).resolves.toBe(
+        await realpath(join(tmp, "project"))
+      );
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
+  });
+
   it("returns compact session candidates by default", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -1487,6 +1544,63 @@ describe("createSessionSearch", () => {
       expect(candidate).not.toHaveProperty("score");
       expect(candidate).not.toHaveProperty("project");
       expect(candidate).not.toHaveProperty("ranking");
+    }
+  });
+
+  it("uses absolute project-path fallbacks for missing relative paths in ranking", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const previousCwd = process.cwd();
+    process.chdir(codexRoot);
+    try {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path: join(source.root, "project", "session.jsonl"),
+                    line: 1,
+                    content: "missing relative project path",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        debug: true,
+        operationalContext: { cwd: "project" },
+      });
+      const canonicalCodexRoot = await realpath(codexRoot);
+
+      expect(result.debug?.ranking?.candidates[0]).toMatchObject({
+        path: join(canonicalCodexRoot, "project", "session.jsonl"),
+        projectMatch: "path",
+        projectPoints: 2,
+      });
+    } finally {
+      process.chdir(previousCwd);
     }
   });
 
