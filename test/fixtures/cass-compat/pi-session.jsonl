@@ -1,0 +1,3 @@
+{"type":"message","timestamp":"2026-07-20T03:00:00.000Z","role":"user","content":"Inspect the session roots."}
+{"type":"tool_result","timestamp":"2026-07-20T03:01:00.000Z","role":"tool","content":{"path":"/private/value"}}
+{"type":"message","timestamp":"2026-07-20T03:02:00.000Z","role":"assistant","content":[{"type":"text","text":"The roots are canonical."},{"type":"tool_call","name":"read"},{"type":"text","text":"Includes are preserved."}]}
