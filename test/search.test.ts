@@ -2953,6 +2953,371 @@ describe("createSessionSearch", () => {
     );
   });
 
+  it("warns once when active filters remove every eligible result", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const oldPath = join(workspace, "old.jsonl");
+    await writeFile(oldPath, "auth token timeout");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: oldPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      days: 30,
+      workspace,
+    });
+    const filterWarnings = result.warnings.filter(
+      ({ code }) => code === "filters_removed_all_results"
+    );
+
+    expect(result.results).toEqual([]);
+    expect(filterWarnings).toHaveLength(1);
+    expect(result.metadata.filters).toEqual({ days: 30, workspace });
+  });
+
+  it("filters_removed_all_results recommends the observed days workspace and stat remedies", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const oldPath = join(codexRoot, "old.jsonl");
+    const outsidePath = join(codexRoot, "outside.jsonl");
+    const missingPath = join(codexRoot, "missing.jsonl");
+    await writeFile(oldPath, "old");
+    await writeFile(outsidePath, "outside");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+
+    const run = async (
+      path: string,
+      filters: { days?: number; workspace?: string }
+    ) => {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path,
+                    line: 1,
+                    content: "auth token timeout",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "evidence",
+        ...filters,
+      });
+      return result.warnings.filter(
+        ({ code }) => code === "filters_removed_all_results"
+      );
+    };
+
+    const daysWarnings = await run(oldPath, { days: 30 });
+    const workspaceWarnings = await run(outsidePath, { workspace });
+    const statWarnings = await run(missingPath, { days: 30 });
+
+    expect(daysWarnings).toHaveLength(1);
+    expect(daysWarnings[0]?.recommendedAction).toBe(
+      "Widen days to include older session files."
+    );
+    expect(workspaceWarnings).toHaveLength(1);
+    expect(workspaceWarnings[0]?.recommendedAction).toBe(
+      "Verify or widen workspace to include the intended sessions."
+    );
+    expect(statWarnings).toHaveLength(1);
+    expect(statWarnings[0]?.recommendedAction).toBe(
+      "Verify session-file readability and mtime availability."
+    );
+  });
+
+  it("filter metadata and empty warnings stay absent for negative controls", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    const includeConfigPath = join(tmp, "include-config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    await writeFile(
+      includeConfigPath,
+      JSON.stringify({
+        roots: [
+          {
+            name: "codex",
+            path: codexRoot,
+            include: ["sessions/*.jsonl"],
+          },
+        ],
+      })
+    );
+    const currentTime = Date.now();
+    const recentPath = join(codexRoot, "recent.jsonl");
+    const oldPath = join(codexRoot, "old.jsonl");
+    const excludedPath = join(codexRoot, "logs", "excluded.jsonl");
+    await mkdir(dirname(excludedPath), { recursive: true });
+    await writeFile(recentPath, "recent");
+    await writeFile(oldPath, "old");
+    await writeFile(excludedPath, "excluded");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+
+    const createSearch = (
+      paths: string[],
+      options: { config?: string; fail?: boolean } = {}
+    ) =>
+      createSessionSearch({
+        configPath: options.config ?? configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              if (options.fail) throw new Error("backend unavailable");
+              return {
+                warnings: [],
+                results: paths.map((path, index) => ({
+                  source: source.name,
+                  root: source.root,
+                  path,
+                  line: index + 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                })),
+              };
+            },
+          };
+        },
+      });
+    const searchInput = {
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence" as const,
+    };
+
+    const lexicalZero = await createSearch([]).searchSessions({
+      ...searchInput,
+      days: 30,
+    });
+    const sourceFailure = await createSearch([], { fail: true }).searchSessions(
+      {
+        ...searchInput,
+        days: 30,
+      }
+    );
+    const includeOnly = await createSearch([excludedPath], {
+      config: includeConfigPath,
+    }).searchSessions({ ...searchInput, days: 30 });
+    const partial = await createSearch([oldPath, recentPath]).searchSessions({
+      ...searchInput,
+      days: 30,
+    });
+    const filterless = await createSearch([]).searchSessions(searchInput);
+
+    for (const result of [
+      lexicalZero,
+      sourceFailure,
+      includeOnly,
+      partial,
+      filterless,
+    ]) {
+      expect(
+        result.warnings.some(
+          ({ code }) => code === "filters_removed_all_results"
+        )
+      ).toBe(false);
+    }
+    expect(partial.results).toHaveLength(1);
+    expect(filterless.metadata).not.toHaveProperty("filters");
+  });
+
+  it("nonexistent workspace resolves with canonical filter metadata and one warning", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const nonexistentWorkspace = join(tmp, "missing-workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const hitPath = join(codexRoot, "hit.jsonl");
+    await writeFile(hitPath, "auth token timeout");
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: hitPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const pending = search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace: nonexistentWorkspace,
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      results: [],
+      metadata: { filters: { workspace: nonexistentWorkspace } },
+    });
+    const result = await pending;
+    expect(
+      result.warnings.filter(
+        ({ code }) => code === "filters_removed_all_results"
+      )
+    ).toHaveLength(1);
+  });
+
+  it("filters_removed_all_results aggregates mixed sources into at most one warning", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+    const currentTime = Date.now();
+    const codexOld = join(codexRoot, "old.jsonl");
+    const claudeOld = join(claudeRoot, "old.jsonl");
+    const claudeFresh = join(claudeRoot, "fresh.jsonl");
+    for (const path of [codexOld, claudeOld, claudeFresh]) {
+      await writeFile(path, "auth token timeout");
+    }
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(codexOld, oldTime, oldTime);
+    await utimes(claudeOld, oldTime, oldTime);
+
+    const run = async (claudePath: string) => {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              const path = source.name === "codex" ? codexOld : claudePath;
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path,
+                    line: 1,
+                    content: "auth token timeout",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+      return search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "evidence",
+        sources: ["codex", "claude"],
+        days: 30,
+      });
+    };
+
+    const partial = await run(claudeFresh);
+    const empty = await run(claudeOld);
+
+    expect(partial.results).toHaveLength(1);
+    expect(
+      partial.warnings.some(
+        ({ code }) => code === "filters_removed_all_results"
+      )
+    ).toBe(false);
+    expect(empty.results).toEqual([]);
+    expect(
+      empty.warnings.filter(
+        ({ code }) => code === "filters_removed_all_results"
+      )
+    ).toHaveLength(1);
+  });
+
   it("does not lose include-filtered evidence behind the unscoped evidence cap", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");

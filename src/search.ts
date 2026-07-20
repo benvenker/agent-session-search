@@ -169,6 +169,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         ));
     let unscopedEvidenceCapReached = false;
     const backendMetadata: SearchBackendMetadata[] = [];
+    const filterRemovedCount: FilterRemovedCount = emptyFilterRemovedCount();
 
     const sourceSlots = await Promise.all(
       searchedSources.map((source, index) =>
@@ -206,6 +207,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
       unscopedEvidenceCapReached =
         unscopedEvidenceCapReached || slot.unscopedEvidenceCapReached;
+      addFilterRemovedCount(filterRemovedCount, slot.filterRemovedCount);
     }
 
     if (unscopedEvidenceCapReached) {
@@ -235,6 +237,17 @@ export class CoordinatedSessionSearch implements SessionSearch {
           effectiveInput.paths?.includes(result.path)
         )
       : rawResults;
+    if (
+      hasActiveSessionFilters(effectiveInput) &&
+      filteredResults.length === 0 &&
+      totalFilterRemovedCount(filterRemovedCount) > 0
+    ) {
+      warnings.push({
+        code: "filters_removed_all_results",
+        message: "Active session filters removed every eligible result.",
+        recommendedAction: filterRemovalRecommendedAction(filterRemovedCount),
+      });
+    }
     const { results, resultsShape, rankingDebug } = await shapeResults(
       filteredResults,
       effectiveInput,
@@ -271,6 +284,16 @@ export class CoordinatedSessionSearch implements SessionSearch {
         ),
         unscopedEvidenceDefaultCap: isDefaultUnscopedEvidenceCapApplied
           ? DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE
+          : undefined,
+        filters: hasActiveSessionFilters(effectiveInput)
+          ? {
+              ...(effectiveInput.days !== undefined
+                ? { days: effectiveInput.days }
+                : {}),
+              ...(effectiveInput.workspace !== undefined
+                ? { workspace: effectiveInput.workspace }
+                : {}),
+            }
           : undefined,
       }),
       expandedPatterns,
@@ -318,7 +341,14 @@ type SourceSearchSlotResult = {
   results: SearchResult[];
   failed: boolean;
   unscopedEvidenceCapReached: boolean;
+  filterRemovedCount: FilterRemovedCount;
   backend?: SearchBackendMetadata;
+};
+
+type FilterRemovedCount = {
+  days: number;
+  workspace: number;
+  stat_failed: number;
 };
 
 async function searchSourceSlot({
@@ -345,6 +375,7 @@ async function searchSourceSlot({
       results: [],
       failed: false,
       unscopedEvidenceCapReached: false,
+      filterRemovedCount: emptyFilterRemovedCount(),
     };
   }
 
@@ -356,6 +387,7 @@ async function searchSourceSlot({
   let failed = false;
   let unscopedEvidenceCapReached = false;
   let backendMetadata: SearchBackendMetadata | undefined;
+  const filterRemovedCount = emptyFilterRemovedCount();
 
   try {
     backend = await createBackend(source);
@@ -388,6 +420,9 @@ async function searchSourceSlot({
       filteredCanonicalResults,
       sessionFileFilters
     );
+    for (const dropped of sessionFilteredResults.dropped) {
+      filterRemovedCount[dropped.reason] += 1;
+    }
     const sourceResults = maybeCapResults(
       sessionFilteredResults.results,
       shouldDeferCandidateCap ? undefined : requestMaxResultsPerSource
@@ -463,8 +498,46 @@ async function searchSourceSlot({
     results,
     failed,
     unscopedEvidenceCapReached,
+    filterRemovedCount,
     ...(backendMetadata ? { backend: backendMetadata } : {}),
   };
+}
+
+function emptyFilterRemovedCount(): FilterRemovedCount {
+  return { days: 0, workspace: 0, stat_failed: 0 };
+}
+
+function addFilterRemovedCount(
+  total: FilterRemovedCount,
+  addition: FilterRemovedCount
+) {
+  total.days += addition.days;
+  total.workspace += addition.workspace;
+  total.stat_failed += addition.stat_failed;
+}
+
+function totalFilterRemovedCount(count: FilterRemovedCount) {
+  return count.days + count.workspace + count.stat_failed;
+}
+
+function hasActiveSessionFilters(input: SearchSessionsInput) {
+  return input.days !== undefined || input.workspace !== undefined;
+}
+
+function filterRemovalRecommendedAction(count: FilterRemovedCount) {
+  const remedies: string[] = [];
+  if (count.days > 0) {
+    remedies.push("Widen days to include older session files.");
+  }
+  if (count.workspace > 0) {
+    remedies.push(
+      "Verify or widen workspace to include the intended sessions."
+    );
+  }
+  if (count.stat_failed > 0) {
+    remedies.push("Verify session-file readability and mtime availability.");
+  }
+  return remedies.join(" ");
 }
 
 async function canonicalizeSearchResult(
@@ -1726,6 +1799,7 @@ function searchMetadata({
   maxResultsPerSource,
   candidateGroupLeadLimit,
   unscopedEvidenceDefaultCap,
+  filters,
 }: {
   resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
   resultsShape: ResultsShape;
@@ -1734,12 +1808,14 @@ function searchMetadata({
   maxResultsPerSource: number | undefined;
   candidateGroupLeadLimit: number | undefined;
   unscopedEvidenceDefaultCap: number | undefined;
+  filters: SearchSessionsOutput["metadata"]["filters"];
 }): SearchSessionsOutput["metadata"] {
   return {
     contractVersion: "progressive-evidence-groups.v2",
     resultsDisplayMode,
     resultsShape,
     backend: summarizeBackendMetadata(backendMetadata),
+    ...(filters === undefined ? {} : { filters }),
     limits: {
       ...(maxPatterns !== undefined ? { maxPatterns } : {}),
       ...(maxResultsPerSource !== undefined ? { maxResultsPerSource } : {}),
