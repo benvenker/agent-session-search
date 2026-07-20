@@ -4418,6 +4418,65 @@ describe("createSessionSearch", () => {
     ]);
   });
 
+  it("aggregates identical multi_grep_fallback warnings across searched sources", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  code: "multi_grep_fallback",
+                  message:
+                    "Using sequential grep because FFF multi_grep was not promoted: multi_grep_unavailable.",
+                  recommendedAction:
+                    "Sequential grep is authoritative and safe. Upgrade or configure fff-mcp only if you need multi_grep performance diagnostics.",
+                },
+              ],
+              results: [],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      sources: ["codex", "claude"],
+    });
+
+    expect(result.warnings).toEqual([
+      {
+        code: "multi_grep_fallback",
+        message:
+          "multi_grep fallback active for 2 sources: codex, claude. Using sequential grep because FFF multi_grep was not promoted: multi_grep_unavailable.",
+        recommendedAction:
+          "Sequential grep is authoritative and safe. Upgrade or configure fff-mcp only if you need multi_grep performance diagnostics.",
+        sources: ["codex", "claude"],
+      },
+    ]);
+  });
+
   it("warns when requested sources do not select any enabled configured root", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");

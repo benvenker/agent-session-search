@@ -223,6 +223,8 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
     }
 
+    aggregateMultiGrepFallbackWarnings(warnings);
+
     if (unscopedEvidenceCapReached) {
       warnings.push({
         code: "broad_evidence_capped",
@@ -546,6 +548,57 @@ function filterRemovalRecommendedAction(
     remedies.push("Verify session-file readability and mtime availability.");
   }
   return remedies.join(" ");
+}
+
+function aggregateMultiGrepFallbackWarnings(warnings: SearchWarning[]) {
+  const groups = new Map<string, SearchWarning[]>();
+  for (const warning of warnings) {
+    if (
+      warning.code !== "multi_grep_fallback" ||
+      warning.source === undefined
+    ) {
+      continue;
+    }
+    const key = JSON.stringify([
+      warning.message,
+      warning.recommendedAction ?? null,
+    ]);
+    groups.set(key, [...(groups.get(key) ?? []), warning]);
+  }
+
+  const aggregateByWarning = new Map<SearchWarning, SearchWarning>();
+  const removedWarnings = new Set<SearchWarning>();
+  for (const group of groups.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+    const sources = uniqueStrings(group.map((warning) => warning.source!));
+    const first = group[0]!;
+    aggregateByWarning.set(first, {
+      code: "multi_grep_fallback",
+      message: `multi_grep fallback active for ${sources.length} sources: ${sources.join(", ")}. ${first.message}`,
+      ...(first.recommendedAction
+        ? { recommendedAction: first.recommendedAction }
+        : {}),
+      sources,
+    });
+    for (const warning of group.slice(1)) {
+      removedWarnings.add(warning);
+    }
+  }
+
+  if (aggregateByWarning.size === 0) {
+    return;
+  }
+
+  const aggregated = warnings.flatMap((warning) => {
+    const replacement = aggregateByWarning.get(warning);
+    if (replacement) {
+      return [replacement];
+    }
+    return removedWarnings.has(warning) ? [] : [warning];
+  });
+  warnings.splice(0, warnings.length, ...aggregated);
 }
 
 async function workspaceHasAssociatedSession(

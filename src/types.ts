@@ -144,6 +144,7 @@ export type SearchedSource = {
 
 export type SearchWarning = {
   source?: SourceName;
+  sources?: SourceName[];
   root?: string;
   code: SearchWarningCode;
   message: string;
