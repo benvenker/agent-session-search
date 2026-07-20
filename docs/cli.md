@@ -12,6 +12,7 @@ agent-session-search "global search" --source codex --source claude --json
 agent-session-search --json --group-candidates @payload.json
 agent-session-search "auth token timeout" --json --evidence --path /absolute/session.jsonl
 agent-session-search "auth token timeout" --json --candidates --debug
+agent-session-search "auth token timeout" --json --days 7 --workspace /data/projects/agent-session-search
 ```
 
 Without `--json`, search output is a short human summary plus warnings. Use `--json` when you need result records. Candidate mode returns `resultsShape: "candidate_groups"`: ordered match groups with compact leads, counts, `hasMore`, optional `more.groupCandidates` group expansion payloads, and per-candidate `more.evidence` payloads.
@@ -34,6 +35,14 @@ Options:
 | `--path <path>`                        | Restrict evidence to a canonical session path. Repeatable. This does not imply `--evidence`.                    |
 | `--max-patterns <n>`                   | Limit expanded literal patterns.                                                                                |
 | `--max-results <n>`                    | Limit results per source. Alias: `--max-results-per-source`. Must be a positive integer.                        |
+| `--days <n>`                           | Keep sessions inside a rolling mtime window. Must be a positive integer.                                        |
+| `--workspace <path>`                   | Keep sessions associated with one workspace; relative paths resolve against the CLI process cwd.                |
+
+Session filters are deterministic drops applied before result caps, not ranking hints. The days filter computes a rolling mtime window for each invocation and keeps files on or newer than the inclusive cutoff; when `--days` is active, an unstatable session file is dropped. Workspace matching uses physical path containment, an exact dash-encoded segment as an encoded-directory component (never a prefix), or bounded metadata from a recorded `cwd`/`projectRoot` within the workspace. Physical workspace containment and metadata matches include workspace subdirectories. Relative paths resolve against the CLI process cwd, while MCP clients and shims should pass absolute paths. When both flags are present, a session must pass both.
+
+Dash encoding is intentionally lossy: separator punctuation collapses to dashes. Exact segment boundaries prevent sibling and worktree prefix matches, but a residual punctuation collision can still make distinct workspace spellings share an encoded segment. Metadata is the final fallback for eligible text sources, not an unbounded transcript scan.
+
+An empty workspace-filtered search reports `workspace_unknown` when no session under the resolved roots is associated with the checked canonical path. Verify the path in its `recommendedAction` and retry. If the workspace is known but the query or other active filters leave no results, the search instead reports `filters_removed_all_results`.
 
 For group expansion in the CLI, save the exact `more.groupCandidates` object from a candidate group and pass it back unchanged:
 

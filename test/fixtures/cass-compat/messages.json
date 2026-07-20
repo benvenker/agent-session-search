@@ -1,0 +1,18 @@
+{
+  "messages": [
+    {
+      "timestamp": "2026-07-20T04:00:00.000Z",
+      "message": {
+        "role": "user",
+        "content": "Container hello."
+      }
+    },
+    {
+      "timestamp": "2026-07-20T04:01:00.000Z",
+      "message": {
+        "role": "assistant",
+        "content": "Container reply."
+      }
+    }
+  ]
+}

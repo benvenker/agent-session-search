@@ -30,10 +30,12 @@ Native FFF calls are bound to one configured source's canonical root. Managed `i
 - `src/native-server.ts`: opt-in native MCP stdio server exposing `fff_native_capabilities`, `fff_grep`, and `fff_multi_grep` when policy and source health allow.
 - `src/server-lifecycle.ts`: shared MCP process cleanup, stdin EOF, signal, timeout, and child-reaping handlers.
 - `src/search.ts`: fanout coordination, filtering, candidate ranking, result grouping, and response shaping.
+- `src/session-filters.ts`: deterministic days/workspace eligibility predicates, workspace canonicalization, and bounded metadata fallback.
 - `src/tool.ts` and `src/types.ts`: MCP tool input/output contracts and shared types.
 - `src/server.ts`: MCP server entry point.
 - `src/cli.ts` and `src/help.ts`: CLI commands and agent-readable help.
 - `src/fff-preflight.ts`: doctor command and FFF availability checks.
+- `src/cass-shim.ts` and `src/cass-compat/`: optional cm interoperability subprocess adapter over the same live, index-free FFF search path.
 
 ## Behavioral Guardrails
 
@@ -48,6 +50,7 @@ Native FFF calls are bound to one configured source's canonical root. Managed `i
 - Treat Pool as one `pool` source rooted at the shared Pool history directory unless Pool's on-disk storage model changes.
 - Treat Codex archived sessions as part of the single `codex` source rooted at `~/.codex`.
 - Keep ranking scores out of normal candidate output; expose them only through candidate-mode debug responses.
+- Keep Session Filters as deterministic drops before caps and ranking, never ranking signals.
 
 ## Planning And Work Tracking
 

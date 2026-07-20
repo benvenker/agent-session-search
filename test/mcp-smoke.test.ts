@@ -44,6 +44,7 @@ describe("MCP search_sessions smoke path", () => {
         version: packageJson.version,
       });
       const tools = await client.listTools();
+      expect(tools.tools.map(({ name }) => name)).toEqual(["search_sessions"]);
       const tool = tools.tools.find((candidate) => {
         return candidate.name === "search_sessions";
       });
@@ -54,6 +55,9 @@ describe("MCP search_sessions smoke path", () => {
       expect(tool?.description).toContain('resultsShape: "candidate_groups"');
       expect(tool?.description).toContain("more.groupCandidates");
       expect(tool?.description).toContain("more.evidence");
+      expect(tool?.description).toContain("days");
+      expect(tool?.description).toContain("workspace");
+      expect(tool?.description).toContain("absolute workspace paths");
 
       const properties = tool?.inputSchema.properties as
         | Record<string, { description?: string }>
@@ -61,6 +65,10 @@ describe("MCP search_sessions smoke path", () => {
       expect(properties?.query.description).toContain(
         "Concise human-readable recall task"
       );
+      expect(tool?.inputSchema).toMatchObject({
+        type: "object",
+        anyOf: [{ required: ["query"] }, { required: ["groupCandidates"] }],
+      });
       expect(properties?.queries.description).toContain(
         "Short literal search probes"
       );
@@ -77,6 +85,19 @@ describe("MCP search_sessions smoke path", () => {
         "candidates"
       );
       expect(properties?.paths.description).toContain("Restrict evidence");
+      expect(properties?.days.description).toContain("modified within");
+      expect(properties?.workspace.description).toContain(
+        "physical path containment"
+      );
+      expect(properties?.workspace.description).toContain(
+        "exact encoded-directory component"
+      );
+      expect(properties?.workspace.description).toContain("never a prefix");
+      expect(properties?.workspace.description).toContain("cwd/projectRoot");
+      expect(properties?.workspace.description).toContain(
+        "subdirectories are included"
+      );
+      expect(properties?.workspace.description).toContain("absolute path");
     } finally {
       await client.close();
     }
@@ -300,6 +321,26 @@ describe("MCP search_sessions smoke path", () => {
           },
         },
       });
+
+      const conflictingNestedSources = await callSearchSessionsJson(client, {
+        groupCandidates: followup,
+        sources: ["other"],
+      });
+      expect(conflictingNestedSources.output).toMatchObject({ isError: true });
+      expect(conflictingNestedSources.body).toMatchObject({
+        error: {
+          code: "invalid_group_followup",
+          invalidField: "sources",
+          message:
+            "Invalid group follow-up: top-level sources must match groupCandidates.sources from the server-prepared payload.",
+          correctedShape: {
+            groupCandidates: {
+              sources: ["<same source names as the original response>"],
+              resultsDisplayMode: "candidates",
+            },
+          },
+        },
+      });
     } finally {
       await client.close();
     }
@@ -369,7 +410,6 @@ describe("MCP search_sessions smoke path", () => {
       const firstPageLeadPaths = exactGroup.leads.map((lead: any) => lead.path);
 
       const secondPage = await eventuallyCallSearchSessions(client, {
-        query: "auth token timeout",
         groupCandidates: exactGroup.more.groupCandidates,
       });
       expect(secondPage).toMatchObject({

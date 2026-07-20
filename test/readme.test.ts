@@ -64,12 +64,15 @@ describe("README documentation", () => {
   });
 
   it("pins the grouped progressive-evidence docs contract", async () => {
-    const [mcp, cli, troubleshooting, language] = await Promise.all([
-      readFile(join(process.cwd(), "docs/mcp.md"), "utf8"),
-      readFile(join(process.cwd(), "docs/cli.md"), "utf8"),
-      readFile(join(process.cwd(), "docs/troubleshooting.md"), "utf8"),
-      readFile(join(process.cwd(), "UBIQUITOUS_LANGUAGE.md"), "utf8"),
-    ]);
+    const [mcp, cli, troubleshooting, language, design, context] =
+      await Promise.all([
+        readFile(join(process.cwd(), "docs/mcp.md"), "utf8"),
+        readFile(join(process.cwd(), "docs/cli.md"), "utf8"),
+        readFile(join(process.cwd(), "docs/troubleshooting.md"), "utf8"),
+        readFile(join(process.cwd(), "UBIQUITOUS_LANGUAGE.md"), "utf8"),
+        readFile(join(process.cwd(), "DESIGN.md"), "utf8"),
+        readFile(join(process.cwd(), "CONTEXT.md"), "utf8"),
+      ]);
 
     for (const requiredMcpText of [
       'resultsShape": "candidate_groups"',
@@ -79,6 +82,14 @@ describe("README documentation", () => {
       '"groupCandidates": {',
       "more.evidence",
       "same `search_sessions` tool",
+      "`days`",
+      "`workspace`",
+      "filters_removed_all_results",
+      "absolute workspace",
+      "server cwd",
+      "rolling cutoff",
+      "canonical workspace",
+      "AND",
     ]) {
       expect(mcp).toContain(requiredMcpText);
     }
@@ -87,6 +98,20 @@ describe("README documentation", () => {
     expect(cli).toContain("hasMore");
     expect(cli).toContain("more.groupCandidates");
     expect(cli).toContain("stdout stays empty");
+    for (const requiredCliText of [
+      "`--days <n>`",
+      "`--workspace <path>`",
+      "rolling mtime window",
+      "inclusive cutoff",
+      "unstatable",
+      "workspace containment",
+      "exact dash-encoded segment",
+      "bounded metadata",
+      "lossy",
+      "punctuation collision",
+    ]) {
+      expect(cli).toContain(requiredCliText);
+    }
 
     for (const requiredTroubleshootingText of [
       "multi_grep_fallback",
@@ -95,6 +120,9 @@ describe("README documentation", () => {
       "invalid_group_followup",
       "copy `more.groupCandidates` exactly",
       "agent-session-search --json --group-candidates @payload.json",
+      "filters_removed_all_results",
+      "canonical workspace",
+      "widen or remove",
     ]) {
       expect(troubleshooting).toContain(requiredTroubleshootingText);
     }
@@ -103,5 +131,20 @@ describe("README documentation", () => {
     expect(language).toContain("**Match Group**");
     expect(language).toContain("**Group Follow-Up**");
     expect(language).toContain("**Count Relation**");
+    expect(language).toContain("**Session Filter**");
+    expect(language).toContain("**Days Filter**");
+    expect(language).toContain("**Workspace Filter**");
+    expect(language).toContain("**Project Match**");
+    expect(language).toContain("deterministic drop");
+    expect(language).toContain("ranking signal");
+
+    expect(design).toContain("days?: number");
+    expect(design).toContain("workspace?: string");
+    expect(design).toContain("deterministic drops");
+    expect(design).toContain("never ranking signals");
+
+    expect(context).toContain("src/session-filters.ts");
+    expect(context).toContain("deterministic drops");
+    expect(context).toContain("ranking signals");
   });
 });

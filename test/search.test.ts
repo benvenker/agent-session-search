@@ -1,8 +1,15 @@
-import { mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSessionSearch } from "../src/search.js";
+import { canonicalProjectPath, createSessionSearch } from "../src/search.js";
 import { groupCandidates } from "./support/followup.js";
 
 function sleep(ms: number) {
@@ -48,6 +55,63 @@ function candidateLeads(result: { results: any[] }) {
 }
 
 describe("createSessionSearch", () => {
+  it("canonicalizes missing relative project paths to absolute fallbacks", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousCwd = process.cwd();
+    process.chdir(tmp);
+    try {
+      await expect(canonicalProjectPath("project")).resolves.toBe(
+        join(tmp, "project")
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  it("leaves tilde project paths literal when HOME is unset", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousHome = process.env.HOME;
+    const previousCwd = process.cwd();
+    await mkdir(join(tmp, "~", "project"), { recursive: true });
+    process.chdir(tmp);
+    delete process.env.HOME;
+    try {
+      await expect(canonicalProjectPath("~")).resolves.toBe("~");
+      await expect(canonicalProjectPath("~/project")).resolves.toBe(
+        "~/project"
+      );
+      await expect(canonicalProjectPath("~/..")).resolves.toBe("~/..");
+    } finally {
+      process.chdir(previousCwd);
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
+  });
+
+  it("canonicalizes tilde project paths with backslash separators", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const previousHome = process.env.HOME;
+    await mkdir(join(tmp, "project"), { recursive: true });
+    process.env.HOME = tmp;
+    try {
+      await expect(canonicalProjectPath("~\\project")).resolves.toBe(
+        await realpath(join(tmp, "project"))
+      );
+      await expect(canonicalProjectPath("~/project")).resolves.toBe(
+        await realpath(join(tmp, "project"))
+      );
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
+  });
+
   it("returns compact session candidates by default", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -443,12 +507,16 @@ describe("createSessionSearch", () => {
       offset: 6,
       limit: 6,
     });
+    expect(exactGroup.more.groupCandidates).not.toHaveProperty("days");
+    expect(exactGroup.more.groupCandidates).not.toHaveProperty("workspace");
 
     calls.length = 0;
-    await search.searchSessions({
-      query: "auth token timeout",
-      groupCandidates: exactGroup.more.groupCandidates,
-    });
+    await expect(
+      search.searchSessions({
+        query: "auth token timeout",
+        groupCandidates: exactGroup.more.groupCandidates,
+      })
+    ).resolves.toMatchObject({ resultsDisplayMode: "candidates" });
 
     expect(calls).toEqual([
       {
@@ -470,6 +538,186 @@ describe("createSessionSearch", () => {
         },
       },
     ]);
+  });
+
+  it("carries canonical session filters through group candidate replay", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const realWorkspace = join(tmp, "real-workspace");
+    const workspaceAlias = join(tmp, "workspace-alias");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(realWorkspace);
+    await symlink(realWorkspace, workspaceAlias, "dir");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const eligiblePaths = Array.from({ length: 6 }, (_, index) =>
+      join(realWorkspace, `eligible-${index + 1}.jsonl`)
+    );
+    const stalePaths = Array.from({ length: 4 }, (_, index) =>
+      join(realWorkspace, `stale-${index + 1}.jsonl`)
+    );
+    const outsidePaths = Array.from({ length: 4 }, (_, index) =>
+      join(codexRoot, `outside-${index + 1}.jsonl`)
+    );
+    for (const path of [...eligiblePaths, ...stalePaths, ...outsidePaths]) {
+      await writeFile(path, "auth token timeout");
+      await utimes(path, new Date(currentTime), new Date(currentTime));
+    }
+    const staleTime = new Date(currentTime - 90 * 86_400_000);
+    for (const path of stalePaths) {
+      await utimes(path, staleTime, staleTime);
+    }
+    const highDensityResults = (source: any, path: string) =>
+      Array.from({ length: 10 }, (_, index) => ({
+        source: source.name,
+        root: source.root,
+        path,
+        line: index + 1,
+        content: `dense auth token timeout ${index + 1}`,
+        pattern: "auth token timeout",
+      }));
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [],
+              results: [
+                ...stalePaths.flatMap((path) =>
+                  highDensityResults(source, path)
+                ),
+                ...outsidePaths.flatMap((path) =>
+                  highDensityResults(source, path)
+                ),
+                ...eligiblePaths.map((path, index) => ({
+                  source: source.name,
+                  root: source.root,
+                  path,
+                  line: index + 1,
+                  content: `eligible auth token timeout ${index + 1}`,
+                  pattern: "auth token timeout",
+                })),
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxResultsPerSource: 2,
+      days: 30,
+      workspace: workspaceAlias,
+    });
+    const firstGroup = firstPage.results[0] as any;
+    const followup = firstGroup.more.groupCandidates;
+
+    expect(followup).toMatchObject({
+      days: 30,
+      workspace: workspaceAlias,
+      offset: 2,
+      limit: 2,
+    });
+    for (const lead of firstGroup.leads) {
+      expect(lead.more.evidence).not.toHaveProperty("days");
+      expect(lead.more.evidence).not.toHaveProperty("workspace");
+    }
+
+    const replay = await search.searchSessions({
+      query: "ignored in favor of server state",
+      groupCandidates: followup,
+    });
+    const replayGroup = replay.results[0] as any;
+
+    expect(replayGroup.leads.map(({ path }: any) => path)).toEqual(
+      eligiblePaths.slice(2, 4)
+    );
+    expect(replayGroup.more.groupCandidates).toMatchObject({
+      days: 30,
+      workspace: workspaceAlias,
+      offset: 4,
+      limit: 2,
+    });
+  });
+
+  it("preserves symlink-alias encoded workspace matches during group replay", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const realWorkspace = join(tmp, "real-workspace");
+    const workspaceAlias = join(tmp, "workspace-alias");
+    const aliasEncodedRoot = join(
+      codexRoot,
+      workspaceAlias.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(realWorkspace);
+    await symlink(realWorkspace, workspaceAlias, "dir");
+    await mkdir(aliasEncodedRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const sessionPaths = Array.from({ length: 4 }, (_, index) =>
+      join(aliasEncodedRoot, `session-${index + 1}.jsonl`)
+    );
+    for (const path of sessionPaths) {
+      await writeFile(path, "auth token timeout");
+    }
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [],
+              results: sessionPaths.map((path, index) => ({
+                source: source.name,
+                root: source.root,
+                path,
+                line: index + 1,
+                content: `auth token timeout ${index + 1}`,
+                pattern: "auth token timeout",
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxResultsPerSource: 2,
+      workspace: workspaceAlias,
+    });
+    const firstGroup = firstPage.results[0] as any;
+    const firstPagePaths = firstGroup.leads.map(({ path }: any) => path);
+    expect(firstPagePaths).toHaveLength(2);
+    expect(firstGroup.more.groupCandidates.workspace).toBe(workspaceAlias);
+    expect(firstPage.metadata.filters).toEqual({ workspace: realWorkspace });
+
+    const replay = await search.searchSessions({
+      query: "ignored in favor of server state",
+      groupCandidates: firstGroup.more.groupCandidates,
+    });
+    const replayGroup = replay.results[0] as any;
+    const replayPaths = replayGroup.leads.map(({ path }: any) => path);
+    expect(replayPaths).toHaveLength(2);
+    expect([...firstPagePaths, ...replayPaths].sort()).toEqual(
+      sessionPaths.sort()
+    );
+    expect(replay.metadata.filters).toEqual({ workspace: realWorkspace });
   });
 
   it("rejects group follow-ups when the resolved source plan changes", async () => {
@@ -1296,6 +1544,63 @@ describe("createSessionSearch", () => {
       expect(candidate).not.toHaveProperty("score");
       expect(candidate).not.toHaveProperty("project");
       expect(candidate).not.toHaveProperty("ranking");
+    }
+  });
+
+  it("uses absolute project-path fallbacks for missing relative paths in ranking", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: codexRoot }],
+      })
+    );
+
+    const previousCwd = process.cwd();
+    process.chdir(codexRoot);
+    try {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path: join(source.root, "project", "session.jsonl"),
+                    line: 1,
+                    content: "missing relative project path",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "candidates",
+        debug: true,
+        operationalContext: { cwd: "project" },
+      });
+      const canonicalCodexRoot = await realpath(codexRoot);
+
+      expect(result.debug?.ranking?.candidates[0]).toMatchObject({
+        path: join(canonicalCodexRoot, "project", "session.jsonl"),
+        projectMatch: "path",
+        projectPoints: 2,
+      });
+    } finally {
+      process.chdir(previousCwd);
     }
   });
 
@@ -2540,6 +2845,890 @@ describe("createSessionSearch", () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it("defers backend cap before active filters so a later eligible hit survives", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(codexRoot, "eligible-workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const ineligiblePath = join(codexRoot, "other-workspace.jsonl");
+    const eligiblePath = join(workspace, "eligible.jsonl");
+    await writeFile(ineligiblePath, "old");
+    await writeFile(eligiblePath, "eligible");
+
+    const calls: Array<{ maxResults?: number }> = [];
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            calls.push(input);
+            const results = [
+              {
+                source: source.name,
+                root: source.root,
+                path: ineligiblePath,
+                line: 1,
+                content: "ineligible auth token timeout",
+                pattern: input.patterns[0],
+              },
+              {
+                source: source.name,
+                root: source.root,
+                path: eligiblePath,
+                line: 2,
+                content: "eligible auth token timeout",
+                pattern: input.patterns[0],
+              },
+            ];
+            return {
+              warnings: [],
+              results:
+                input.maxResults === undefined
+                  ? results
+                  : results.slice(0, input.maxResults),
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      maxResultsPerSource: 1,
+      workspace,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxResults).toBeUndefined();
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({ path: eligiblePath });
+  });
+
+  it("applies days in evidence and candidates while preserving the filter-less control", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const oldPath = join(codexRoot, "old.jsonl");
+    const missingPath = join(codexRoot, "missing.jsonl");
+    await writeFile(oldPath, "old auth token timeout");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [oldPath, missingPath].map((path, index) => ({
+                source: source.name,
+                root: source.root,
+                path,
+                line: index + 1,
+                content: `match ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const control = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+    });
+    const evidence = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      days: 30,
+    });
+    const candidates = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      days: 30,
+    });
+
+    expect(control.results).toHaveLength(2);
+    expect(evidence.results).toEqual([]);
+    expect(candidateLeads(candidates)).toEqual([]);
+  });
+
+  it("samples the cutoff clock once and shares the inclusive boundary across sources", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+    const currentTime = Date.now();
+    const cutoff = currentTime - 86_400_000;
+    const boundaryPath = join(codexRoot, "boundary.jsonl");
+    const beforePath = join(claudeRoot, "before.jsonl");
+    await writeFile(boundaryPath, "boundary");
+    await writeFile(beforePath, "before");
+    await utimes(boundaryPath, new Date(cutoff), new Date(cutoff));
+    await utimes(beforePath, new Date(cutoff - 1), new Date(cutoff - 1));
+    let nowCalls = 0;
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => {
+        nowCalls += 1;
+        return currentTime;
+      },
+      createBackend(source) {
+        return {
+          async search(input) {
+            const path = source.name === "codex" ? boundaryPath : beforePath;
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      sources: ["codex", "claude"],
+      days: 1,
+    });
+
+    expect(nowCalls).toBe(1);
+    expect(result.results.map((entry) => entry.path)).toEqual([boundaryPath]);
+  });
+
+  it("workspace matches direct encoded and metadata lanes without sibling prefixes", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const encoded = workspace.replace(/[^a-zA-Z0-9]/g, "-");
+    const paths = {
+      direct: join(workspace, "direct.jsonl"),
+      claude: join(codexRoot, "claude", encoded, "claude.jsonl"),
+      ompWrapped: join(codexRoot, "omp-wrapped", `-${encoded}-`, "omp.jsonl"),
+      ompBare: join(codexRoot, "omp-bare", encoded, "omp.jsonl"),
+      metadata: join(codexRoot, "metadata", "metadata.jsonl"),
+      sibling: join(codexRoot, "claude", `${encoded}-extra`, "sibling.jsonl"),
+    };
+    for (const path of Object.values(paths)) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        path === paths.metadata ? `${JSON.stringify({ cwd: workspace })}\n` : ""
+      );
+    }
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: Object.values(paths).map((path, index) => ({
+                source: source.name,
+                root: source.root,
+                path,
+                line: index + 1,
+                content: `match ${index + 1}`,
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace,
+    });
+
+    expect(result.results.map((entry) => entry.path)).toEqual([
+      paths.direct,
+      paths.claude,
+      paths.ompWrapped,
+      paths.ompBare,
+      paths.metadata,
+    ]);
+  });
+
+  it("combined days and workspace preserve survivor ranking neutrality", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const currentTime = Date.now();
+    const paths = {
+      newest: join(workspace, "newest.jsonl"),
+      recent: join(workspace, "recent.jsonl"),
+      stale: join(workspace, "stale.jsonl"),
+      external: join(codexRoot, "external.jsonl"),
+    };
+    for (const path of Object.values(paths)) {
+      await writeFile(path, "auth token timeout");
+    }
+    await utimes(paths.newest, new Date(currentTime), new Date(currentTime));
+    await utimes(
+      paths.recent,
+      new Date(currentTime - 3 * 86_400_000),
+      new Date(currentTime - 3 * 86_400_000)
+    );
+    await utimes(
+      paths.stale,
+      new Date(currentTime - 90 * 86_400_000),
+      new Date(currentTime - 90 * 86_400_000)
+    );
+    await utimes(paths.external, new Date(currentTime), new Date(currentTime));
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: Object.values(paths).map((path, index) => ({
+                source: source.name,
+                root: source.root,
+                path,
+                line: index + 1,
+                content: "auth token timeout",
+                pattern: input.patterns[0],
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const control = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      debug: true,
+    });
+    const filtered = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      debug: true,
+      days: 30,
+      workspace,
+    });
+    const expectedSurvivorOrder =
+      control.debug?.ranking?.candidates
+        .map(({ path }) => path)
+        .filter((path) => path === paths.newest || path === paths.recent) ?? [];
+
+    expect(filtered.debug?.ranking?.candidates.map(({ path }) => path)).toEqual(
+      expectedSurvivorOrder
+    );
+    for (const entry of filtered.debug?.ranking?.candidates ?? []) {
+      expect(entry).not.toHaveProperty("days");
+      expect(entry).not.toHaveProperty("workspace");
+      expect(entry).not.toHaveProperty("filters");
+      expect(entry).not.toHaveProperty("cutoff");
+    }
+  });
+
+  it("preserves partial source success alongside workspace-filtered survivors", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const workspace = join(codexRoot, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+    const eligiblePath = join(workspace, "eligible.jsonl");
+    await writeFile(eligiblePath, "auth token timeout");
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            if (source.name === "claude") {
+              throw new Error("claude backend unavailable");
+            }
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: eligiblePath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      sources: ["codex", "claude"],
+      workspace,
+    });
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({ path: eligiblePath });
+    expect(result.searchedSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "codex", status: "ok" }),
+        expect.objectContaining({ name: "claude", status: "failed" }),
+      ])
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "claude",
+          code: "source_search_failed",
+        }),
+      ])
+    );
+  });
+
+  it("warns once when active filters remove every eligible result", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: tmp }] })
+    );
+    const currentTime = Date.now();
+    const oldPath = join(workspace, "old.jsonl");
+    await writeFile(oldPath, "auth token timeout");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      now: () => currentTime,
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: oldPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      days: 30,
+      workspace,
+    });
+    const filterWarnings = result.warnings.filter(
+      ({ code }) => code === "filters_removed_all_results"
+    );
+
+    expect(result.results).toEqual([]);
+    expect(filterWarnings).toHaveLength(1);
+    expect(result.metadata.filters).toEqual({ days: 30, workspace });
+  });
+
+  it("filters_removed_all_results recommends the observed days workspace and stat remedies", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: tmp }] })
+    );
+    const currentTime = Date.now();
+    const oldPath = join(codexRoot, "old.jsonl");
+    const outsidePath = join(codexRoot, "outside.jsonl");
+    const missingPath = join(codexRoot, "missing.jsonl");
+    const workspaceSessionPath = join(workspace, "known.jsonl");
+    await writeFile(oldPath, "old");
+    await writeFile(outsidePath, "outside");
+    await writeFile(workspaceSessionPath, "known workspace session");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+
+    const run = async (
+      path: string,
+      filters: { days?: number; workspace?: string }
+    ) => {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path,
+                    line: 1,
+                    content: "auth token timeout",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+      const result = await search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "evidence",
+        ...filters,
+      });
+      return result.warnings.filter(
+        ({ code }) => code === "filters_removed_all_results"
+      );
+    };
+
+    const daysWarnings = await run(oldPath, { days: 30 });
+    const workspaceWarnings = await run(outsidePath, { workspace });
+    const statWarnings = await run(missingPath, { days: 30 });
+
+    expect(daysWarnings).toHaveLength(1);
+    expect(daysWarnings[0]?.recommendedAction).toBe(
+      "Widen days to include older session files."
+    );
+    expect(workspaceWarnings).toHaveLength(1);
+    expect(workspaceWarnings[0]?.recommendedAction).toBe(
+      "Verify or widen workspace to include the intended sessions."
+    );
+    expect(statWarnings).toHaveLength(1);
+    expect(statWarnings[0]?.recommendedAction).toBe(
+      "Verify session-file readability and mtime availability."
+    );
+  });
+
+  it("filter metadata and empty warnings stay absent for negative controls", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const configPath = join(tmp, "config.json");
+    const includeConfigPath = join(tmp, "include-config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    await writeFile(
+      includeConfigPath,
+      JSON.stringify({
+        roots: [
+          {
+            name: "codex",
+            path: codexRoot,
+            include: ["sessions/*.jsonl"],
+          },
+        ],
+      })
+    );
+    const currentTime = Date.now();
+    const recentPath = join(codexRoot, "recent.jsonl");
+    const oldPath = join(codexRoot, "old.jsonl");
+    const excludedPath = join(codexRoot, "logs", "excluded.jsonl");
+    await mkdir(dirname(excludedPath), { recursive: true });
+    await writeFile(recentPath, "recent");
+    await writeFile(oldPath, "old");
+    await writeFile(excludedPath, "excluded");
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(oldPath, oldTime, oldTime);
+
+    const createSearch = (
+      paths: string[],
+      options: { config?: string; fail?: boolean } = {}
+    ) =>
+      createSessionSearch({
+        configPath: options.config ?? configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              if (options.fail) throw new Error("backend unavailable");
+              return {
+                warnings: [],
+                results: paths.map((path, index) => ({
+                  source: source.name,
+                  root: source.root,
+                  path,
+                  line: index + 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                })),
+              };
+            },
+          };
+        },
+      });
+    const searchInput = {
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence" as const,
+    };
+
+    const lexicalZero = await createSearch([]).searchSessions({
+      ...searchInput,
+      days: 30,
+    });
+    const sourceFailure = await createSearch([], { fail: true }).searchSessions(
+      {
+        ...searchInput,
+        days: 30,
+      }
+    );
+    const includeOnly = await createSearch([excludedPath], {
+      config: includeConfigPath,
+    }).searchSessions({ ...searchInput, days: 30 });
+    const partial = await createSearch([oldPath, recentPath]).searchSessions({
+      ...searchInput,
+      days: 30,
+    });
+    const filterless = await createSearch([]).searchSessions(searchInput);
+
+    for (const result of [
+      lexicalZero,
+      sourceFailure,
+      includeOnly,
+      partial,
+      filterless,
+    ]) {
+      expect(
+        result.warnings.some(
+          ({ code }) => code === "filters_removed_all_results"
+        )
+      ).toBe(false);
+    }
+    expect(partial.results).toHaveLength(1);
+    expect(filterless.metadata).not.toHaveProperty("filters");
+  });
+
+  it("warns workspace_unknown for a nonexistent workspace", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const nonexistentWorkspace = join(tmp, "missing-workspace");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const hitPath = join(codexRoot, "hit.jsonl");
+    await writeFile(hitPath, "auth token timeout");
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: hitPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const pending = search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace: nonexistentWorkspace,
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      results: [],
+      metadata: { filters: { workspace: nonexistentWorkspace } },
+    });
+    const result = await pending;
+    expect(result.warnings).toContainEqual({
+      code: "workspace_unknown",
+      message: `No session files are associated with workspace ${nonexistentWorkspace}.`,
+      recommendedAction: `Verify the workspace path ${nonexistentWorkspace} and retry.`,
+    });
+    expect(
+      result.warnings.some(({ code }) => code === "filters_removed_all_results")
+    ).toBe(false);
+  });
+
+  it("keeps filters_removed_all_results for a known workspace whose query misses", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const workspace = join(tmp, "known-workspace");
+    const encodedRoot = join(
+      codexRoot,
+      workspace.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(workspace);
+    await mkdir(encodedRoot);
+    await writeFile(join(encodedRoot, "session.jsonl"), "different query");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend() {
+        return {
+          async search() {
+            return { warnings: [], results: [] };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace,
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.warnings.map(({ code }) => code)).toContain(
+      "filters_removed_all_results"
+    );
+    expect(result.warnings.map(({ code }) => code)).not.toContain(
+      "workspace_unknown"
+    );
+  });
+
+  it("warns workspace_unknown for a truncated sibling workspace path", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const knownWorkspace = join(tmp, "themodern");
+    const truncatedSibling = join(tmp, "themoderns");
+    const encodedRoot = join(
+      codexRoot,
+      knownWorkspace.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const sessionPath = join(encodedRoot, "session.jsonl");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(knownWorkspace);
+    await mkdir(encodedRoot);
+    await writeFile(sessionPath, "auth token timeout");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search(input) {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: sessionPath,
+                  line: 1,
+                  content: "auth token timeout",
+                  pattern: input.patterns[0],
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "evidence",
+      workspace: truncatedSibling,
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toContainEqual({
+      code: "workspace_unknown",
+      message: `No session files are associated with workspace ${truncatedSibling}.`,
+      recommendedAction: `Verify the workspace path ${truncatedSibling} and retry.`,
+    });
+  });
+
+  it("filters_removed_all_results aggregates mixed sources into at most one warning", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+    const currentTime = Date.now();
+    const codexOld = join(codexRoot, "old.jsonl");
+    const claudeOld = join(claudeRoot, "old.jsonl");
+    const claudeFresh = join(claudeRoot, "fresh.jsonl");
+    for (const path of [codexOld, claudeOld, claudeFresh]) {
+      await writeFile(path, "auth token timeout");
+    }
+    const oldTime = new Date(currentTime - 90 * 86_400_000);
+    await utimes(codexOld, oldTime, oldTime);
+    await utimes(claudeOld, oldTime, oldTime);
+
+    const run = async (claudePath: string) => {
+      const search = createSessionSearch({
+        configPath,
+        defaultRoots: [],
+        now: () => currentTime,
+        createBackend(source) {
+          return {
+            async search(input) {
+              const path = source.name === "codex" ? codexOld : claudePath;
+              return {
+                warnings: [],
+                results: [
+                  {
+                    source: source.name,
+                    root: source.root,
+                    path,
+                    line: 1,
+                    content: "auth token timeout",
+                    pattern: input.patterns[0],
+                  },
+                ],
+              };
+            },
+          };
+        },
+      });
+      return search.searchSessions({
+        query: "auth token timeout",
+        resultsDisplayMode: "evidence",
+        sources: ["codex", "claude"],
+        days: 30,
+      });
+    };
+
+    const partial = await run(claudeFresh);
+    const empty = await run(claudeOld);
+
+    expect(partial.results).toHaveLength(1);
+    expect(
+      partial.warnings.some(
+        ({ code }) => code === "filters_removed_all_results"
+      )
+    ).toBe(false);
+    expect(empty.results).toEqual([]);
+    expect(
+      empty.warnings.filter(
+        ({ code }) => code === "filters_removed_all_results"
+      )
+    ).toHaveLength(1);
+  });
+
   it("does not lose include-filtered evidence behind the unscoped evidence cap", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
     const codexRoot = join(tmp, "codex");
@@ -3225,6 +4414,65 @@ describe("createSessionSearch", () => {
         root: canonicalClaudeRoot,
         code: "claude_warning",
         message: "claude warning",
+      },
+    ]);
+  });
+
+  it("aggregates identical multi_grep_fallback warnings across searched sources", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const claudeRoot = join(tmp, "claude");
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(claudeRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [
+          { name: "codex", path: codexRoot },
+          { name: "claude", path: claudeRoot },
+        ],
+      })
+    );
+
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  code: "multi_grep_fallback",
+                  message:
+                    "Using sequential grep because FFF multi_grep was not promoted: multi_grep_unavailable.",
+                  recommendedAction:
+                    "Sequential grep is authoritative and safe. Upgrade or configure fff-mcp only if you need multi_grep performance diagnostics.",
+                },
+              ],
+              results: [],
+            };
+          },
+        };
+      },
+    });
+
+    const result = await search.searchSessions({
+      query: "auth token timeout",
+      sources: ["codex", "claude"],
+    });
+
+    expect(result.warnings).toEqual([
+      {
+        code: "multi_grep_fallback",
+        message:
+          "multi_grep fallback active for 2 sources: codex, claude. Using sequential grep because FFF multi_grep was not promoted: multi_grep_unavailable.",
+        recommendedAction:
+          "Sequential grep is authoritative and safe. Upgrade or configure fff-mcp only if you need multi_grep performance diagnostics.",
+        sources: ["codex", "claude"],
       },
     ]);
   });

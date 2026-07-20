@@ -20,6 +20,8 @@ import {
 } from "../src/fff-runtime.js";
 
 const execFileAsync = promisify(execFile);
+const fakeCassShimHealthScript =
+  '#!/bin/sh\nprintf \'{"status":"ok","healthy":true,"shim":{"name":"agent-session-search-cass-shim","version":"0.7.1","engine":"fff-live"}}\\n\'\n';
 
 describe("FFF preflight command", () => {
   it("prints help from standard help requests", async () => {
@@ -248,6 +250,222 @@ describe("FFF preflight command", () => {
       { id: "recall_equivalence", status: "skipped" },
     ]);
     expect(result.stdout).not.toContain("FFF MCP preflight passed.");
+  }, 60_000);
+
+  it("reports cass shim status in JSON mode", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-json-shim-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    const fakeShim = join(fakeBin, "agent-session-search-cass-shim");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await writeFile(fakeShim, fakeCassShimHealthScript);
+    await chmod(fakeFffMcp, 0o755);
+    await chmod(fakeShim, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--json", "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          PATH: fakeBin,
+          CASS_PATH: fakeShim,
+        }),
+      }
+    );
+
+    expect(result.stderr).toBe("");
+    expect(parseJsonObject(result.stdout)).toMatchObject({
+      ok: true,
+      cassShim: {
+        identity: {
+          name: "agent-session-search-cass-shim",
+          version: "0.7.1",
+          engine: "fff-live",
+        },
+        bin: {
+          present: true,
+          path: fakeShim,
+        },
+        activation: {
+          active: true,
+          source: "CASS_PATH",
+          path: fakeShim,
+          pointsAtShim: true,
+        },
+      },
+    });
+  }, 60_000);
+
+  it("reports cassPath activation from cm config in JSON mode", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-json-casspath-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeHome = join(fakePath, "home");
+    const fakeCmConfigDir = join(fakeHome, ".cass-memory");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    const fakeShim = join(fakeBin, "agent-session-search-cass-shim");
+    await mkdir(fakeBin);
+    await mkdir(fakeCmConfigDir, { recursive: true });
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await writeFile(fakeShim, fakeCassShimHealthScript);
+    await writeFile(
+      join(fakeCmConfigDir, "config.json"),
+      JSON.stringify({ cassPath: fakeShim })
+    );
+    await chmod(fakeFffMcp, 0o755);
+    await chmod(fakeShim, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--json", "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          HOME: fakeHome,
+          PATH: fakeBin,
+        }),
+      }
+    );
+
+    expect(result.stderr).toBe("");
+    expect(parseJsonObject(result.stdout)).toMatchObject({
+      ok: true,
+      cassShim: {
+        activation: {
+          active: true,
+          source: "cassPath",
+          path: fakeShim,
+          pointsAtShim: true,
+        },
+      },
+    });
+  }, 60_000);
+
+  it("prints cass shim status in human mode", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-human-shim-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    const fakeShim = join(fakeBin, "agent-session-search-cass-shim");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await writeFile(fakeShim, fakeCassShimHealthScript);
+    await chmod(fakeFffMcp, 0o755);
+    await chmod(fakeShim, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          PATH: fakeBin,
+          CASS_PATH: fakeShim,
+        }),
+      }
+    );
+
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain(
+      "cass shim: agent-session-search-cass-shim 0.7.1 (fff-live); bin present at "
+    );
+    expect(result.stdout).toContain(
+      "; active via CASS_PATH; target points at shim"
+    );
+  }, 60_000);
+
+  it("reports an absolute configured shim target active without PATH shim bin", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-absolute-shim-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeDist = join(fakePath, "dist");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    const fakeShim = join(fakeDist, "cass-shim.js");
+    await mkdir(fakeBin);
+    await mkdir(fakeDist);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await writeFile(fakeShim, fakeCassShimHealthScript);
+    await chmod(fakeFffMcp, 0o755);
+    await chmod(fakeShim, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--json", "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          PATH: fakeBin,
+          CASS_PATH: fakeShim,
+        }),
+      }
+    );
+
+    expect(result.stderr).toBe("");
+    expect(parseJsonObject(result.stdout)).toMatchObject({
+      ok: true,
+      cassShim: {
+        bin: {
+          present: false,
+          path: null,
+        },
+        activation: {
+          active: true,
+          source: "CASS_PATH",
+          path: fakeShim,
+          pointsAtShim: true,
+        },
+      },
+    });
+  }, 60_000);
+
+  it("does not report fake configured executable output as an active shim", async () => {
+    const fakePath = await mkdtemp(
+      join(tmpdir(), "agent-session-search-fff-fake-shim-")
+    );
+    const fakeBin = join(fakePath, "bin");
+    const fakeFffMcp = join(fakeBin, "fff-mcp");
+    const fakeShim = join(fakeBin, "agent-session-search-cass-shim");
+    await mkdir(fakeBin);
+    await writeFile(fakeFffMcp, "#!/bin/sh\nprintf 'fff-mcp 9.9.9-test\\n'\n");
+    await writeFile(fakeShim, "#!/bin/sh\nprintf 'shim\\n'\n");
+    await chmod(fakeFffMcp, 0o755);
+    await chmod(fakeShim, 0o755);
+
+    const result = await execFileAsync(
+      process.execPath,
+      [...preflightSourceArgs(), "--json", "--skip-smoke"],
+      {
+        cwd: process.cwd(),
+        env: sourceProcessEnv({
+          PATH: fakeBin,
+          CASS_PATH: fakeShim,
+        }),
+      }
+    );
+
+    expect(result.stderr).toBe("");
+    expect(parseJsonObject(result.stdout)).toMatchObject({
+      ok: true,
+      cassShim: {
+        bin: {
+          present: true,
+          path: fakeShim,
+        },
+        activation: {
+          active: false,
+          source: "CASS_PATH",
+          path: fakeShim,
+          pointsAtShim: false,
+        },
+      },
+    });
   }, 60_000);
 
   it("includes configured source diagnostics and missing root warnings in JSON mode", async () => {
@@ -1100,6 +1318,7 @@ describe("FFF preflight command", () => {
         suggestedCommand: "agent-session-search-doctor help",
       },
       checks: [],
+      cassShim: null,
       sourceDiagnostics: null,
       orphans: null,
       exitCode: 1,
@@ -1225,6 +1444,7 @@ describe("FFF preflight command", () => {
           message: "injected unexpected failure",
         },
         checks: [],
+        cassShim: null,
         sourceDiagnostics: null,
         orphans: null,
         exitCode: 4,

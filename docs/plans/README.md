@@ -8,6 +8,10 @@ Every plan carries a `status` field in its frontmatter: `open` (accepted, not ye
 
 | Plan                                           | Status     | Notes                                                                                              |
 | ---------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| 2026-07-20-002 Days/workspace filters          | completed  | cm-decoupling; plan-council synthesis (canonical); shipped 2026-07-20 ahead of the cass shim       |
+| 2026-07-20-001 Days/workspace filters          | superseded | Council input draft; replaced by -002 synthesis                                                    |
+| 2026-07-20-002 cass-compat shim                | completed  | cm-decoupling; plan-council synthesis (canonical); shipped 2026-07-20 atop the -002 filters plan   |
+| 2026-07-20-001 cass-compat shim                | superseded | Council input draft; replaced by -002 synthesis                                                    |
 | 2026-07-18-001 Code Mode R12 gate              | open       | Shipped tool declined; docs-only recipe + revisit protocol; U1–U4 await an implementation worktree |
 | 2026-07-16-002 FFF two-lane architecture       | completed  | Shipped in v0.7.0; Code Mode/SDK deferred per R12                                                  |
 | 2026-07-16-001 FFF two-lane architecture       | superseded | Replaced by -002                                                                                   |

@@ -45,6 +45,8 @@ type ParsedArgs = {
   paths: string[];
   maxPatterns?: number;
   maxResultsPerSource?: number;
+  days?: number;
+  workspace?: string;
   debug: boolean;
 };
 
@@ -84,6 +86,8 @@ const KNOWN_OPTIONS = [
   "--max-patterns",
   "--max-results",
   "--max-results-per-source",
+  "--days",
+  "--workspace",
   "--robot-triage",
   "--help",
   "--version",
@@ -117,6 +121,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let resultsDisplayMode: ResultsDisplayMode | undefined;
   let maxPatterns: number | undefined;
   let maxResultsPerSource: number | undefined;
+  let days: number | undefined;
+  let workspace: string | undefined;
   let debug = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -230,6 +236,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--days") {
+      days = parsePositiveInteger(argv[index + 1], arg, argv);
+      index += 1;
+      continue;
+    }
+    if (arg === "--workspace") {
+      workspace = argv[index + 1];
+      if (!workspace) {
+        throw inputError("--workspace requires a value");
+      }
+      index += 1;
+      continue;
+    }
     if (arg.startsWith("--")) {
       throw unknownOptionError(arg, argv);
     }
@@ -263,6 +282,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       paths,
       maxPatterns,
       maxResultsPerSource,
+      days,
+      workspace,
     });
     if (mixedFlags.length > 0) {
       throw inputError(
@@ -300,6 +321,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     paths,
     maxPatterns,
     maxResultsPerSource,
+    days,
+    workspace,
     debug,
   };
 }
@@ -397,6 +420,8 @@ function groupCandidatesMixedFlags({
   paths,
   maxPatterns,
   maxResultsPerSource,
+  days,
+  workspace,
 }: {
   queries: string[];
   operationalContext: ParsedArgs["operationalContext"];
@@ -405,6 +430,8 @@ function groupCandidatesMixedFlags({
   paths: string[];
   maxPatterns?: number;
   maxResultsPerSource?: number;
+  days?: number;
+  workspace?: string;
 }) {
   const flags: string[] = [];
   if (queries.length > 0) {
@@ -427,6 +454,12 @@ function groupCandidatesMixedFlags({
   }
   if (maxResultsPerSource !== undefined) {
     flags.push("--max-results");
+  }
+  if (days !== undefined) {
+    flags.push("--days");
+  }
+  if (workspace !== undefined) {
+    flags.push("--workspace");
   }
   return flags;
 }
@@ -560,6 +593,8 @@ export function searchInputFromParsedArgs(
     paths: args.paths.length > 0 ? args.paths : undefined,
     maxPatterns: args.maxPatterns,
     maxResultsPerSource: args.maxResultsPerSource,
+    days: args.days,
+    workspace: args.workspace,
     debug: args.debug || undefined,
   };
 }
@@ -706,7 +741,11 @@ function suggestResultsDisplayMode(
   return best && best.distance <= 2 ? best.mode : undefined;
 }
 
-function parsePositiveInteger(value: string | undefined, option: string) {
+function parsePositiveInteger(
+  value: string | undefined,
+  option: string,
+  argv?: string[]
+) {
   if (!value) {
     throw inputError(`${option} requires a value`);
   }
@@ -714,7 +753,31 @@ function parsePositiveInteger(value: string | undefined, option: string) {
   if (Number.isInteger(parsed) && parsed > 0) {
     return parsed;
   }
+  if (option === "--days" && argv) {
+    const suggestedValue = "7";
+    return throwInvalidDays(value, argv, suggestedValue);
+  }
   throw inputError(`${option} must be a positive integer`);
+}
+
+function throwInvalidDays(
+  value: string,
+  argv: string[],
+  suggestedValue: string
+): never {
+  const optionIndex = argv.indexOf("--days");
+  const correctedArgs = [...argv];
+  correctedArgs[optionIndex + 1] = suggestedValue;
+  throw new CliParseError(
+    `--days must be a positive integer; received ${JSON.stringify(value)}`,
+    {
+      unknownOption: value,
+      suggestedOption: suggestedValue,
+      suggestedCommand: ["agent-session-search", ...correctedArgs]
+        .map(shellQuote)
+        .join(" "),
+    }
+  );
 }
 
 if (isEntrypoint(import.meta.url, process.argv[1])) {

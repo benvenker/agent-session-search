@@ -83,6 +83,10 @@ The managed server is the default and still lists exactly one tool. Advanced age
 
 The native server exposes `fff_native_capabilities` plus approved tools such as `fff_grep` and `fff_multi_grep`. Every native call requires `source`. Native calls inspect the selected canonical root, return raw FFF presentation text, and do not enforce managed `include` filters. Config or FFF schema changes require restarting the native server.
 
+### Optional cm interoperability
+
+The package also ships `agent-session-search-cass-shim`, an optional subprocess adapter for pinned cm/cass compatibility. It searches live through the same index-free engine and does not add an MCP tool or server; the managed MCP surface remains exactly `search_sessions`. See the [cass shim reference](docs/cass-shim.md) for supported verbs, activation, diagnostics, caveats, and rollback.
+
 Call the MCP tool:
 
 ```json
@@ -238,6 +242,7 @@ Add a custom text transcript root without re-declaring the built-ins:
 - [CLI reference](docs/cli.md)
 - [MCP tool contract](docs/mcp.md)
 - [Native MCP opt-in](docs/native-mcp.md)
+- [Optional cass shim for cm interoperability](docs/cass-shim.md)
 - [Configuration](docs/configuration.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Release process](docs/maintainers/release.md)

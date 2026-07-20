@@ -28,7 +28,8 @@ import {
   type GroupCandidatesFingerprintPayload,
 } from "./followup.js";
 import { SearchSessionsInputError } from "./tool.js";
-import { open, realpath, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { open, readdir, realpath, stat } from "node:fs/promises";
 import {
   OneRootFffBackend,
   type CreateFffMcpClientOptions,
@@ -46,7 +47,22 @@ import {
   type SessionRootConfig,
 } from "./roots.js";
 import { planQueryPatterns } from "./query-rewriter.js";
-import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
+import {
+  applySessionFileFilters,
+  prepareSessionFileFilters,
+  resultIsAssociatedWithWorkspace,
+  type PreparedSessionFileFilters,
+  type SessionFileFilterDropReason,
+} from "./session-filters.js";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  resolve,
+  sep,
+} from "node:path";
 
 export type SessionSearchBackendInput = {
   patterns: string[];
@@ -82,7 +98,25 @@ export class CoordinatedSessionSearch implements SessionSearch {
   async searchSessions(
     input: SearchSessionsInput
   ): Promise<SearchSessionsOutput> {
-    const effectiveInput = effectiveSearchInput(input);
+    const replayNormalizedInput = effectiveSearchInput(input);
+    const sessionFileFilters = await prepareSessionFileFilters(
+      {
+        days: replayNormalizedInput.days,
+        workspace: replayNormalizedInput.workspace,
+      },
+      {
+        now: this.options.now,
+        getMetadataProjectPaths: async (result) =>
+          (await projectSignalsFromCandidateMetadata(result)).paths,
+      }
+    );
+    const effectiveInput =
+      sessionFileFilters.workspaceForms?.[0] === undefined
+        ? replayNormalizedInput
+        : {
+            ...replayNormalizedInput,
+            workspace: sessionFileFilters.workspaceForms[0],
+          };
     const searchConfig = await loadSearchConfig(this.options.configPath);
     const resolvedRoots = await resolveSessionRoots({
       sources: effectiveInput.sources,
@@ -146,6 +180,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         ));
     let unscopedEvidenceCapReached = false;
     const backendMetadata: SearchBackendMetadata[] = [];
+    const filterRemovalReasons = new Set<SessionFileFilterDropReason>();
 
     const sourceSlots = await Promise.all(
       searchedSources.map((source, index) =>
@@ -161,6 +196,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
           resultsDisplayMode,
           isDefaultUnscopedEvidenceCapApplied,
           maxResultsPerSource,
+          sessionFileFilters,
         })
       )
     );
@@ -182,7 +218,12 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
       unscopedEvidenceCapReached =
         unscopedEvidenceCapReached || slot.unscopedEvidenceCapReached;
+      for (const reason of slot.filterRemovalReasons) {
+        filterRemovalReasons.add(reason);
+      }
     }
+
+    aggregateMultiGrepFallbackWarnings(warnings);
 
     if (unscopedEvidenceCapReached) {
       warnings.push({
@@ -211,6 +252,33 @@ export class CoordinatedSessionSearch implements SessionSearch {
           effectiveInput.paths?.includes(result.path)
         )
       : rawResults;
+    const workspaceKnown =
+      effectiveInput.workspace !== undefined && filteredResults.length === 0
+        ? await workspaceHasAssociatedSession(
+            resolvedRoots.sources,
+            sessionFileFilters
+          )
+        : undefined;
+    if (workspaceKnown === false) {
+      const checkedWorkspace = sessionFileFilters.workspace!;
+      warnings.push({
+        code: "workspace_unknown",
+        message: `No session files are associated with workspace ${checkedWorkspace}.`,
+        recommendedAction: `Verify the workspace path ${checkedWorkspace} and retry.`,
+      });
+    } else if (
+      hasActiveSessionFilters(effectiveInput) &&
+      filteredResults.length === 0 &&
+      (filterRemovalReasons.size > 0 || workspaceKnown === true)
+    ) {
+      warnings.push({
+        code: "filters_removed_all_results",
+        message: "Active session filters removed every eligible result.",
+        recommendedAction:
+          filterRemovalRecommendedAction(filterRemovalReasons) ||
+          "Adjust the query or widen the active session filters.",
+      });
+    }
     const { results, resultsShape, rankingDebug } = await shapeResults(
       filteredResults,
       effectiveInput,
@@ -248,6 +316,16 @@ export class CoordinatedSessionSearch implements SessionSearch {
         unscopedEvidenceDefaultCap: isDefaultUnscopedEvidenceCapApplied
           ? DEFAULT_UNSCOPED_EVIDENCE_MAX_RESULTS_PER_SOURCE
           : undefined,
+        filters: hasActiveSessionFilters(effectiveInput)
+          ? {
+              ...(effectiveInput.days !== undefined
+                ? { days: effectiveInput.days }
+                : {}),
+              ...(effectiveInput.workspace !== undefined
+                ? { workspace: sessionFileFilters.workspace }
+                : {}),
+            }
+          : undefined,
       }),
       expandedPatterns,
       searchedSources,
@@ -282,6 +360,7 @@ type SourceSearchSlotInput = {
   resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
   isDefaultUnscopedEvidenceCapApplied: boolean;
   maxResultsPerSource: number | undefined;
+  sessionFileFilters: PreparedSessionFileFilters;
 };
 
 type SourceSearchSlotResult = {
@@ -293,6 +372,7 @@ type SourceSearchSlotResult = {
   results: SearchResult[];
   failed: boolean;
   unscopedEvidenceCapReached: boolean;
+  filterRemovalReasons: Set<SessionFileFilterDropReason>;
   backend?: SearchBackendMetadata;
 };
 
@@ -308,6 +388,7 @@ async function searchSourceSlot({
   resultsDisplayMode,
   isDefaultUnscopedEvidenceCapApplied,
   maxResultsPerSource,
+  sessionFileFilters,
 }: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
   if (source.status !== "ok") {
     return {
@@ -319,6 +400,7 @@ async function searchSourceSlot({
       results: [],
       failed: false,
       unscopedEvidenceCapReached: false,
+      filterRemovalReasons: new Set(),
     };
   }
 
@@ -330,6 +412,7 @@ async function searchSourceSlot({
   let failed = false;
   let unscopedEvidenceCapReached = false;
   let backendMetadata: SearchBackendMetadata | undefined;
+  const filterRemovalReasons = new Set<SessionFileFilterDropReason>();
 
   try {
     backend = await createBackend(source);
@@ -358,8 +441,15 @@ async function searchSourceSlot({
     const filteredCanonicalResults = canonicalResults.filter((result) =>
       resultMatchesSourceFilters(result, source, input)
     );
-    const sourceResults = maybeCapResults(
+    const sessionFilteredResults = await applySessionFileFilters(
       filteredCanonicalResults,
+      sessionFileFilters
+    );
+    for (const dropped of sessionFilteredResults.dropped) {
+      filterRemovalReasons.add(dropped.reason);
+    }
+    const sourceResults = maybeCapResults(
+      sessionFilteredResults.results,
       shouldDeferCandidateCap ? undefined : requestMaxResultsPerSource
     )
       .map(truncateEvidenceResult)
@@ -433,8 +523,121 @@ async function searchSourceSlot({
     results,
     failed,
     unscopedEvidenceCapReached,
+    filterRemovalReasons,
     ...(backendMetadata ? { backend: backendMetadata } : {}),
   };
+}
+
+function hasActiveSessionFilters(input: SearchSessionsInput) {
+  return input.days !== undefined || input.workspace !== undefined;
+}
+
+function filterRemovalRecommendedAction(
+  reasons: Set<SessionFileFilterDropReason>
+) {
+  const remedies: string[] = [];
+  if (reasons.has("days")) {
+    remedies.push("Widen days to include older session files.");
+  }
+  if (reasons.has("workspace")) {
+    remedies.push(
+      "Verify or widen workspace to include the intended sessions."
+    );
+  }
+  if (reasons.has("stat_failed")) {
+    remedies.push("Verify session-file readability and mtime availability.");
+  }
+  return remedies.join(" ");
+}
+
+function aggregateMultiGrepFallbackWarnings(warnings: SearchWarning[]) {
+  const groups = new Map<string, SearchWarning[]>();
+  for (const warning of warnings) {
+    if (
+      warning.code !== "multi_grep_fallback" ||
+      warning.source === undefined
+    ) {
+      continue;
+    }
+    const key = JSON.stringify([
+      warning.message,
+      warning.recommendedAction ?? null,
+    ]);
+    groups.set(key, [...(groups.get(key) ?? []), warning]);
+  }
+
+  const aggregateByWarning = new Map<SearchWarning, SearchWarning>();
+  const removedWarnings = new Set<SearchWarning>();
+  for (const group of groups.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+    const sources = uniqueStrings(group.map((warning) => warning.source!));
+    const first = group[0]!;
+    aggregateByWarning.set(first, {
+      code: "multi_grep_fallback",
+      message: `multi_grep fallback active for ${sources.length} sources: ${sources.join(", ")}. ${first.message}`,
+      ...(first.recommendedAction
+        ? { recommendedAction: first.recommendedAction }
+        : {}),
+      sources,
+    });
+    for (const warning of group.slice(1)) {
+      removedWarnings.add(warning);
+    }
+  }
+
+  if (aggregateByWarning.size === 0) {
+    return;
+  }
+
+  const aggregated = warnings.flatMap((warning) => {
+    const replacement = aggregateByWarning.get(warning);
+    if (replacement) {
+      return [replacement];
+    }
+    return removedWarnings.has(warning) ? [] : [warning];
+  });
+  warnings.splice(0, warnings.length, ...aggregated);
+}
+
+async function workspaceHasAssociatedSession(
+  sources: ResolvedSessionSource[],
+  filters: PreparedSessionFileFilters
+) {
+  for (const source of sources) {
+    if (source.status !== "ok") continue;
+    const pendingDirectories = [source.root];
+    while (pendingDirectories.length > 0) {
+      const directory = pendingDirectories.pop()!;
+      let entries: Dirent[];
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          pendingDirectories.push(path);
+          continue;
+        }
+        if (
+          entry.isFile() &&
+          pathMatchesInclude(source.root, path, source.include) &&
+          (await resultIsAssociatedWithWorkspace(
+            { source: source.name, path },
+            filters
+          ))
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 async function canonicalizeSearchResult(
@@ -869,6 +1072,8 @@ function groupFollowup(
     sources: continuationState.searchedSources,
     resultsDisplayMode: "candidates",
     ...(input.paths ? { paths: input.paths } : {}),
+    ...(input.days !== undefined ? { days: input.days } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
     ...(continuationState.maxPatterns !== undefined
       ? { maxPatterns: continuationState.maxPatterns }
       : {}),
@@ -1138,7 +1343,7 @@ function projectPoints(match: RankingProjectMatch) {
 }
 
 async function projectSignalsFromCandidateMetadata(
-  candidate: SearchCandidate
+  candidate: Pick<SearchCandidate, "source" | "path">
 ): Promise<CandidateProjectSignals> {
   const signals = { paths: [] as string[], tokens: new Set<string>() };
   if (!mayContainSessionMetadata(candidate)) {
@@ -1176,7 +1381,9 @@ async function projectSignalsFromCandidateMetadata(
   return signals;
 }
 
-function mayContainSessionMetadata(candidate: SearchCandidate) {
+function mayContainSessionMetadata(
+  candidate: Pick<SearchCandidate, "source" | "path">
+) {
   if (candidate.source === "codex" || candidate.source === "pi") {
     return true;
   }
@@ -1289,16 +1496,37 @@ async function addProjectSignal(
   }
 }
 
-async function canonicalProjectPath(value: string) {
-  const expanded =
-    value === "~" || value.startsWith(`~${sep}`)
-      ? `${process.env.HOME ?? ""}${value.slice(1)}`
-      : value;
+export async function canonicalProjectPath(value: string) {
+  if (isUnexpandedHomeProjectPath(value) && !process.env.HOME) {
+    return value;
+  }
+  const expanded = expandHomeProjectPath(value);
   try {
     return await realpath(expanded);
   } catch {
-    return normalize(expanded);
+    if (isUnexpandedHomeProjectPath(expanded)) {
+      return normalize(expanded);
+    }
+    return isAbsolute(expanded) ? normalize(expanded) : resolve(expanded);
   }
+}
+
+function expandHomeProjectPath(value: string) {
+  if (!isUnexpandedHomeProjectPath(value)) {
+    return value;
+  }
+  const home = process.env.HOME;
+  if (!home) {
+    return value;
+  }
+  if (value === "~") {
+    return home;
+  }
+  return join(home, value.slice(2));
+}
+
+function isUnexpandedHomeProjectPath(value: string) {
+  return value === "~" || value.startsWith("~/") || value.startsWith("~\\");
 }
 
 function isLocalPathLike(value: string) {
@@ -1675,6 +1903,10 @@ function effectiveSearchInput(input: SearchSessionsInput): SearchSessionsInput {
     resultsDisplayMode: "candidates",
     groupCandidates: followup,
     ...(followup.paths ? { paths: followup.paths } : {}),
+    ...(followup.days !== undefined ? { days: followup.days } : {}),
+    ...(followup.workspace !== undefined
+      ? { workspace: followup.workspace }
+      : {}),
     ...(followup.maxPatterns !== undefined
       ? { maxPatterns: followup.maxPatterns }
       : {}),
@@ -1694,6 +1926,7 @@ function searchMetadata({
   maxResultsPerSource,
   candidateGroupLeadLimit,
   unscopedEvidenceDefaultCap,
+  filters,
 }: {
   resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
   resultsShape: ResultsShape;
@@ -1702,12 +1935,14 @@ function searchMetadata({
   maxResultsPerSource: number | undefined;
   candidateGroupLeadLimit: number | undefined;
   unscopedEvidenceDefaultCap: number | undefined;
+  filters: SearchSessionsOutput["metadata"]["filters"];
 }): SearchSessionsOutput["metadata"] {
   return {
     contractVersion: "progressive-evidence-groups.v2",
     resultsDisplayMode,
     resultsShape,
     backend: summarizeBackendMetadata(backendMetadata),
+    ...(filters === undefined ? {} : { filters }),
     limits: {
       ...(maxPatterns !== undefined ? { maxPatterns } : {}),
       ...(maxResultsPerSource !== undefined ? { maxResultsPerSource } : {}),
@@ -1791,6 +2026,7 @@ export type CreateSessionSearchOptions = Pick<
   fffTimeoutMs?: number;
   fffEmptyResultRetryAttempts?: number;
   fffEmptyResultRetryDelayMs?: number;
+  now?: () => number;
 };
 
 export function createSessionSearch(
@@ -1828,7 +2064,12 @@ function shouldDeferBackendCap(
   source: ResolvedSessionSource,
   input: SearchSessionsInput
 ) {
-  return Boolean(input.paths?.length || hasRestrictiveInclude(source.include));
+  return Boolean(
+    input.paths?.length ||
+    input.days !== undefined ||
+    input.workspace !== undefined ||
+    hasRestrictiveInclude(source.include)
+  );
 }
 
 function hasRestrictiveInclude(include: string[] | undefined) {

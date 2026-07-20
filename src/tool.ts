@@ -10,6 +10,9 @@ import type {
   SessionSearch,
 } from "./types.js";
 
+const workspaceFilterDescription =
+  "Only include sessions associated with this workspace through physical path containment, an exact encoded-directory component (never a prefix), or recorded cwd/projectRoot metadata; workspace subdirectories are included. Relative paths resolve against the server process cwd, so MCP clients and shims should pass an absolute path.";
+
 const matchGroupIdSchema = z.enum([
   "exact_or_structured",
   "phrase_or_adjacent_terms",
@@ -40,6 +43,17 @@ const groupCandidatesFollowupSchema = z
     maxPatterns: z.number().int().positive().optional(),
     maxResultsPerSource: z.number().int().positive().optional(),
     context: z.number().int().min(0).optional(),
+    days: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Only include sessions modified within this many days."),
+    workspace: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(workspaceFilterDescription),
     planFingerprint: z.string().min(1),
     fingerprint: z.string().min(1),
     group: z
@@ -57,12 +71,13 @@ const groupCandidatesFollowupSchema = z
     "Server-prepared payload copied from a candidate group more.groupCandidates field. Do not invent this payload; echo it exactly to request more leads for one group."
   );
 
-export const searchSessionsInputSchema = z.object({
+const searchSessionsInputShape = {
   query: z
     .string()
     .min(1)
+    .optional()
     .describe(
-      "Concise human-readable recall task. Do not include output-format instructions, examples, or tool-use directions."
+      "Concise human-readable recall task. Required for new searches; complete more.groupCandidates replays may omit it because the payload carries the original query."
     ),
   queries: z
     .array(z.string().min(1))
@@ -118,6 +133,13 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Requested matching-line context. Reserved for backend support; current FFF results remain bounded snippets."
     ),
+  days: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Only include sessions modified within this many days."),
+  workspace: z.string().min(1).optional().describe(workspaceFilterDescription),
   debug: z
     .boolean()
     .optional()
@@ -160,7 +182,23 @@ export const searchSessionsInputSchema = z.object({
     .describe(
       "Continuation shorthand only: copied from more.groupCandidates.limit when echoing that payload at the top level."
     ),
-});
+};
+
+export const searchSessionsInputSchema = z
+  .object(searchSessionsInputShape)
+  .superRefine((input, context) => {
+    if (input.query === undefined && input.groupCandidates === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["query"],
+        message:
+          "query is required unless replaying a complete more.groupCandidates payload under groupCandidates",
+      });
+    }
+  })
+  .meta({
+    anyOf: [{ required: ["query"] }, { required: ["groupCandidates"] }],
+  });
 
 export type SearchSessionsToolInput = z.infer<typeof searchSessionsInputSchema>;
 
@@ -177,9 +215,8 @@ export class SearchSessionsInputError
     this.name = "SearchSessionsInputError";
     this.invalidField = invalidField;
     this.correctedShape = {
-      query: "<same query as the top-level request>",
       groupCandidates: {
-        query: "<same query as the top-level request>",
+        query: "<same query copied from the server-prepared payload>",
         operationalContext:
           "<same operationalContext value as the server-prepared payload, when present>",
         callerSession:
@@ -192,6 +229,9 @@ export class SearchSessionsInputError
           "<same maxResultsPerSource value as the server-prepared payload, when present>",
         context:
           "<same context value as the server-prepared payload, when present>",
+        days: "<same days value as the server-prepared payload, when present>",
+        workspace:
+          "<same workspace value as the server-prepared payload, when present>",
         planFingerprint: "<server-prepared plan fingerprint>",
         fingerprint: "<server-prepared fingerprint>",
         group: {
@@ -210,6 +250,12 @@ export function parseSearchSessionsInput(
   input: SearchSessionsToolInput
 ): SearchSessionsInput {
   const normalized = normalizeGroupCandidatesShorthand(input);
+  if (normalized.query === undefined) {
+    throw new SearchSessionsInputError(
+      "query",
+      "Invalid search_sessions input: query is required unless replaying a complete more.groupCandidates payload under groupCandidates."
+    );
+  }
   validateGroupCandidatesFollowup(normalized);
   return stripContinuationShorthand(normalized) as SearchSessionsInput;
 }
@@ -231,9 +277,14 @@ export async function runSearchSessionsTool(
 }
 
 function searchSessionsInputErrorFromSchema(error: z.ZodError) {
+  const issues = flattenZodIssues(error.issues);
   const groupIssue =
-    error.issues.find((issue) => issue.path[0] === "groupCandidates") ??
-    error.issues.find((issue) => isGroupFollowupShorthandField(issue.path[0]));
+    issues.find((issue: z.core.$ZodIssue) => {
+      return issue.path?.[0] === "groupCandidates";
+    }) ??
+    issues.find((issue: z.core.$ZodIssue) => {
+      return isGroupFollowupShorthandField(issue.path?.[0]);
+    });
   if (!groupIssue) {
     return undefined;
   }
@@ -243,6 +294,20 @@ function searchSessionsInputErrorFromSchema(error: z.ZodError) {
     invalidField,
     `Invalid group follow-up: ${invalidField} does not match the server-prepared group candidate payload shape. Copy more.groupCandidates exactly, or echo its shorthand fields exactly.`
   );
+}
+
+function flattenZodIssues(
+  issues: readonly z.core.$ZodIssue[]
+): z.core.$ZodIssue[] {
+  return issues.flatMap((issue: z.core.$ZodIssue) => {
+    if ("errors" in issue && Array.isArray(issue.errors)) {
+      return [
+        issue,
+        ...flattenZodIssues(issue.errors.flat() as z.core.$ZodIssue[]),
+      ];
+    }
+    return [issue];
+  });
 }
 
 function isGroupFollowupShorthandField(field: PropertyKey | undefined) {
@@ -330,6 +395,18 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
       "Invalid group follow-up: top-level context must match groupCandidates.context from the server-prepared payload."
     );
   }
+  if (input.days !== undefined && input.days !== followup.days) {
+    throw new SearchSessionsInputError(
+      "days",
+      "Invalid group follow-up: top-level days must match groupCandidates.days from the server-prepared payload."
+    );
+  }
+  if (input.workspace !== undefined && input.workspace !== followup.workspace) {
+    throw new SearchSessionsInputError(
+      "workspace",
+      "Invalid group follow-up: top-level workspace must match groupCandidates.workspace from the server-prepared payload."
+    );
+  }
   if (!groupCandidatesFingerprintIsValid(followup)) {
     throw new SearchSessionsInputError(
       "groupCandidates.fingerprint",
@@ -354,13 +431,74 @@ function validateGroupCandidatesFollowup(input: SearchSessionsToolInput) {
       "Invalid group follow-up: use groupCandidates.paths from the server-prepared payload instead of a top-level paths field."
     );
   }
+  if (
+    input.planFingerprint !== undefined &&
+    input.planFingerprint !== followup.planFingerprint
+  ) {
+    throw new SearchSessionsInputError(
+      "planFingerprint",
+      "Invalid group follow-up: top-level planFingerprint must match groupCandidates.planFingerprint from the server-prepared payload."
+    );
+  }
+  if (
+    input.fingerprint !== undefined &&
+    input.fingerprint !== followup.fingerprint
+  ) {
+    throw new SearchSessionsInputError(
+      "fingerprint",
+      "Invalid group follow-up: top-level fingerprint must match groupCandidates.fingerprint from the server-prepared payload."
+    );
+  }
+  if (
+    input.group !== undefined &&
+    JSON.stringify(input.group) !== JSON.stringify(followup.group)
+  ) {
+    throw new SearchSessionsInputError(
+      "group",
+      "Invalid group follow-up: top-level group must match groupCandidates.group from the server-prepared payload."
+    );
+  }
+  if (input.offset !== undefined && input.offset !== followup.offset) {
+    throw new SearchSessionsInputError(
+      "offset",
+      "Invalid group follow-up: top-level offset must match groupCandidates.offset from the server-prepared payload."
+    );
+  }
+  if (input.limit !== undefined && input.limit !== followup.limit) {
+    throw new SearchSessionsInputError(
+      "limit",
+      "Invalid group follow-up: top-level limit must match groupCandidates.limit from the server-prepared payload."
+    );
+  }
 }
 
 function normalizeGroupCandidatesShorthand(
   input: SearchSessionsToolInput
 ): SearchSessionsToolInput {
   if (input.groupCandidates) {
-    return input;
+    return {
+      ...input,
+      query: input.query ?? input.groupCandidates.query,
+      queries: input.queries ?? input.groupCandidates.queries,
+      sources: input.sources ?? input.groupCandidates.sources,
+      resultsDisplayMode:
+        input.resultsDisplayMode ?? input.groupCandidates.resultsDisplayMode,
+      paths: input.paths ?? input.groupCandidates.paths,
+      maxPatterns: input.maxPatterns ?? input.groupCandidates.maxPatterns,
+      maxResultsPerSource:
+        input.maxResultsPerSource ?? input.groupCandidates.maxResultsPerSource,
+      context: input.context ?? input.groupCandidates.context,
+      days: input.days ?? input.groupCandidates.days,
+      workspace: input.workspace ?? input.groupCandidates.workspace,
+      ...(input.operationalContext === undefined &&
+      input.groupCandidates.operationalContext !== undefined
+        ? { operationalContext: input.groupCandidates.operationalContext }
+        : {}),
+      ...(input.callerSession === undefined &&
+      input.groupCandidates.callerSession !== undefined
+        ? { callerSession: input.groupCandidates.callerSession }
+        : {}),
+    };
   }
 
   const hasShorthand =
@@ -380,6 +518,13 @@ function normalizeGroupCandidatesShorthand(
     throw new SearchSessionsInputError(
       "resultsDisplayMode",
       'Invalid group follow-up: group candidate shorthand must use resultsDisplayMode: "candidates".'
+    );
+  }
+
+  if (input.query === undefined) {
+    throw new SearchSessionsInputError(
+      "query",
+      "Invalid group follow-up: top-level shorthand must include query, or pass the complete more.groupCandidates payload under groupCandidates."
     );
   }
 
@@ -418,6 +563,8 @@ function normalizeGroupCandidatesShorthand(
         ? { maxResultsPerSource: input.maxResultsPerSource }
         : {}),
       ...(input.context !== undefined ? { context: input.context } : {}),
+      ...(input.days !== undefined ? { days: input.days } : {}),
+      ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
       planFingerprint: input.planFingerprint,
       fingerprint: input.fingerprint,
       group: input.group,

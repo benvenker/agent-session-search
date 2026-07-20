@@ -80,7 +80,11 @@ Fields:
 | `maxPatterns`         | Limit expanded literal patterns.                                                                                 |
 | `maxResultsPerSource` | Limit results per source. Explicit caps still apply to focused path evidence.                                    |
 | `context`             | Reserved for backend support. Current FFF results remain bounded matching lines.                                 |
+| `days`                | Positive integer rolling age window based on session-file mtime.                                                 |
+| `workspace`           | Non-empty workspace path used for deterministic session filtering. MCP clients should pass an absolute path.     |
 | `debug`               | Include query expansion and diagnostics. Candidate ranking diagnostics require candidate mode plus debug.        |
+
+`days` and `workspace` are deterministic filters, not ranking inputs. Workspace matching uses physical path containment, an exact encoded-directory component (never a prefix), or recorded `cwd`/`projectRoot` metadata within the workspace; workspace subdirectories are included. When both filters are present they compose with AND: a session must satisfy the rolling cutoff and the workspace predicate. The response echoes supplied values under `metadata.filters`, including the canonical workspace. MCP clients and the companion shim should pass an absolute workspace path because relative input resolves against the managed server cwd; CLI relative paths resolve against the CLI process cwd.
 
 ## Result Modes
 
@@ -161,13 +165,12 @@ Each candidate includes:
 - `groupMemberships`
 - `more.evidence`
 
-When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Prefer the schema-shaped call `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes that shorthand. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it.
+When a group has more leads, `more.groupCandidates` is a prepared follow-up payload for the same `search_sessions` tool. Send `{ "groupCandidates": <more.groupCandidates> }` to request the next bounded page for that group before spending context on line-level evidence. The older explicit shape `{ "query": "<same query>", "groupCandidates": <more.groupCandidates> }` is still accepted, and MCP clients that support exact top-level argument echoing may also send the `more.groupCandidates` object itself; the server normalizes both forms. The payload includes the original query shape, resolved sources, candidate display mode, group identity, offset/limit, a `planFingerprint` such as `gcp1:...`, and a `fingerprint` such as `gcf1:...`; do not hand-author or edit it. Prepared group payloads carry `days` and the canonical `workspace` through replay. The cutoff is rolling rather than snapshot-stable, so each replay evaluates the age window at replay time. Focused `more.evidence` payloads remain path-pinned and do not inherit these filters.
 
 Copy-ready group follow-up call:
 
 ```json
 {
-  "query": "auth token timeout",
   "groupCandidates": {
     "query": "auth token timeout",
     "sources": ["codex"],
@@ -252,12 +255,20 @@ Warnings are structured and non-fatal unless all attempted sources fail. A warni
 - `broad_evidence_capped`
 - `multi_grep_fallback`
 - `all_sources_failed`
+- `filters_removed_all_results`
+- `workspace_unknown`
 
-The warning envelope is stable for agents: `source?`, `root?`, `code`, `message`, and `recommendedAction?`. When `recommendedAction` is present, show it alongside the warning and prefer it over inventing a recovery path.
+The warning envelope is stable for agents: `source?`, `sources?`, `root?`, `code`, `message`, and `recommendedAction?`. When `recommendedAction` is present, show it alongside the warning and prefer it over inventing a recovery path.
 
 Missing or unreadable roots are normal on machines that do not use every supported agent. The search continues across readable roots. The warning `recommendedAction` points to the concrete recovery path: create the directory, fix permissions, update or disable the source in config, or inspect current roots with `agent-session-search sources --json`.
 Source-filter warnings such as `unknown_source` and `no_sources_selected` include a recovery action that points to `agent-session-search sources --json` or omitting the source filter.
 
 `broad_evidence_capped` means an unscoped evidence request hit the default breadth cap. Switch back to candidates, expand a promising group with `more.groupCandidates`, then request focused evidence for the selected path.
 
+`multi_grep_fallback` is aggregated when the same fallback applies to multiple sources. In that case, the warning includes `sources` with the affected source names and omits per-source `source`/`root` fields.
+
 `all_sources_failed` includes an `rg` fallback command in the warning message for exhaustive proof-style search. First verify roots and backend health with `agent-session-search sources --json` and `agent-session-search-doctor --json`.
+
+`workspace_unknown` means no session under the resolved roots is associated with the checked canonical workspace. It is a successful empty search, not a hard failure; verify the path named in `recommendedAction` and retry.
+
+`filters_removed_all_results` means a known workspace or the active session filters produced no eligible matches. Use its `recommendedAction` to widen the query or remove `days` or `workspace`.

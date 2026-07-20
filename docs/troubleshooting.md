@@ -140,6 +140,18 @@ Fix the path, create the directory, adjust permissions, or disable that source i
 
 Missing roots are normal on machines that do not use every supported agent. Other readable roots still search.
 
+## Session Filters Removed All Results
+
+Symptom:
+
+```text
+filters_removed_all_results
+```
+
+Cause: `--days`, `--workspace`, or their MCP equivalents removed every otherwise eligible match. A relative workspace may also have resolved from an unexpected process directory.
+
+Fix: inspect `metadata.filters.workspace` to check the canonical workspace actually used, then widen or remove the `days` or `workspace` filter and retry. Prefer an absolute workspace for MCP and companion-shim calls. A nonexistent workspace intentionally returns an empty successful search with this warning and a `recommendedAction`; it is not a missing-root failure.
+
 ## Unknown Source
 
 Symptom:

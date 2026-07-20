@@ -77,6 +77,16 @@
 | **Current Session Demotion** | The demotion applied when `callerSession` exactly matches a candidate; `CODEX_THREAD_ID` is the Codex-only fallback.         | self-hit filter, current-session block |
 | **Normal Candidate Output**  | Candidate output without ranking score fields.                                                                               | hidden ranking, opaque result          |
 
+## Session Filtering
+
+| Term                 | Definition                                                                                                                               | Aliases to avoid                   |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **Session Filter**   | A deterministic drop predicate applied to eligible canonical session files before caps and ranking; it is never a ranking signal.        | rank boost, project match, scoring |
+| **Days Filter**      | A Session Filter that keeps statable session files on or newer than the invocation's rolling inclusive mtime cutoff.                     | recency rank, Recency Bucket       |
+| **Workspace Filter** | A Session Filter that accepts canonical containment, an exact encoded workspace path segment, or eligible bounded early-record metadata. | Project Match, workspace rank      |
+
+Session Filters decide eligibility. By contrast, **Project Match** is a ranking-side signal derived from caller context after filtering; it never substitutes for a **Workspace Filter**.
+
 ## Progressive Evidence
 
 | Term                     | Definition                                                                                                       | Aliases to avoid                       |
@@ -108,6 +118,7 @@
 - A **Candidate** contains exactly one **Evidence Follow-Up**.
 - A **Parse Failure** happens before search or doctor preflight; it may include a **Flag Suggestion** and **Suggested Command**.
 - **Candidate Ranking** orders candidates, but **Normal Candidate Output** omits internal ranking fields.
+- A **Session Filter** is a deterministic drop before caps and ranking, while **Project Match** remains a ranking signal.
 - **Ranking Debug** explains **Candidate Ranking** only when the caller asks for debug output.
 - **Evidence** is requested through the **Search Sessions Tool**, not through a separate public read tool.
 - **Evidence Groups** contain bounded **Snippets**; path-restricted **Evidence Hits** contain bounded matched content.

@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { constants } from "node:fs";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -24,6 +32,7 @@ import {
   REQUIRED_FFF_MCP_RELEASE,
 } from "./fff-runtime.js";
 import { doctorHelpText } from "./help.js";
+import { cassCompatShimIdentity } from "./cass-compat/health.js";
 import { searchOptionsFromEnv } from "./env.js";
 import {
   inspectSessionSources,
@@ -160,6 +169,26 @@ type DoctorOrphansDiagnostics =
     };
 
 type DoctorSourceDiagnostics = Omit<InspectSessionSourcesOutput, "command">;
+
+type DoctorCassShimDiagnostics = {
+  identity: ReturnType<typeof cassCompatShimIdentity>;
+  bin: {
+    present: boolean;
+    path: string | null;
+  };
+  activation: {
+    active: boolean;
+    source: "CASS_PATH" | "cassPath" | null;
+    path: string | null;
+    pointsAtShim: boolean;
+  };
+};
+
+type DoctorCassShimMarker = {
+  name?: unknown;
+  version?: unknown;
+  engine?: unknown;
+};
 
 class DoctorParseError extends Error {
   readonly suggestion: DoctorParseSuggestion;
@@ -702,6 +731,7 @@ export async function main(argv = process.argv.slice(2)) {
   const orphans = options.json
     ? await collectOrphanDiagnostics(options)
     : undefined;
+  const cassShim = await collectCassShimDiagnostics(options.env ?? process.env);
   let sourceDiagnostics: DoctorSourceDiagnostics | undefined;
   if (options.json) {
     try {
@@ -710,7 +740,11 @@ export async function main(argv = process.argv.slice(2)) {
       );
     } catch (error) {
       console.error(
-        JSON.stringify(doctorDiagnosticsErrorEnvelope(error, orphans), null, 2)
+        JSON.stringify(
+          doctorDiagnosticsErrorEnvelope(error, orphans, cassShim),
+          null,
+          2
+        )
       );
       process.exitCode =
         error instanceof DoctorDiagnosticsError ? error.exitCode : 4;
@@ -724,7 +758,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (orphans?.status === "failed") {
         console.error(
           JSON.stringify(
-            doctorOrphanErrorEnvelope(orphans, sourceDiagnostics),
+            doctorOrphanErrorEnvelope(orphans, sourceDiagnostics, cassShim),
             null,
             2
           )
@@ -734,7 +768,7 @@ export async function main(argv = process.argv.slice(2)) {
       }
       console.log(
         JSON.stringify(
-          doctorSuccessEnvelope(result, orphans, sourceDiagnostics),
+          doctorSuccessEnvelope(result, orphans, sourceDiagnostics, cassShim),
           null,
           2
         )
@@ -760,6 +794,7 @@ export async function main(argv = process.argv.slice(2)) {
     );
     console.log(`multi_grep: ${result.multiGrep}`);
     console.log(`recall equivalence: ${result.recallEquivalence}`);
+    console.log(`cass shim: ${formatCassShimDiagnostics(cassShim)}`);
     console.log(`upgrade command: ${result.installCommand}`);
     console.log(`upgrade path: ${result.installerUrl}`);
     console.log(`PATH: ${result.path}`);
@@ -774,7 +809,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (options.json) {
     console.error(
       JSON.stringify(
-        doctorFffErrorEnvelope(result, orphans, sourceDiagnostics),
+        doctorFffErrorEnvelope(result, orphans, sourceDiagnostics, cassShim),
         null,
         2
       )
@@ -784,6 +819,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   console.error(result.reason);
+  console.error(`cass shim: ${formatCassShimDiagnostics(cassShim)}`);
   console.error(`PATH: ${result.path}`);
   console.error("");
   console.error("Install or upgrade FFF MCP with the official installer:");
@@ -874,10 +910,157 @@ async function collectSourceDiagnostics(
   }
 }
 
+async function collectCassShimDiagnostics(
+  env: NodeJS.ProcessEnv
+): Promise<DoctorCassShimDiagnostics> {
+  const binPath = await resolveCommandOnPath(
+    cassCompatShimIdentity().name,
+    env.PATH ?? ""
+  );
+  const configured = await resolveCassShimActivation(env);
+  const configuredTarget = await resolveConfiguredCommandTarget(
+    configured.path,
+    env.PATH ?? ""
+  );
+  const pointsAtShim = await configuredTargetEmitsCassShimMarker(
+    configuredTarget,
+    env
+  );
+
+  return {
+    identity: cassCompatShimIdentity(),
+    bin: {
+      present: binPath !== null,
+      path: binPath,
+    },
+    activation: {
+      active: pointsAtShim,
+      source: configured.source,
+      path: configured.path,
+      pointsAtShim,
+    },
+  };
+}
+
+async function resolveCassShimActivation(env: NodeJS.ProcessEnv): Promise<{
+  source: "CASS_PATH" | "cassPath" | null;
+  path: string | null;
+}> {
+  if (env.CASS_PATH) {
+    return { source: "CASS_PATH", path: env.CASS_PATH };
+  }
+
+  const cassPath = await readCmCassPathConfig(env);
+  return cassPath
+    ? { source: "cassPath", path: cassPath }
+    : { source: null, path: null };
+}
+
+async function readCmCassPathConfig(
+  env: NodeJS.ProcessEnv
+): Promise<string | null> {
+  const home = env.HOME || homedir();
+  if (!home) {
+    return null;
+  }
+
+  try {
+    const config = JSON.parse(
+      await readFile(join(home, ".cass-memory", "config.json"), "utf8")
+    ) as { cassPath?: unknown };
+    return typeof config.cassPath === "string" && config.cassPath
+      ? config.cassPath
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveCommandOnPath(command: string, pathValue: string) {
+  for (const directory of pathValue.split(delimiter)) {
+    if (!directory) {
+      continue;
+    }
+    const candidate = join(directory, command);
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue scanning PATH entries.
+    }
+  }
+  return null;
+}
+
+async function resolveConfiguredCommandTarget(
+  configuredPath: string | null,
+  pathValue: string
+) {
+  if (!configuredPath) {
+    return null;
+  }
+  if (!configuredPath.includes("/") && !configuredPath.includes("\\")) {
+    return (
+      (await resolveCommandOnPath(configuredPath, pathValue)) ?? configuredPath
+    );
+  }
+  return configuredPath;
+}
+
+async function configuredTargetEmitsCassShimMarker(
+  configuredTarget: string | null,
+  env: NodeJS.ProcessEnv
+) {
+  if (!configuredTarget) {
+    return false;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      configuredTarget,
+      ["health", "--json"],
+      {
+        env,
+        timeout: 2_000,
+        maxBuffer: 64 * 1024,
+      }
+    );
+    const payload = JSON.parse(stdout) as { shim?: DoctorCassShimMarker };
+    return cassShimMarkerMatchesIdentity(payload.shim);
+  } catch {
+    return false;
+  }
+}
+
+function cassShimMarkerMatchesIdentity(
+  marker: DoctorCassShimMarker | undefined
+) {
+  const identity = cassCompatShimIdentity();
+  return (
+    marker?.name === identity.name &&
+    marker.version === identity.version &&
+    marker.engine === identity.engine
+  );
+}
+
+function formatCassShimDiagnostics(diagnostics: DoctorCassShimDiagnostics) {
+  const identity = `${diagnostics.identity.name} ${diagnostics.identity.version} (${diagnostics.identity.engine})`;
+  const binStatus = diagnostics.bin.present
+    ? `bin present at ${diagnostics.bin.path}`
+    : "bin missing from PATH";
+  const activationStatus = diagnostics.activation.source
+    ? diagnostics.activation.pointsAtShim
+      ? `active via ${diagnostics.activation.source}; target points at shim`
+      : `configured via ${diagnostics.activation.source}; target does not point at shim`
+    : "no CASS_PATH or cassPath activation";
+  return `${identity}; ${binStatus}; ${activationStatus}`;
+}
+
 function doctorSuccessEnvelope(
   result: Extract<CheckFffMcpResult, { ok: true }>,
   orphans: DoctorOrphansDiagnostics | null = null,
-  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null,
+  cassShim: DoctorCassShimDiagnostics = collectStaticCassShimDiagnostics()
 ) {
   return {
     tool: "agent-session-search-doctor",
@@ -892,6 +1075,7 @@ function doctorSuccessEnvelope(
     installCommand: result.installCommand,
     installerUrl: result.installerUrl,
     checks: result.checks,
+    cassShim,
     sourceDiagnostics,
     orphans,
   };
@@ -900,7 +1084,8 @@ function doctorSuccessEnvelope(
 function doctorFffErrorEnvelope(
   result: Extract<CheckFffMcpResult, { ok: false }>,
   orphans: DoctorOrphansDiagnostics | null = null,
-  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null,
+  cassShim: DoctorCassShimDiagnostics = collectStaticCassShimDiagnostics()
 ) {
   return doctorErrorEnvelope({
     code: "tool_environment_error",
@@ -918,12 +1103,14 @@ function doctorFffErrorEnvelope(
     checks: result.checks,
     orphans,
     sourceDiagnostics,
+    cassShim,
   });
 }
 
 function doctorOrphanErrorEnvelope(
   orphans: DoctorOrphansDiagnostics,
-  sourceDiagnostics: DoctorSourceDiagnostics | null = null
+  sourceDiagnostics: DoctorSourceDiagnostics | null = null,
+  cassShim: DoctorCassShimDiagnostics = collectStaticCassShimDiagnostics()
 ) {
   return doctorErrorEnvelope({
     code: "upstream_failure",
@@ -935,12 +1122,14 @@ function doctorOrphanErrorEnvelope(
     exitCode: 4,
     orphans,
     sourceDiagnostics,
+    cassShim,
   });
 }
 
 function doctorDiagnosticsErrorEnvelope(
   error: unknown,
-  orphans: DoctorOrphansDiagnostics | null = null
+  orphans: DoctorOrphansDiagnostics | null = null,
+  cassShim: DoctorCassShimDiagnostics = collectStaticCassShimDiagnostics()
 ) {
   if (error instanceof DoctorDiagnosticsError) {
     return doctorErrorEnvelope({
@@ -948,6 +1137,7 @@ function doctorDiagnosticsErrorEnvelope(
       message: error.message,
       exitCode: error.exitCode,
       orphans,
+      cassShim,
     });
   }
   return doctorErrorEnvelope({
@@ -955,6 +1145,7 @@ function doctorDiagnosticsErrorEnvelope(
     message: errorMessage(error),
     exitCode: 4,
     orphans,
+    cassShim,
   });
 }
 
@@ -965,6 +1156,7 @@ function doctorParseErrorEnvelope(error: DoctorParseError) {
     exitCode: 1,
     hint: error.suggestion.hint,
     suggestedCommand: error.suggestion.suggestedCommand,
+    cassShim: null,
   });
 }
 
@@ -973,6 +1165,7 @@ function doctorUpstreamErrorEnvelope(error: unknown) {
     code: "upstream_failure",
     message: error instanceof Error ? error.message : String(error),
     exitCode: 4,
+    cassShim: null,
   });
 }
 
@@ -991,6 +1184,7 @@ function doctorErrorEnvelope({
   checks = [],
   sourceDiagnostics = null,
   orphans = null,
+  cassShim = collectStaticCassShimDiagnostics(),
 }: {
   code: DoctorErrorCode;
   message: string;
@@ -1006,6 +1200,7 @@ function doctorErrorEnvelope({
   checks?: DoctorCheck[];
   sourceDiagnostics?: DoctorSourceDiagnostics | null;
   orphans?: DoctorOrphansDiagnostics | null;
+  cassShim?: DoctorCassShimDiagnostics | null;
 }) {
   return {
     tool: "agent-session-search-doctor",
@@ -1024,9 +1219,23 @@ function doctorErrorEnvelope({
     ...(installCommand ? { installCommand } : {}),
     ...(installerUrl ? { installerUrl } : {}),
     checks,
+    cassShim,
     sourceDiagnostics,
     orphans,
     exitCode,
+  };
+}
+
+function collectStaticCassShimDiagnostics(): DoctorCassShimDiagnostics {
+  return {
+    identity: cassCompatShimIdentity(),
+    bin: { present: false, path: null },
+    activation: {
+      active: false,
+      source: null,
+      path: null,
+      pointsAtShim: false,
+    },
   };
 }
 
