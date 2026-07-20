@@ -52,6 +52,7 @@ import {
   prepareSessionFileFilters,
   resultIsAssociatedWithWorkspace,
   type PreparedSessionFileFilters,
+  type SessionFileFilterDropReason,
 } from "./session-filters.js";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 
@@ -171,7 +172,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
         ));
     let unscopedEvidenceCapReached = false;
     const backendMetadata: SearchBackendMetadata[] = [];
-    const filterRemovedCount: FilterRemovedCount = emptyFilterRemovedCount();
+    const filterRemovalReasons = new Set<SessionFileFilterDropReason>();
 
     const sourceSlots = await Promise.all(
       searchedSources.map((source, index) =>
@@ -209,7 +210,9 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
       unscopedEvidenceCapReached =
         unscopedEvidenceCapReached || slot.unscopedEvidenceCapReached;
-      addFilterRemovedCount(filterRemovedCount, slot.filterRemovedCount);
+      for (const reason of slot.filterRemovalReasons) {
+        filterRemovalReasons.add(reason);
+      }
     }
 
     if (unscopedEvidenceCapReached) {
@@ -256,14 +259,13 @@ export class CoordinatedSessionSearch implements SessionSearch {
     } else if (
       hasActiveSessionFilters(effectiveInput) &&
       filteredResults.length === 0 &&
-      (totalFilterRemovedCount(filterRemovedCount) > 0 ||
-        workspaceKnown === true)
+      (filterRemovalReasons.size > 0 || workspaceKnown === true)
     ) {
       warnings.push({
         code: "filters_removed_all_results",
         message: "Active session filters removed every eligible result.",
         recommendedAction:
-          filterRemovalRecommendedAction(filterRemovedCount) ||
+          filterRemovalRecommendedAction(filterRemovalReasons) ||
           "Adjust the query or widen the active session filters.",
       });
     }
@@ -360,14 +362,8 @@ type SourceSearchSlotResult = {
   results: SearchResult[];
   failed: boolean;
   unscopedEvidenceCapReached: boolean;
-  filterRemovedCount: FilterRemovedCount;
+  filterRemovalReasons: Set<SessionFileFilterDropReason>;
   backend?: SearchBackendMetadata;
-};
-
-type FilterRemovedCount = {
-  days: number;
-  workspace: number;
-  stat_failed: number;
 };
 
 async function searchSourceSlot({
@@ -394,7 +390,7 @@ async function searchSourceSlot({
       results: [],
       failed: false,
       unscopedEvidenceCapReached: false,
-      filterRemovedCount: emptyFilterRemovedCount(),
+      filterRemovalReasons: new Set(),
     };
   }
 
@@ -406,7 +402,7 @@ async function searchSourceSlot({
   let failed = false;
   let unscopedEvidenceCapReached = false;
   let backendMetadata: SearchBackendMetadata | undefined;
-  const filterRemovedCount = emptyFilterRemovedCount();
+  const filterRemovalReasons = new Set<SessionFileFilterDropReason>();
 
   try {
     backend = await createBackend(source);
@@ -440,7 +436,7 @@ async function searchSourceSlot({
       sessionFileFilters
     );
     for (const dropped of sessionFilteredResults.dropped) {
-      filterRemovedCount[dropped.reason] += 1;
+      filterRemovalReasons.add(dropped.reason);
     }
     const sourceResults = maybeCapResults(
       sessionFilteredResults.results,
@@ -517,43 +513,28 @@ async function searchSourceSlot({
     results,
     failed,
     unscopedEvidenceCapReached,
-    filterRemovedCount,
+    filterRemovalReasons,
     ...(backendMetadata ? { backend: backendMetadata } : {}),
   };
-}
-
-function emptyFilterRemovedCount(): FilterRemovedCount {
-  return { days: 0, workspace: 0, stat_failed: 0 };
-}
-
-function addFilterRemovedCount(
-  total: FilterRemovedCount,
-  addition: FilterRemovedCount
-) {
-  total.days += addition.days;
-  total.workspace += addition.workspace;
-  total.stat_failed += addition.stat_failed;
-}
-
-function totalFilterRemovedCount(count: FilterRemovedCount) {
-  return count.days + count.workspace + count.stat_failed;
 }
 
 function hasActiveSessionFilters(input: SearchSessionsInput) {
   return input.days !== undefined || input.workspace !== undefined;
 }
 
-function filterRemovalRecommendedAction(count: FilterRemovedCount) {
+function filterRemovalRecommendedAction(
+  reasons: Set<SessionFileFilterDropReason>
+) {
   const remedies: string[] = [];
-  if (count.days > 0) {
+  if (reasons.has("days")) {
     remedies.push("Widen days to include older session files.");
   }
-  if (count.workspace > 0) {
+  if (reasons.has("workspace")) {
     remedies.push(
       "Verify or widen workspace to include the intended sessions."
     );
   }
-  if (count.stat_failed > 0) {
+  if (reasons.has("stat_failed")) {
     remedies.push("Verify session-file readability and mtime availability.");
   }
   return remedies.join(" ");
