@@ -46,6 +46,11 @@ import {
   type SessionRootConfig,
 } from "./roots.js";
 import { planQueryPatterns } from "./query-rewriter.js";
+import {
+  applySessionFileFilters,
+  prepareSessionFileFilters,
+  type PreparedSessionFileFilters,
+} from "./session-filters.js";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 export type SessionSearchBackendInput = {
@@ -82,7 +87,25 @@ export class CoordinatedSessionSearch implements SessionSearch {
   async searchSessions(
     input: SearchSessionsInput
   ): Promise<SearchSessionsOutput> {
-    const effectiveInput = effectiveSearchInput(input);
+    const replayNormalizedInput = effectiveSearchInput(input);
+    const sessionFileFilters = await prepareSessionFileFilters(
+      {
+        days: replayNormalizedInput.days,
+        workspace: replayNormalizedInput.workspace,
+      },
+      {
+        now: this.options.now,
+        getMetadataProjectPaths: async (result) =>
+          (await projectSignalsFromCandidateMetadata(result)).paths,
+      }
+    );
+    const effectiveInput =
+      sessionFileFilters.workspace === undefined
+        ? replayNormalizedInput
+        : {
+            ...replayNormalizedInput,
+            workspace: sessionFileFilters.workspace,
+          };
     const searchConfig = await loadSearchConfig(this.options.configPath);
     const resolvedRoots = await resolveSessionRoots({
       sources: effectiveInput.sources,
@@ -161,6 +184,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
           resultsDisplayMode,
           isDefaultUnscopedEvidenceCapApplied,
           maxResultsPerSource,
+          sessionFileFilters,
         })
       )
     );
@@ -282,6 +306,7 @@ type SourceSearchSlotInput = {
   resultsDisplayMode: SearchSessionsOutput["resultsDisplayMode"];
   isDefaultUnscopedEvidenceCapApplied: boolean;
   maxResultsPerSource: number | undefined;
+  sessionFileFilters: PreparedSessionFileFilters;
 };
 
 type SourceSearchSlotResult = {
@@ -308,6 +333,7 @@ async function searchSourceSlot({
   resultsDisplayMode,
   isDefaultUnscopedEvidenceCapApplied,
   maxResultsPerSource,
+  sessionFileFilters,
 }: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
   if (source.status !== "ok") {
     return {
@@ -358,8 +384,12 @@ async function searchSourceSlot({
     const filteredCanonicalResults = canonicalResults.filter((result) =>
       resultMatchesSourceFilters(result, source, input)
     );
-    const sourceResults = maybeCapResults(
+    const sessionFilteredResults = await applySessionFileFilters(
       filteredCanonicalResults,
+      sessionFileFilters
+    );
+    const sourceResults = maybeCapResults(
+      sessionFilteredResults.results,
       shouldDeferCandidateCap ? undefined : requestMaxResultsPerSource
     )
       .map(truncateEvidenceResult)
@@ -1138,7 +1168,7 @@ function projectPoints(match: RankingProjectMatch) {
 }
 
 async function projectSignalsFromCandidateMetadata(
-  candidate: SearchCandidate
+  candidate: Pick<SearchCandidate, "source" | "path">
 ): Promise<CandidateProjectSignals> {
   const signals = { paths: [] as string[], tokens: new Set<string>() };
   if (!mayContainSessionMetadata(candidate)) {
@@ -1176,7 +1206,9 @@ async function projectSignalsFromCandidateMetadata(
   return signals;
 }
 
-function mayContainSessionMetadata(candidate: SearchCandidate) {
+function mayContainSessionMetadata(
+  candidate: Pick<SearchCandidate, "source" | "path">
+) {
   if (candidate.source === "codex" || candidate.source === "pi") {
     return true;
   }
@@ -1791,6 +1823,7 @@ export type CreateSessionSearchOptions = Pick<
   fffTimeoutMs?: number;
   fffEmptyResultRetryAttempts?: number;
   fffEmptyResultRetryDelayMs?: number;
+  now?: () => number;
 };
 
 export function createSessionSearch(
@@ -1828,7 +1861,12 @@ function shouldDeferBackendCap(
   source: ResolvedSessionSource,
   input: SearchSessionsInput
 ) {
-  return Boolean(input.paths?.length || hasRestrictiveInclude(source.include));
+  return Boolean(
+    input.paths?.length ||
+    input.days !== undefined ||
+    input.workspace !== undefined ||
+    hasRestrictiveInclude(source.include)
+  );
 }
 
 function hasRestrictiveInclude(include: string[] | undefined) {
