@@ -566,7 +566,7 @@ describe("createSessionSearch", () => {
 
     expect(followup).toMatchObject({
       days: 30,
-      workspace: realWorkspace,
+      workspace: workspaceAlias,
       offset: 2,
       limit: 2,
     });
@@ -586,10 +586,81 @@ describe("createSessionSearch", () => {
     );
     expect(replayGroup.more.groupCandidates).toMatchObject({
       days: 30,
-      workspace: realWorkspace,
+      workspace: workspaceAlias,
       offset: 4,
       limit: 2,
     });
+  });
+
+  it("preserves symlink-alias encoded workspace matches during group replay", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "agent-session-search-"));
+    const codexRoot = join(tmp, "codex");
+    const realWorkspace = join(tmp, "real-workspace");
+    const workspaceAlias = join(tmp, "workspace-alias");
+    const aliasEncodedRoot = join(
+      codexRoot,
+      workspaceAlias.replace(/[^a-zA-Z0-9]/g, "-")
+    );
+    const configPath = join(tmp, "config.json");
+    await mkdir(codexRoot);
+    await mkdir(realWorkspace);
+    await symlink(realWorkspace, workspaceAlias, "dir");
+    await mkdir(aliasEncodedRoot);
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: codexRoot }] })
+    );
+    const sessionPaths = Array.from({ length: 4 }, (_, index) =>
+      join(aliasEncodedRoot, `session-${index + 1}.jsonl`)
+    );
+    for (const path of sessionPaths) {
+      await writeFile(path, "auth token timeout");
+    }
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [],
+              results: sessionPaths.map((path, index) => ({
+                source: source.name,
+                root: source.root,
+                path,
+                line: index + 1,
+                content: `auth token timeout ${index + 1}`,
+                pattern: "auth token timeout",
+              })),
+            };
+          },
+        };
+      },
+    });
+
+    const firstPage = await search.searchSessions({
+      query: "auth token timeout",
+      resultsDisplayMode: "candidates",
+      maxResultsPerSource: 2,
+      workspace: workspaceAlias,
+    });
+    const firstGroup = firstPage.results[0] as any;
+    const firstPagePaths = firstGroup.leads.map(({ path }: any) => path);
+    expect(firstPagePaths).toHaveLength(2);
+    expect(firstGroup.more.groupCandidates.workspace).toBe(workspaceAlias);
+    expect(firstPage.metadata.filters).toEqual({ workspace: realWorkspace });
+
+    const replay = await search.searchSessions({
+      query: "ignored in favor of server state",
+      groupCandidates: firstGroup.more.groupCandidates,
+    });
+    const replayGroup = replay.results[0] as any;
+    const replayPaths = replayGroup.leads.map(({ path }: any) => path);
+    expect(replayPaths).toHaveLength(2);
+    expect([...firstPagePaths, ...replayPaths].sort()).toEqual(
+      sessionPaths.sort()
+    );
+    expect(replay.metadata.filters).toEqual({ workspace: realWorkspace });
   });
 
   it("rejects group follow-ups when the resolved source plan changes", async () => {

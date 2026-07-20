@@ -100,11 +100,11 @@ export class CoordinatedSessionSearch implements SessionSearch {
       }
     );
     const effectiveInput =
-      sessionFileFilters.workspace === undefined
+      sessionFileFilters.workspaceForms?.[0] === undefined
         ? replayNormalizedInput
         : {
             ...replayNormalizedInput,
-            workspace: sessionFileFilters.workspace,
+            workspace: sessionFileFilters.workspaceForms[0],
           };
     const searchConfig = await loadSearchConfig(this.options.configPath);
     const resolvedRoots = await resolveSessionRoots({
@@ -291,7 +291,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
                 ? { days: effectiveInput.days }
                 : {}),
               ...(effectiveInput.workspace !== undefined
-                ? { workspace: effectiveInput.workspace }
+                ? { workspace: sessionFileFilters.workspace }
                 : {}),
             }
           : undefined,
