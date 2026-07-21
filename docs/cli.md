@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI uses the same search library and result shape as the MCP server. The installed binaries are defined in `package.json`: `agent-session-search`, `agent-session-search-doctor`, and `agent-session-search-mcp`.
+The CLI uses the same search library and result shape as the MCP server. The installed binaries are defined in `package.json`: `agent-session-search`, `agent-session-search-doctor`, and `agent-session-search-mcp`. Two opt-in binaries ship alongside them and are never enabled automatically: `agent-session-search-native-mcp` (audited raw FFF lane, see `mcp.md`) and `agent-session-search-cass-shim` (cass CLI adapter for cass-memory/cm, see `cass-shim.md`).
 
 ## Commands
 

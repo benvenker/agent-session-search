@@ -58,6 +58,7 @@ export function cliHelpText() {
     "MCP:",
     "  Run agent-session-search-mcp to expose the search_sessions tool over stdio.",
     "  Run agent-session-search-native-mcp only when you explicitly want the opt-in native FFF lane: fff_native_capabilities plus approved source-bound tools such as fff_grep.",
+    "  Run agent-session-search-cass-shim only as the opt-in cass CLI adapter for cass-memory (cm); it is never enabled automatically. See docs/cass-shim.md.",
     "  Use query for a concise recall task, queries for short literal probes, operationalContext for cwd/branch/reason, and callerSession when the caller knows its live session id.",
     "",
     "Setup:",
