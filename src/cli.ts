@@ -615,6 +615,15 @@ export async function main(
     console.log(packageVersion());
     return;
   }
+  if (isDoctorRequest(argv)) {
+    const doctor = await import("./fff-preflight.js");
+    try {
+      await doctor.main(argv.slice(1));
+    } catch (error) {
+      doctor.handleDoctorEntrypointError(error, argv.slice(1));
+    }
+    return;
+  }
   if (isSourcesRequest(argv)) {
     console.log(
       JSON.stringify(
@@ -678,6 +687,10 @@ function isJsonHelpRequest(argv: string[]) {
 
 function isVersionRequest(argv: string[]) {
   return argv.length === 1 && ["version", "--version", "-v"].includes(argv[0]);
+}
+
+function isDoctorRequest(argv: string[]) {
+  return argv[0] === "doctor";
 }
 
 function isCapabilitiesRequest(argv: string[]) {

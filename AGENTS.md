@@ -28,7 +28,7 @@ Repo-local guidance for coding agents working in this project.
 - Project MCP config lives in `.mcp.json` and registers Smithers with `bunx smithers-orchestrator --mcp`.
 - List available local workflows with `bunx smithers-orchestrator workflow list --format md`.
 - Validate the workflow pack with `cd .smithers && bun run typecheck`.
-- Generated per-command Smithers skills under `.agents/skills/` are local agent artifacts and remain ignored by this repo.
+- Generated per-command Smithers skills under `.agents/skills/` are local agent artifacts and remain ignored by this repo; the checked-in `cass-shim-control` skill is the deliberate exception.
 
 ## Agent skills
 
@@ -51,6 +51,10 @@ Use the local Beads, BV, and NTM operating guide before converting plans to Bead
 ### Prototype lifecycle
 
 Prototype in throwaway worktrees when useful, but merge durable findings before planning. Keep findings in `docs/prototypes/findings/`, synthesize implementation plans in `docs/plans/`, then convert stable plans to Beads. See `docs/agents/prototyping.md`.
+
+### cm shim control
+
+The cass-compat shim is opt-in; its on/off switch is cm-side (`CASS_PATH` env or cm `cassPath` config), never in this package. Agents must not activate it unprompted or rewrite cm configuration outside an explicit user request. See the shipped skill `.agents/skills/cass-shim-control/SKILL.md` (levers, status checks, setup flow, guardrails); `.claude/skills/cass-shim-control` symlinks to it for Claude Code discovery.
 
 ## Planning And Prototypes
 

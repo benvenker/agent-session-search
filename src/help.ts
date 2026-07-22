@@ -8,6 +8,7 @@ export function cliHelpText() {
     "       agent-session-search capabilities [--json]",
     "       agent-session-search robot-docs guide",
     "       agent-session-search --robot-triage",
+    "       agent-session-search doctor [--json]",
     "",
     "Search local coding-agent session history through the same engine as the MCP server.",
     "",
@@ -17,6 +18,7 @@ export function cliHelpText() {
     "  sources [--json]           Inspect configured source roots without running a search.",
     "  capabilities [--json]      Print the agent-readable CLI and MCP contract.",
     "  robot-docs guide           Print the in-tool guide for coding agents.",
+    "  doctor [--json]            Run FFF, source, and orphan preflight diagnostics. Same as agent-session-search-doctor; accepts the same flags.",
     "",
     "Options:",
     "  --json                     Print the full search result as JSON.",
@@ -62,7 +64,7 @@ export function cliHelpText() {
     "  Use query for a concise recall task, queries for short literal probes, operationalContext for cwd/branch/reason, and callerSession when the caller knows its live session id.",
     "",
     "Setup:",
-    "  Run agent-session-search-doctor --json for agent-readable FFF diagnostics.",
+    "  Run agent-session-search doctor --json (also installed as agent-session-search-doctor) for agent-readable FFF diagnostics.",
     "  Set AGENT_SESSION_SEARCH_CONFIG to use a custom config file.",
   ].join("\n");
 }
@@ -135,7 +137,7 @@ export function cliCapabilities(version: string) {
       {
         name: "doctor",
         usage:
-          "agent-session-search-doctor [--json] [--skip-smoke] [--list-orphans] [--reap-orphans] | agent-session-search-doctor --ensure-fff --yes",
+          "agent-session-search doctor [--json] [--skip-smoke] [--list-orphans] [--reap-orphans] | agent-session-search-doctor (same flags) | agent-session-search-doctor --ensure-fff --yes",
         output:
           "--json prints the v1 doctor diagnostics envelope: success on stdout, parse/runtime errors on stderr, exit codes 0/1/3/4, structured checks, sourceDiagnostics, and explicit orphan results when requested.",
       },
@@ -374,6 +376,7 @@ export function doctorHelpText() {
     "Usage: agent-session-search-doctor [--json] [--command <bin>] [--skip-smoke] [--list-orphans] [--reap-orphans]",
     "       agent-session-search-doctor --ensure-fff --yes",
     "       agent-session-search-doctor help",
+    "       agent-session-search doctor [same flags]",
     "",
     "Verify the FFF backend used by agent-session-search.",
     "Fails when fff-mcp is missing or below the required minimum. Reports installed version, stable release guidance, multi_grep support, recall-equivalence status, and cass compatibility shim activation without upgrading automatically.",

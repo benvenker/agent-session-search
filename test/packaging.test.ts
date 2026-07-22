@@ -162,8 +162,19 @@ describe("package build and tarball", () => {
     expect(installedPaths).toContain("scripts/postinstall.mjs");
     expect(installedPaths).toContain("docs/native-mcp.md");
     expect(installedPaths).toContain("docs/cass-shim.md");
-    expect(installedPaths).toContain("docs/plans/README.md");
+    expect(installedPaths).toContain("docs/cli.md");
     expect(installedPaths).toContain("docs/maintainers/release.md");
+    for (const internalDocsPrefix of [
+      "docs/plans/",
+      "docs/investigations/",
+      "docs/prototypes/",
+      "docs/agents/",
+      "docs/adr/",
+    ]) {
+      expect(
+        installedPaths.find((path) => path.startsWith(internalDocsPrefix))
+      ).toBeUndefined();
+    }
     expect(installedPaths).not.toContain("dist/test/packaging.test.js");
     for (const forbiddenPrefix of [
       ".agents/",

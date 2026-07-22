@@ -58,9 +58,11 @@ describe("README documentation", () => {
     ) as { files: string[] };
 
     expect(packageJson.files).toContain("CONTRIBUTING.md");
-    // The whole docs tree ships: reference docs, plans (with status
-    // frontmatter), ADRs, and investigations are part of the public record.
-    expect(packageJson.files).toContain("docs");
+    // Only the top-level reference docs and the maintainer release doc ship;
+    // plans, ADRs, investigations, and prototype findings stay repo-only.
+    expect(packageJson.files).toContain("docs/*.md");
+    expect(packageJson.files).toContain("docs/maintainers/*.md");
+    expect(packageJson.files).not.toContain("docs");
   });
 
   it("pins the grouped progressive-evidence docs contract", async () => {

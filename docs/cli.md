@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI uses the same search library and result shape as the MCP server. The installed binaries are defined in `package.json`: `agent-session-search`, `agent-session-search-doctor`, and `agent-session-search-mcp`. Two opt-in binaries ship alongside them and are never enabled automatically: `agent-session-search-native-mcp` (audited raw FFF lane, see `mcp.md`) and `agent-session-search-cass-shim` (cass CLI adapter for cass-memory/cm, see `cass-shim.md`).
+The CLI uses the same search library and result shape as the MCP server. The installed binaries are defined in `package.json`: `agent-session-search`, `agent-session-search-doctor` (also exposed as the `agent-session-search doctor` subcommand), and `agent-session-search-mcp`. Two opt-in binaries ship alongside them and are never enabled automatically: `agent-session-search-native-mcp` (audited raw FFF lane, see `mcp.md`) and `agent-session-search-cass-shim` (cass CLI adapter for cass-memory/cm, see `cass-shim.md`).
 
 ## Commands
 
@@ -96,7 +96,11 @@ agent-session-search --robot-triage
 
 ## Doctor
 
+The doctor preflight is available both as the `agent-session-search doctor` subcommand and as the standalone `agent-session-search-doctor` binary. Both forms accept the same flags and produce the same output and exit codes.
+
 ```bash
+agent-session-search doctor
+agent-session-search doctor --json
 agent-session-search-doctor
 agent-session-search-doctor --json --skip-smoke
 agent-session-search-doctor --skip-smoke

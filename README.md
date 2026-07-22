@@ -57,6 +57,14 @@ Search from the CLI:
 agent-session-search "auth token timeout" --json
 ```
 
+Narrow a search to recent sessions from one workspace:
+
+```bash
+agent-session-search "auth token timeout" --json --days 7 --workspace /absolute/path/to/repo
+```
+
+`--days` and `--workspace` are deterministic session filters applied before result caps, not ranking hints. The MCP tool accepts the matching `days` and `workspace` fields. See the [CLI reference](docs/cli.md) for matching semantics.
+
 Register the MCP server with a client:
 
 ```json
@@ -102,7 +110,7 @@ Call the MCP tool:
 }
 ```
 
-Use `query` for the concise recall task. Use `queries` for short literal planned probes. Put cwd, branch, repo, and reason in `operationalContext` so useful context does not become search text.
+Use `query` for the concise recall task. Use `queries` for short literal planned probes. Put cwd, branch, repo, and reason in `operationalContext` so useful context does not become search text. Optional `days` and `workspace` fields apply the same deterministic session filters as the CLI flags.
 
 ## Candidates And Evidence
 

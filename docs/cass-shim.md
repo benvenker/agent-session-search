@@ -4,7 +4,7 @@
 
 ## Compatibility baseline
 
-The pinned consumer baseline is **cm 0.2.12 (2026-07-19 build)** with the observable contracts of **cass 0.6.22**. Maintainers must re-verify argv, schemas, and cm consumption heuristics on every cm upgrade. After building the shim, run `scripts/verify-cm-contract.sh`; it fails loudly when the installed versions or pinned contract probes drift.
+The pinned consumer baseline is **cm 0.2.12 (2026-07-19 build)** with the observable contracts of **cass 0.6.22**. Maintainers must re-verify argv, schemas, and cm consumption heuristics on every cm upgrade. After building the shim, run `scripts/verify-cm-contract.sh` from a repository checkout (the script is maintainer tooling and is not shipped in the npm package); it fails loudly when the installed versions or pinned contract probes drift.
 
 The adapter implements exactly six surfaces:
 

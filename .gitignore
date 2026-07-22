@@ -2,9 +2,15 @@
 .bv/
 
 # Local agent/session artifacts
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/cass-shim-control/
 .beads/.br_history/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/cass-shim-control
 .factory/
 .goose/
 ideas/
@@ -12,7 +18,7 @@ ideas/
 .philip/
 .pi/
 .worktrees/
-skills/
+/skills/
 skills-lock.json
 smithers.db*
 

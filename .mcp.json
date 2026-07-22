@@ -4,13 +4,8 @@
       "command": "bunx",
       "args": ["smithers-orchestrator", "--mcp"]
     },
-    "agent-session-search": {
-      "command": "node",
-      "args": ["/data/projects/agent-session-search/dist/server.js"]
-    },
     "fff-native": {
-      "command": "node",
-      "args": ["/data/projects/agent-session-search/dist/native-server.js"]
+      "command": "/home/ben/.nvm/versions/node/v26.1.0/bin/agent-session-search-native-mcp"
     }
   }
 }

@@ -53,7 +53,7 @@ describe("CLI argument parsing", () => {
       );
       expect(output).toContain("--version");
       expect(output).toContain(
-        "Run agent-session-search-doctor --json for agent-readable FFF diagnostics."
+        "Run agent-session-search doctor --json (also installed as agent-session-search-doctor) for agent-readable FFF diagnostics."
       );
       expect(output).toContain("search_sessions");
       expect(output).not.toContain("query: help");
@@ -197,9 +197,10 @@ describe("CLI argument parsing", () => {
         (command) => command.name === "doctor"
       );
       expect(doctorCommand).toMatchObject({
-        usage: expect.stringContaining("agent-session-search-doctor [--json]"),
+        usage: expect.stringContaining("agent-session-search doctor [--json]"),
         output: expect.stringContaining("sourceDiagnostics"),
       });
+      expect(doctorCommand?.usage).toContain("agent-session-search-doctor");
       expect(doctorCommand?.output).toContain("stderr");
       expect(doctorCommand?.output).toContain("0/1/3/4");
       expect(output.mcp.tools).toEqual([{ name: "search_sessions" }]);
@@ -566,6 +567,38 @@ describe("CLI argument parsing", () => {
       );
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it("routes the doctor subcommand to the doctor help text", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["doctor", "--help"]);
+
+      const output = log.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("Usage: agent-session-search-doctor");
+      expect(output).toContain("agent-session-search doctor [same flags]");
+      expect(output).not.toContain("query: doctor");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("reports doctor subcommand parse errors with doctor semantics", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const previousExitCode = process.exitCode;
+    try {
+      await main(["doctor", "--wat"]);
+
+      const output = errorLog.mock.calls
+        .map((call) => call.join(" "))
+        .join("\n");
+      expect(output).toContain("--wat");
+      expect(output).toContain("Suggested command:");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+      errorLog.mockRestore();
     }
   });
 
