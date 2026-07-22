@@ -8,9 +8,19 @@
 !.agents/skills/cass-shim-control/
 .beads/.br_history/
 .claude/*
-!.claude/skills/
-.claude/skills/*
-!.claude/skills/cass-shim-control
+
+# Per-agent generated skill exports (symlinks to .agents/skills/)
+.augment/
+.continue/
+.crush/
+.junie/
+.kilocode/
+.kiro/
+.openhands/
+.qwen/
+.roo/
+.trae/
+.windsurf/
 .factory/
 .goose/
 ideas/
