@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import { runCassShimEntrypoint } from "../src/cass-shim.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
+const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 describe("parseCassCompatArgv", () => {
   it("parses cm search argv including repeated agents and a dash-leading query after --", () => {
@@ -372,8 +374,7 @@ describe("parseCassCompatArgv", () => {
     });
 
     expect(direct).toEqual({
-      stdout:
-        "agent-session-search-cass-shim 0.7.1 (cass-robot-compat for cm)\n",
+      stdout: `agent-session-search-cass-shim ${packageVersion} (cass-robot-compat for cm)\n`,
       stderr: "",
       exitCode: 0,
     });
@@ -390,7 +391,7 @@ describe("parseCassCompatArgv", () => {
 
     expect(elapsedMs).toBeLessThan(2_000);
     expect(result.stdout).toBe(
-      "agent-session-search-cass-shim 0.7.1 (cass-robot-compat for cm)\n"
+      `agent-session-search-cass-shim ${packageVersion} (cass-robot-compat for cm)\n`
     );
     expect(result.stderr).toBe("");
   });
@@ -424,8 +425,7 @@ describe("parseCassCompatArgv", () => {
 
     expect(operationalInitializations).toBe(0);
     expect(completion).toEqual({
-      stdout:
-        '{\n  "status": "ok",\n  "healthy": true,\n  "explanation": "no index; sessions searched live",\n  "shim": {\n    "name": "agent-session-search-cass-shim",\n    "version": "0.7.1",\n    "engine": "fff-live"\n  }\n}\n',
+      stdout: `{\n  "status": "ok",\n  "healthy": true,\n  "explanation": "no index; sessions searched live",\n  "shim": {\n    "name": "agent-session-search-cass-shim",\n    "version": "${packageVersion}",\n    "engine": "fff-live"\n  }\n}\n`,
       stderr: "",
       exitCode: 0,
     });

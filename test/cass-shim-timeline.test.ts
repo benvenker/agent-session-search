@@ -8,11 +8,14 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ResolveSessionRootsOutput } from "../src/roots.js";
 import { runCassCompat } from "../src/cass-compat/run.js";
+
+const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 type TimelineDependencies = {
   resolveRoots: () => Promise<ResolveSessionRootsOutput>;
@@ -407,7 +410,7 @@ describe("cass compatibility timeline and stats", () => {
         db_path: null,
         shim: {
           name: "agent-session-search-cass-shim",
-          version: "0.7.1",
+          version: packageVersion,
           engine: "fff-live",
         },
         enumeration: {

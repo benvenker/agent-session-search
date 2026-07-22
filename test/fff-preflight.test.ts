@@ -19,9 +19,10 @@ import {
   assessFffMcpVersionGuidance,
 } from "../src/fff-runtime.js";
 
+import packageJson from "../package.json" with { type: "json" };
+
 const execFileAsync = promisify(execFile);
-const fakeCassShimHealthScript =
-  '#!/bin/sh\nprintf \'{"status":"ok","healthy":true,"shim":{"name":"agent-session-search-cass-shim","version":"0.7.1","engine":"fff-live"}}\\n\'\n';
+const fakeCassShimHealthScript = `#!/bin/sh\nprintf '{"status":"ok","healthy":true,"shim":{"name":"agent-session-search-cass-shim","version":"${packageJson.version}","engine":"fff-live"}}\\n'\n`;
 
 describe("FFF preflight command", () => {
   it("prints help from standard help requests", async () => {
@@ -283,7 +284,7 @@ describe("FFF preflight command", () => {
       cassShim: {
         identity: {
           name: "agent-session-search-cass-shim",
-          version: "0.7.1",
+          version: packageJson.version,
           engine: "fff-live",
         },
         bin: {
@@ -373,7 +374,7 @@ describe("FFF preflight command", () => {
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain(
-      "cass shim: agent-session-search-cass-shim 0.7.1 (fff-live); bin present at "
+      `cass shim: agent-session-search-cass-shim ${packageJson.version} (fff-live); bin present at `
     );
     expect(result.stdout).toContain(
       "; active via CASS_PATH; target points at shim"
