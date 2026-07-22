@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionFileFilters,
@@ -164,138 +164,153 @@ describe("session file filters", () => {
   });
 
   it("uses directional metadata project-path containment as a fallback", async () => {
-    const workspace = "/data/projects/agent-session-search";
-    const metadataByPath = new Map<string, string[]>([
-      ["/sessions/equal.jsonl", [workspace]],
-      ["/sessions/descendant.jsonl", [`${workspace}/packages/cli`]],
-      ["/sessions/dot-descendant.jsonl", [`${workspace}/..cache`]],
-      ["/sessions/parent.jsonl", ["/data/projects"]],
-      ["/sessions/sibling.jsonl", ["/data/projects/other"]],
-      [
-        "/sessions/token-only.jsonl",
-        ["/archive/data-projects-agent-session-search-not-the-workspace"],
-      ],
-      ["/sessions/empty.jsonl", []],
-    ]);
-    const filters = await prepareSessionFileFilters(
-      { workspace },
-      {
-        getMetadataProjectPaths: async ({ path }) =>
-          metadataByPath.get(path) ?? [],
-      }
-    );
+    const temp = await mkdtemp(join(tmpdir(), "workspace-fallback-"));
+    try {
+      const workspace = temp;
+      const parentDir = dirname(temp);
+      const metadataByPath: Record<string, string[]> = {
+        "/sessions/equal.jsonl": [workspace],
+        "/sessions/descendant.jsonl": [`${workspace}/packages/cli`],
+        "/sessions/dot-descendant.jsonl": [`${workspace}/..cache`],
+        "/sessions/parent.jsonl": [parentDir],
+        "/sessions/sibling.jsonl": [`${parentDir}/other`],
+        "/sessions/token-only.jsonl": [
+          "/archive/data-projects-agent-session-search-not-the-workspace",
+        ],
+        "/sessions/empty.jsonl": [],
+      };
+      const filters = await prepareSessionFileFilters(
+        { workspace },
+        {
+          getMetadataProjectPaths: async ({ path }) =>
+            metadataByPath[path] ?? [],
+        }
+      );
 
-    for (const path of [
-      "/sessions/equal.jsonl",
-      "/sessions/descendant.jsonl",
-      "/sessions/dot-descendant.jsonl",
-    ]) {
-      await expect(
-        resultPassesSessionFileFilters({ source: "codex", path }, filters)
-      ).resolves.toEqual({ passes: true });
-    }
-    for (const path of [
-      "/sessions/parent.jsonl",
-      "/sessions/sibling.jsonl",
-      "/sessions/token-only.jsonl",
-      "/sessions/empty.jsonl",
-    ]) {
-      await expect(
-        resultPassesSessionFileFilters({ source: "codex", path }, filters)
-      ).resolves.toEqual({ passes: false, reason: "workspace" });
+      for (const path of [
+        "/sessions/equal.jsonl",
+        "/sessions/descendant.jsonl",
+        "/sessions/dot-descendant.jsonl",
+      ]) {
+        await expect(
+          resultPassesSessionFileFilters({ source: "codex", path }, filters)
+        ).resolves.toEqual({ passes: true });
+      }
+      for (const path of [
+        "/sessions/parent.jsonl",
+        "/sessions/sibling.jsonl",
+        "/sessions/token-only.jsonl",
+        "/sessions/empty.jsonl",
+      ]) {
+        await expect(
+          resultPassesSessionFileFilters({ source: "codex", path }, filters)
+        ).resolves.toEqual({ passes: false, reason: "workspace" });
+      }
+    } finally {
+      await rm(temp, { recursive: true, force: true });
     }
   });
 
   it("ANDs days and workspace while preserving each drop reason", async () => {
-    const workspace = "/data/projects/agent-session-search";
-    const now = 10 * DAY_MS;
-    const mtimes = new Map([
-      [`${workspace}/fresh.jsonl`, now],
-      [`${workspace}/stale.jsonl`, now - 2 * DAY_MS],
-      ["/sessions/other.jsonl", now],
-    ]);
-    const filters = await prepareSessionFileFilters(
-      { days: 1, workspace },
-      {
-        now: () => now,
-        getMtimeMs: async ({ path }) => mtimes.get(path),
-        getMetadataProjectPaths: async () => [],
-      }
-    );
-    const input = [
-      { source: "codex", path: `${workspace}/fresh.jsonl`, id: "fresh" },
-      { source: "codex", path: `${workspace}/stale.jsonl`, id: "stale" },
-      { source: "codex", path: "/sessions/other.jsonl", id: "other" },
-    ];
+    const temp = await mkdtemp(join(tmpdir(), "workspace-days-"));
+    try {
+      const workspace = temp;
+      const now = 10 * DAY_MS;
+      const mtimes = new Map([
+        [`${workspace}/fresh.jsonl`, now],
+        [`${workspace}/stale.jsonl`, now - 2 * DAY_MS],
+        ["/sessions/other.jsonl", now],
+      ]);
+      const filters = await prepareSessionFileFilters(
+        { days: 1, workspace },
+        {
+          now: () => now,
+          getMtimeMs: async ({ path }) => mtimes.get(path),
+          getMetadataProjectPaths: async () => [],
+        }
+      );
+      const input = [
+        { source: "codex", path: `${workspace}/fresh.jsonl`, id: "fresh" },
+        { source: "codex", path: `${workspace}/stale.jsonl`, id: "stale" },
+        { source: "codex", path: "/sessions/other.jsonl", id: "other" },
+      ];
 
-    const applied = await applySessionFileFilters(input, filters);
+      const applied = await applySessionFileFilters(input, filters);
 
-    expect(applied.results.map(({ id }) => id)).toEqual(["fresh"]);
-    expect(
-      applied.dropped.map(({ result, reason }) => [result.id, reason])
-    ).toEqual([
-      ["stale", "days"],
-      ["other", "workspace"],
-    ]);
+      expect(applied.results.map(({ id }) => id)).toEqual(["fresh"]);
+      expect(
+        applied.dropped.map(({ result, reason }) => [result.id, reason])
+      ).toEqual([
+        ["stale", "days"],
+        ["other", "workspace"],
+      ]);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 
   it("memoizes per source and path while skipping unnecessary metadata I/O", async () => {
-    const workspace = "/data/projects/agent-session-search";
-    const now = 10 * DAY_MS;
-    const getMtimeMs = vi.fn(async () => now);
-    const getMetadataProjectPaths = vi.fn(async ({ source }) =>
-      source === "codex" ? [workspace] : []
-    );
-    const filters = await prepareSessionFileFilters(
-      { days: 1, workspace },
-      { now: () => now, getMtimeMs, getMetadataProjectPaths }
-    );
-    const sharedPath = "/sessions/shared.jsonl";
+    const temp = await mkdtemp(join(tmpdir(), "workspace-memoize-"));
+    try {
+      const workspace = temp;
+      const now = 10 * DAY_MS;
+      const getMtimeMs = vi.fn(async () => now);
+      const getMetadataProjectPaths = vi.fn(async ({ source }) =>
+        source === "codex" ? [workspace] : []
+      );
+      const filters = await prepareSessionFileFilters(
+        { days: 1, workspace },
+        { now: () => now, getMtimeMs, getMetadataProjectPaths }
+      );
+      const sharedPath = "/sessions/shared.jsonl";
 
-    await expect(
-      Promise.all([
-        resultPassesSessionFileFilters(
-          { source: "codex", path: sharedPath },
-          filters
-        ),
-        resultPassesSessionFileFilters(
-          { source: "codex", path: sharedPath },
-          filters
-        ),
-        resultPassesSessionFileFilters(
-          { source: "claude", path: sharedPath },
-          filters
-        ),
-      ])
-    ).resolves.toEqual([
-      { passes: true },
-      { passes: true },
-      { passes: false, reason: "workspace" },
-    ]);
-    expect(getMtimeMs).toHaveBeenCalledTimes(2);
-    expect(getMetadataProjectPaths).toHaveBeenCalledTimes(2);
+      await expect(
+        Promise.all([
+          resultPassesSessionFileFilters(
+            { source: "codex", path: sharedPath },
+            filters
+          ),
+          resultPassesSessionFileFilters(
+            { source: "codex", path: sharedPath },
+            filters
+          ),
+          resultPassesSessionFileFilters(
+            { source: "claude", path: sharedPath },
+            filters
+          ),
+        ])
+      ).resolves.toEqual([
+        { passes: true },
+        { passes: true },
+        { passes: false, reason: "workspace" },
+      ]);
+      expect(getMtimeMs).toHaveBeenCalledTimes(2);
+      expect(getMetadataProjectPaths).toHaveBeenCalledTimes(2);
 
-    const skippedMetadata = vi.fn(async () => [workspace]);
-    const directFilters = await prepareSessionFileFilters(
-      { workspace },
-      { getMetadataProjectPaths: skippedMetadata }
-    );
-    await resultPassesSessionFileFilters(
-      { source: "codex", path: `${workspace}/session.jsonl` },
-      directFilters
-    );
-    const daysOnlyFilters = await prepareSessionFileFilters(
-      { days: 1 },
-      {
-        now: () => now,
-        getMtimeMs: async () => now,
-        getMetadataProjectPaths: skippedMetadata,
-      }
-    );
-    await resultPassesSessionFileFilters(
-      { source: "codex", path: "/sessions/days-only.jsonl" },
-      daysOnlyFilters
-    );
-    expect(skippedMetadata).not.toHaveBeenCalled();
+      const skippedMetadata = vi.fn(async () => [workspace]);
+      const directFilters = await prepareSessionFileFilters(
+        { workspace },
+        { getMetadataProjectPaths: skippedMetadata }
+      );
+      await resultPassesSessionFileFilters(
+        { source: "codex", path: `${workspace}/session.jsonl` },
+        directFilters
+      );
+      const daysOnlyFilters = await prepareSessionFileFilters(
+        { days: 1 },
+        {
+          now: () => now,
+          getMtimeMs: async () => now,
+          getMetadataProjectPaths: skippedMetadata,
+        }
+      );
+      await resultPassesSessionFileFilters(
+        { source: "codex", path: "/sessions/other.jsonl" },
+        daysOnlyFilters
+      );
+      expect(skippedMetadata).toHaveBeenCalledTimes(0);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 });
