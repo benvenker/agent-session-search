@@ -24,6 +24,7 @@ Prerequisites:
 
 - Node `>=22.12.0`
 - `fff-mcp` on `PATH`
+- `rg` (ripgrep) on `PATH` to search transcripts larger than 10 MiB
 
 Install the package:
 
@@ -33,6 +34,8 @@ agent-session-search-doctor --json
 ```
 
 If `fff-mcp` is missing, the package postinstall prints non-destructive install guidance. It does not change a user-owned FFF installation.
+
+FFF MCP skips files larger than 10 MiB. Managed searches use a literal ripgrep fallback for those transcripts and report it in `metadata.backend.oversizedFallback`. Evidence stays bounded to excerpts around matching text, and source, path, days, and workspace filters still apply. The fallback searches at most 10,000 directory entries and 1,000 matched lines per source within a 15-second default budget; partial searches and an unavailable `rg` produce warnings. Select evidence paths or narrow the query when a budget is reached.
 
 Manual FFF install:
 

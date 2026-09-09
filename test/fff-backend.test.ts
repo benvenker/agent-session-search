@@ -1,4 +1,11 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -12,6 +19,75 @@ import {
 import { getTrackedChildProcessPids } from "../src/child-process-cleanup.js";
 
 describe("OneRootFffBackend", () => {
+  it("recovers selected evidence above FFF's file size limit without dropping other hits", async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "agent-session-search-size-"))
+    );
+    const selected = join(root, "large's session.jsonl");
+    await writeFile(selected, "x".repeat(10 * 1024 * 1024 + 1) + "\nneedle\n");
+    await writeFile(join(root, "small.jsonl"), "needle\n");
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root,
+      client: {
+        async grep() {
+          return {
+            content: [{ type: "text", text: "small.jsonl\n 1: needle" }],
+          };
+        },
+      },
+    });
+
+    const result = await backend.search({
+      patterns: ["needle"],
+      paths: [selected, selected, join(root, "small.jsonl")],
+    });
+
+    expect(result.results.map((hit) => hit.content)).toEqual([
+      "needle",
+      "needle",
+    ]);
+    expect(result.results[1]).toMatchObject({
+      source: "codex",
+      root,
+      path: selected,
+      line: 2,
+      pattern: "needle",
+    });
+    expect(result.warnings).toEqual([]);
+    expect(result.backend?.oversizedFallback).toEqual({
+      engine: "ripgrep",
+      filesSearched: 1,
+    });
+  });
+
+  it("does not warn for evidence at the size limit or outside this source", async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "agent-session-search-size-"))
+    );
+    const selected = join(root, "session.jsonl");
+    await writeFile(selected, "x".repeat(10 * 1024 * 1024));
+    const other = await mkdtemp(join(tmpdir(), "agent-session-search-size-"));
+    const outside = join(other, "large.jsonl");
+    await writeFile(outside, "x".repeat(10 * 1024 * 1024 + 1));
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root,
+      emptyResultRetryAttempts: 0,
+      client: {
+        async grep() {
+          return { content: [] };
+        },
+      },
+    });
+
+    const result = await backend.search({
+      patterns: ["needle"],
+      paths: [selected, outside],
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
   it("normalizes one-root FFF grep output into session search results", async () => {
     const calls: unknown[] = [];
     const client: FffClient = {

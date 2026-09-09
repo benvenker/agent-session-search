@@ -51,6 +51,7 @@ import {
   applySessionFileFilters,
   prepareSessionFileFilters,
   resultIsAssociatedWithWorkspace,
+  resultPassesSessionFileFilters,
   type PreparedSessionFileFilters,
   type SessionFileFilterDropReason,
 } from "./session-filters.js";
@@ -70,6 +71,7 @@ export type SessionSearchBackendInput = {
   context?: number;
   paths?: string[];
   include?: string[];
+  eligiblePath?: (path: string) => Promise<boolean>;
 };
 
 export type SessionSearchBackend = {
@@ -430,6 +432,18 @@ async function searchSourceSlot({
     }
     if (source.include?.length) {
       backendInput.include = source.include;
+    }
+    if (
+      backend instanceof OneRootFffBackend &&
+      hasActiveSessionFilters(input)
+    ) {
+      backendInput.eligiblePath = async (path) =>
+        (
+          await resultPassesSessionFileFilters(
+            { source: source.name, path },
+            sessionFileFilters
+          )
+        ).passes;
     }
 
     const output = await backend.search(backendInput);
@@ -1966,19 +1980,27 @@ function searchMetadata({
 function summarizeBackendMetadata(
   metadata: SearchBackendMetadata[]
 ): SearchBackendMetadata {
+  const filesSearched = metadata.reduce(
+    (sum, item) => sum + (item.oversizedFallback?.filesSearched ?? 0),
+    0
+  );
+  const oversizedFallback =
+    filesSearched > 0
+      ? { oversizedFallback: { engine: "ripgrep" as const, filesSearched } }
+      : {};
   const fallback = metadata.find(
     (item) => item.mode === "sequential_grep_fallback"
   );
   if (fallback) {
-    return fallback;
+    return { ...fallback, ...oversizedFallback };
   }
   if (metadata.some((item) => item.mode === "multi_grep")) {
-    return { mode: "multi_grep" };
+    return { mode: "multi_grep", ...oversizedFallback };
   }
   if (metadata.some((item) => item.mode === "sequential_grep")) {
-    return { mode: "sequential_grep" };
+    return { mode: "sequential_grep", ...oversizedFallback };
   }
-  return { mode: "custom" };
+  return { mode: "custom", ...oversizedFallback };
 }
 
 function expandPatternPlans(input: SearchSessionsInput, config: ConfigFile) {
