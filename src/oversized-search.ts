@@ -1,17 +1,37 @@
 import { spawn } from "node:child_process";
 import { open, readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
-import { pathMatchesInclude } from "./roots.js";
+import { join } from "node:path";
 import { trackChildProcessPid } from "./child-process-cleanup.js";
-import type { SearchResult, SearchWarning, SourceName } from "./types.js";
+import { pathMatchesInclude } from "./roots.js";
+import {
+  pathIsWithin,
+  resultPassesSessionFileFilters,
+  type PreparedSessionFileFilters,
+} from "./session-filters.js";
+import type {
+  SearchBackendMetadata,
+  SearchResult,
+  SearchWarning,
+  SourceName,
+} from "./types.js";
 
 // FFF MCP 0.9.6 and 0.10.6 hardcode this limit in make_grep_options.
 const FFF_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MATCHES = 1000;
 const MAX_FILES = 10_000;
 const EXCERPT_BYTES = 2048;
+const DEFAULT_TIMEOUT_MS = 15_000;
 
-type Input = {
+class RipgrepMissingError extends Error {
+  readonly code = "ENOENT";
+
+  constructor() {
+    super("rg");
+    this.name = "RipgrepMissingError";
+  }
+}
+
+export type OversizedSearchInput = {
   source: SourceName;
   root: string;
   patterns: string[];
@@ -19,38 +39,121 @@ type Input = {
   include?: string[];
   timeoutMs?: number;
   maxResults?: number;
-  eligiblePath?: (path: string) => Promise<boolean>;
+  filters?: PreparedSessionFileFilters;
 };
 
-export async function searchOversizedFiles(input: Input): Promise<{
+export type OversizedSearchOutput = {
   results: SearchResult[];
   warnings: SearchWarning[];
   filesSearched: number;
+};
+
+export async function applyOversizedFallback(
+  output: {
+    results: SearchResult[];
+    warnings: SearchWarning[];
+    backend?: SearchBackendMetadata;
+  },
+  input: OversizedSearchInput
+): Promise<{
+  results: SearchResult[];
+  warnings: SearchWarning[];
+  backend: SearchBackendMetadata;
 }> {
+  if (
+    input.maxResults !== undefined &&
+    output.results.length >= input.maxResults
+  ) {
+    return {
+      results: output.results.slice(0, input.maxResults),
+      warnings: output.warnings,
+      backend: output.backend ?? { mode: "custom" },
+    };
+  }
+
+  const remaining =
+    input.maxResults === undefined
+      ? undefined
+      : Math.max(input.maxResults - output.results.length, 0);
+  const oversized = await searchOversizedFiles({
+    ...input,
+    maxResults: remaining,
+  });
+  const results = output.results.slice();
+  mergeHits(results, oversized.results);
+  return {
+    results:
+      input.maxResults === undefined
+        ? results
+        : results.slice(0, input.maxResults),
+    warnings: [...output.warnings, ...oversized.warnings],
+    backend: {
+      mode: "custom",
+      ...output.backend,
+      ...(oversized.filesSearched > 0
+        ? {
+            oversizedFallback: {
+              engine: "ripgrep" as const,
+              filesSearched: oversized.filesSearched,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+export async function searchOversizedFiles(
+  input: OversizedSearchInput
+): Promise<OversizedSearchOutput> {
   const results: SearchResult[] = [];
   const warnings: SearchWarning[] = [];
   let filesSearched = 0;
-  const deadline = Date.now() + (input.timeoutMs ?? 15_000);
-  const resultLimit = Math.min(input.maxResults ?? MAX_MATCHES, MAX_MATCHES);
+  const budgetMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const warning = (code: string, message: string): SearchWarning => ({
     source: input.source,
     root: input.root,
     code,
     message,
   });
+  const limitWarning = (message: string) => {
+    if (warnings.some((item) => item.code === "ripgrep_fallback_limit")) return;
+    warnings.push(warning("ripgrep_fallback_limit", message));
+  };
   const reportError = (error: unknown) => {
+    if (error instanceof RipgrepMissingError) {
+      warnings.push({
+        ...warning(
+          "ripgrep_fallback_error",
+          "Ripgrep is unavailable; oversized transcript search is incomplete."
+        ),
+        recommendedAction:
+          "Ensure rg (ripgrep) is installed on PATH, then retry.",
+      });
+      return;
+    }
     const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
     warnings.push({
       ...warning(
         "ripgrep_fallback_error",
         missing
-          ? "Ripgrep or a selected transcript is unavailable; oversized transcript search is incomplete."
+          ? "A selected transcript is unavailable; oversized transcript search is incomplete."
           : `Oversized transcript search is incomplete: ${error instanceof Error ? error.message : String(error)}`
       ),
-      recommendedAction:
-        "Ensure rg (ripgrep) is installed on PATH and the selected transcript is readable, then retry.",
+      recommendedAction: missing
+        ? "Ensure the selected transcript is readable, then retry."
+        : "Ensure rg (ripgrep) is installed on PATH and the selected transcript is readable, then retry.",
     });
   };
+
+  if (budgetMs <= 0) {
+    limitWarning(
+      "Oversized transcript search exceeded its time budget; results are partial."
+    );
+    return { results, warnings, filesSearched };
+  }
+
+  const deadline = Date.now() + budgetMs;
+  const resultLimit = Math.min(input.maxResults ?? MAX_MATCHES, MAX_MATCHES);
 
   let root: string;
   try {
@@ -68,52 +171,72 @@ export async function searchOversizedFiles(input: Input): Promise<{
   }
 
   try {
-    let visited = 0;
     const oversized = new Set<string>();
-    const candidates = input.paths?.length
-      ? selectedPaths(input.paths)
-      : walkFiles(root, input.include, deadline, reportError);
-    for await (const path of candidates) {
-      if (++visited > MAX_FILES || Date.now() >= deadline) {
-        warnings.push(
-          warning(
-            "ripgrep_fallback_limit",
-            "Oversized transcript discovery reached its file or time budget; narrow the source or select evidence paths."
-          )
-        );
-        break;
-      }
-      if (!withinRoot(root, path) && !withinRoot(input.root, path)) continue;
+    const budget: DiscoveryBudget = {
+      deadline,
+      maxEntries: MAX_FILES,
+      entries: 0,
+      limited: false,
+    };
+    const consider = async (path: string) => {
+      if (!pathIsWithin(path, root) && !pathIsWithin(path, input.root)) return;
       try {
         const canonical = await realpath(path);
         if (
-          !withinRoot(root, canonical) ||
+          !pathIsWithin(canonical, root) ||
           !pathMatchesInclude(root, canonical, input.include)
         ) {
-          continue;
+          return;
         }
         const info = await stat(canonical);
         if (!info.isFile() || info.size <= FFF_MAX_FILE_BYTES) {
-          continue;
+          return;
         }
-        if (input.eligiblePath && !(await input.eligiblePath(canonical)))
-          continue;
+        if (
+          input.filters &&
+          !(
+            await resultPassesSessionFileFilters(
+              { source: input.source, path: canonical },
+              input.filters
+            )
+          ).passes
+        ) {
+          return;
+        }
         oversized.add(canonical);
       } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         reportError(error);
       }
+    };
+
+    if (input.paths?.length) {
+      for (const path of new Set(input.paths)) {
+        if (++budget.entries > budget.maxEntries || Date.now() >= deadline) {
+          budget.limited = true;
+          break;
+        }
+        await consider(path);
+      }
+    } else {
+      for await (const path of walkFiles(root, budget)) {
+        await consider(path);
+      }
     }
+    if (budget.limited) {
+      limitWarning(
+        "Oversized transcript discovery reached its file or time budget; narrow the source or select evidence paths."
+      );
+    }
+
     const searched = new Set<string>();
     const byLine = new Map<string, SearchResult>();
     // Preserve the query planner's exact-first order across every file.
     search: for (const pattern of input.patterns) {
       for (const path of oversized) {
         if (Date.now() >= deadline) {
-          warnings.push(
-            warning(
-              "ripgrep_fallback_limit",
-              "Oversized transcript search exceeded its time budget; results are partial."
-            )
+          limitWarning(
+            "Oversized transcript search exceeded its time budget; results are partial."
           );
           break search;
         }
@@ -127,11 +250,15 @@ export async function searchOversizedFiles(input: Input): Promise<{
           searched.add(path);
           filesSearched = searched.size;
           for (const match of matches.hits) {
-            const key = `${path}\0${match.line}`;
+            const key = searchLineKey({
+              source: input.source,
+              root: input.root,
+              path,
+              line: match.line,
+            });
             const existing = byLine.get(key);
             if (existing) {
-              if (!existing.patterns!.includes(pattern))
-                existing.patterns!.push(pattern);
+              addPattern(existing, pattern);
               continue;
             }
             const result: SearchResult = {
@@ -147,18 +274,14 @@ export async function searchOversizedFiles(input: Input): Promise<{
             byLine.set(key, result);
           }
           if (matches.limited && input.maxResults === undefined) {
-            warnings.push(
-              warning(
-                "ripgrep_fallback_limit",
-                `Ripgrep reached its match budget for ${path}; results are partial.`
-              )
+            limitWarning(
+              `Ripgrep reached its match budget for ${path}; results are partial.`
             );
           }
           if (results.length >= resultLimit) break search;
         } catch (error) {
           reportError(error);
-          if ((error as NodeJS.ErrnoException).syscall === "spawn rg")
-            break search;
+          if (error instanceof RipgrepMissingError) break search;
         }
       }
     }
@@ -186,56 +309,38 @@ async function readExcerpt(path: string, offset: number) {
   }
 }
 
-function withinRoot(root: string, path: string) {
-  const part = relative(root, path);
-  return (
-    part !== "" &&
-    part !== ".." &&
-    !part.startsWith(`..${sep}`) &&
-    !isAbsolute(part)
-  );
-}
-
-async function* selectedPaths(paths: string[]) {
-  yield* new Set(paths);
-}
+type DiscoveryBudget = {
+  deadline: number;
+  maxEntries: number;
+  entries: number;
+  limited: boolean;
+};
 
 async function* walkFiles(
   root: string,
-  include: string[] | undefined,
-  deadline: number,
-  reportError: (error: unknown) => void
+  budget: DiscoveryBudget
 ): AsyncGenerator<string> {
-  const prefixes = include?.map((pattern) => pattern.split("/")[0]);
-  const pending =
-    include?.length &&
-    include.every((pattern) => pattern.includes("/")) &&
-    prefixes?.every((prefix) => !/[*?[{]/.test(prefix))
-      ? [...new Set(prefixes.map((prefix) => join(root, prefix)))]
-      : [root];
-  let entries = 0;
+  const pending = [root];
   while (pending.length) {
+    if (Date.now() >= budget.deadline) {
+      budget.limited = true;
+      return;
+    }
     const directory = pending.pop()!;
-    if (Date.now() >= deadline)
-      throw new Error(
-        "Oversized transcript discovery exceeded its time budget; narrow the source or select evidence paths."
-      );
     try {
       const canonical = await realpath(directory);
-      if (canonical !== root && !withinRoot(root, canonical)) continue;
+      if (!pathIsWithin(canonical, root)) continue;
       for (const entry of await readdir(canonical, { withFileTypes: true })) {
-        if (++entries > MAX_FILES)
-          throw new Error(
-            "Oversized transcript discovery exceeded its file budget; narrow the source or select evidence paths."
-          );
+        if (++budget.entries > budget.maxEntries) {
+          budget.limited = true;
+          return;
+        }
         const path = join(directory, entry.name);
         if (entry.isDirectory()) pending.push(path);
         else if (entry.isFile()) yield path;
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-        reportError(error);
-      if (entries > MAX_FILES) return;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
 }
@@ -248,6 +353,9 @@ function grepFile(
   timeoutMs: number,
   maxMatches: number
 ): Promise<{ hits: Match[]; limited: boolean }> {
+  if (maxMatches <= 0) {
+    return Promise.resolve({ hits: [], limited: false });
+  }
   return new Promise((resolve, reject) => {
     // Only matching text crosses stdout, never an entire captured JSONL record.
     const child = spawn(
@@ -276,8 +384,6 @@ function grepFile(
       child.pid === undefined ? undefined : trackChildProcessPid(child.pid);
     const hits = new Map<number, Match>();
     let pending = "";
-    let count = 0;
-    let limited = false;
     let timedOut = false;
     let failure: Error | undefined;
     let stderr = "";
@@ -294,7 +400,7 @@ function grepFile(
       stderr = (stderr + chunk).slice(0, 1024);
     });
     child.stdout.on("data", (chunk: string) => {
-      if (limited || failure) return;
+      if (failure) return;
       pending += chunk;
       let end: number;
       while ((end = pending.indexOf("\n")) >= 0) {
@@ -313,8 +419,7 @@ function grepFile(
             offset: Number(match[2]),
           });
         }
-        if (++count >= maxMatches) {
-          limited = true;
+        if (hits.size >= maxMatches) {
           child.kill("SIGKILL");
           break;
         }
@@ -325,7 +430,10 @@ function grepFile(
       }
     });
     child.on("error", (error) => {
-      failure = error;
+      failure =
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+          ? new RipgrepMissingError()
+          : error;
     });
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -333,11 +441,48 @@ function grepFile(
       if (failure) reject(failure);
       else if (timedOut)
         reject(new Error("Ripgrep exceeded the search time budget."));
-      else if (!limited && code !== 0 && code !== 1)
+      else if (hits.size < maxMatches && code !== 0 && code !== 1)
         reject(
           new Error(`Ripgrep exited with status ${code}: ${stderr.trim()}`)
         );
-      else resolve({ hits: [...hits.values()], limited });
+      else
+        resolve({
+          hits: [...hits.values()],
+          limited: hits.size >= maxMatches,
+        });
     });
   });
+}
+
+function searchLineKey(
+  result: Pick<SearchResult, "source" | "root" | "path" | "line">
+) {
+  return `${result.source}\0${result.root}\0${result.path}\0${result.line ?? ""}`;
+}
+
+function addPattern(result: SearchResult, pattern: string) {
+  const patterns = result.patterns ?? (result.pattern ? [result.pattern] : []);
+  if (!patterns.includes(pattern)) {
+    patterns.push(pattern);
+  }
+  result.patterns = patterns;
+  result.pattern = patterns[0];
+}
+
+function mergeHits(target: SearchResult[], incoming: SearchResult[]) {
+  const byLine = new Map(
+    target.map((result) => [searchLineKey(result), result])
+  );
+  for (const result of incoming) {
+    const existing = byLine.get(searchLineKey(result));
+    if (!existing) {
+      target.push(result);
+      byLine.set(searchLineKey(result), result);
+      continue;
+    }
+    for (const pattern of result.patterns ??
+      (result.pattern ? [result.pattern] : [])) {
+      addPattern(existing, pattern);
+    }
+  }
 }

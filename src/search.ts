@@ -51,10 +51,10 @@ import {
   applySessionFileFilters,
   prepareSessionFileFilters,
   resultIsAssociatedWithWorkspace,
-  resultPassesSessionFileFilters,
   type PreparedSessionFileFilters,
   type SessionFileFilterDropReason,
 } from "./session-filters.js";
+import { applyOversizedFallback } from "./oversized-search.js";
 import {
   basename,
   dirname,
@@ -71,7 +71,6 @@ export type SessionSearchBackendInput = {
   context?: number;
   paths?: string[];
   include?: string[];
-  eligiblePath?: (path: string) => Promise<boolean>;
 };
 
 export type SessionSearchBackend = {
@@ -199,6 +198,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
           isDefaultUnscopedEvidenceCapApplied,
           maxResultsPerSource,
           sessionFileFilters,
+          timeoutMs: this.options.fffTimeoutMs ?? DEFAULT_FFF_TIMEOUT_MS,
         })
       )
     );
@@ -363,6 +363,7 @@ type SourceSearchSlotInput = {
   isDefaultUnscopedEvidenceCapApplied: boolean;
   maxResultsPerSource: number | undefined;
   sessionFileFilters: PreparedSessionFileFilters;
+  timeoutMs: number;
 };
 
 type SourceSearchSlotResult = {
@@ -391,6 +392,7 @@ async function searchSourceSlot({
   isDefaultUnscopedEvidenceCapApplied,
   maxResultsPerSource,
   sessionFileFilters,
+  timeoutMs,
 }: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
   if (source.status !== "ok") {
     return {
@@ -433,20 +435,24 @@ async function searchSourceSlot({
     if (source.include?.length) {
       backendInput.include = source.include;
     }
-    if (
-      backend instanceof OneRootFffBackend &&
-      hasActiveSessionFilters(input)
-    ) {
-      backendInput.eligiblePath = async (path) =>
-        (
-          await resultPassesSessionFileFilters(
-            { source: source.name, path },
-            sessionFileFilters
-          )
-        ).passes;
-    }
 
-    const output = await backend.search(backendInput);
+    const started = Date.now();
+    const fffOutput = await backend.search(backendInput);
+    const output =
+      backend instanceof OneRootFffBackend
+        ? await applyOversizedFallback(fffOutput, {
+            source: source.name,
+            root: source.root,
+            patterns: expandedPatterns,
+            paths: backendInput.paths,
+            include: backendInput.include,
+            timeoutMs: timeoutMs - (Date.now() - started),
+            maxResults: backendInput.maxResults,
+            ...(hasActiveSessionFilters(input)
+              ? { filters: sessionFileFilters }
+              : {}),
+          })
+        : fffOutput;
     backendMetadata = output.backend;
     warnings.push(...output.warnings);
     const canonicalResults = await Promise.all(

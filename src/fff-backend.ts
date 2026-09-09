@@ -20,7 +20,6 @@ import {
 } from "./detached-stdio-transport.js";
 import { ensureFffMcpCompatible } from "./fff-runtime.js";
 import { pathMatchesInclude } from "./roots.js";
-import { searchOversizedFiles } from "./oversized-search.js";
 
 export type FffGrepInput = {
   query: string;
@@ -80,7 +79,6 @@ export type OneRootFffSearchInput = {
   context?: number;
   paths?: string[];
   include?: string[];
-  eligiblePath?: (path: string) => Promise<boolean>;
 };
 
 export type OneRootFffSearchOutput = {
@@ -108,35 +106,6 @@ export class OneRootFffBackend {
   }
 
   async search(input: OneRootFffSearchInput): Promise<OneRootFffSearchOutput> {
-    const output = await this.searchFff(input);
-    const oversized = await searchOversizedFiles({
-      ...input,
-      source: this.options.source,
-      root: this.options.root,
-      timeoutMs: this.options.timeoutMs,
-    });
-    mergeSearchResults(output.results, oversized.results);
-    return {
-      ...output,
-      results: output.results.slice(0, input.maxResults),
-      warnings: [...output.warnings, ...oversized.warnings],
-      backend: {
-        ...output.backend!,
-        ...(oversized.filesSearched > 0
-          ? {
-              oversizedFallback: {
-                engine: "ripgrep" as const,
-                filesSearched: oversized.filesSearched,
-              },
-            }
-          : {}),
-      },
-    };
-  }
-
-  private async searchFff(
-    input: OneRootFffSearchInput
-  ): Promise<OneRootFffSearchOutput> {
     if (this.canAttemptMultiGrep(input)) {
       return this.searchWithGatedMultiGrep(input);
     }

@@ -139,6 +139,7 @@ describe("oversized transcript fallback", () => {
       expect(result.warnings).toMatchObject([
         {
           code: "ripgrep_fallback_error",
+          message: expect.stringContaining("Ripgrep is unavailable"),
           recommendedAction: expect.stringContaining("installed on PATH"),
         },
       ]);
@@ -198,7 +199,7 @@ describe("oversized transcript fallback", () => {
       paths: [join(root, "missing.jsonl"), selected],
     });
     expect(result.results).toHaveLength(1);
-    expect(result.warnings).toMatchObject([{ code: "ripgrep_fallback_error" }]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("reports rg errors with bounded diagnostics", async () => {
@@ -223,6 +224,60 @@ describe("oversized transcript fallback", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("recovers selected evidence above FFF's file size limit without dropping other hits", async () => {
+    const root = await fixture();
+    const configPath = join(root, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        roots: [{ name: "codex", path: root }],
+      })
+    );
+    const selected = join(root, "large's session.jsonl");
+    const small = join(root, "small.jsonl");
+    await writeFile(selected, padding + "\nneedle\n");
+    await writeFile(small, "needle\n");
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return new OneRootFffBackend({
+          source: source.name,
+          root: source.root,
+          emptyResultRetryAttempts: 0,
+          client: {
+            async grep() {
+              return {
+                content: [{ type: "text", text: "small.jsonl\n 1: needle" }],
+              };
+            },
+          },
+        });
+      },
+    });
+    const result = await search.searchSessions({
+      query: "needle",
+      sources: ["codex"],
+      paths: [selected, selected, small],
+      resultsDisplayMode: "evidence",
+    });
+    expect(
+      result.results.map((hit) => (hit as { content: string }).content)
+    ).toEqual(["needle", "needle"]);
+    expect(result.results[1]).toMatchObject({
+      source: "codex",
+      path: selected,
+      line: 2,
+      pattern: "needle",
+    });
+    expect(result.warnings).toEqual([]);
+    expect(result.metadata.backend.oversizedFallback).toEqual({
+      engine: "ripgrep",
+      filesSearched: 1,
+    });
+    await search.close?.();
   });
 
   it("applies workspace and days before fallback budgets and preserves managed metadata", async () => {
