@@ -339,8 +339,10 @@ async function* walkFiles(
         if (entry.isDirectory()) pending.push(path);
         else if (entry.isFile()) yield path;
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    } catch {
+      // Skip missing or unreadable directories so one EACCES/ELOOP sibling
+      // cannot abort grep of oversized files already discovered elsewhere.
+      continue;
     }
   }
 }

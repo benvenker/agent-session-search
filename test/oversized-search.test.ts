@@ -10,7 +10,10 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { searchOversizedFiles } from "../src/oversized-search.js";
+import {
+  applyOversizedFallback,
+  searchOversizedFiles,
+} from "../src/oversized-search.js";
 import { createSessionSearch } from "../src/search.js";
 import { OneRootFffBackend } from "../src/fff-backend.js";
 
@@ -340,5 +343,112 @@ describe("oversized transcript fallback", () => {
     expect(group.leads[0].path).toBe(selected);
     expect(group.leads[0].preview).toContain("needle");
     await search.close?.();
+  });
+
+  it("does not run oversized fallback for a non-FFF custom backend", async () => {
+    const root = await fixture();
+    const configPath = join(root, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: root }] })
+    );
+    await writeFile(join(root, "session.jsonl"), padding + "\nneedle\n");
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          async search() {
+            return {
+              warnings: [],
+              results: [
+                {
+                  source: source.name,
+                  root: source.root,
+                  path: join(source.root, "session.jsonl"),
+                  line: 1,
+                  content: "custom",
+                  pattern: "needle",
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    const result = await search.searchSessions({
+      query: "needle",
+      sources: ["codex"],
+      resultsDisplayMode: "evidence",
+    });
+    expect(result.metadata.backend.oversizedFallback).toBeUndefined();
+    expect(result.warnings).toEqual([]);
+    await search.close?.();
+  });
+
+  it("skips oversized discovery when FFF already filled maxResults", async () => {
+    const root = await fixture();
+    await writeFile(join(root, "session.jsonl"), padding + "\nneedle\n");
+    const result = await applyOversizedFallback(
+      {
+        results: [
+          {
+            source: "codex",
+            root,
+            path: join(root, "small.jsonl"),
+            line: 1,
+            content: "needle",
+            pattern: "needle",
+          },
+        ],
+        warnings: [],
+        backend: { mode: "sequential_grep" },
+      },
+      {
+        source: "codex",
+        root,
+        patterns: ["needle"],
+        maxResults: 1,
+      }
+    );
+    expect(result.backend.oversizedFallback).toBeUndefined();
+    expect(result.results).toHaveLength(1);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("reports a time-budget warning without walking when timeout is already spent", async () => {
+    const root = await fixture();
+    await writeFile(join(root, "session.jsonl"), padding + "\nneedle\n");
+    const result = await searchOversizedFiles({
+      source: "codex",
+      root,
+      patterns: ["needle"],
+      timeoutMs: 0,
+    });
+    expect(result.filesSearched).toBe(0);
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ code: "ripgrep_fallback_limit" }),
+    ]);
+  });
+
+  it("continues oversized search after an unreadable sibling directory", async () => {
+    const root = await fixture();
+    const locked = join(root, "locked");
+    await mkdir(locked);
+    await writeFile(join(locked, "hidden.jsonl"), padding + "\nsecret\n");
+    await writeFile(join(root, "session.jsonl"), padding + "\nneedle\n");
+    await chmod(locked, 0);
+    try {
+      const result = await searchOversizedFiles({
+        source: "codex",
+        root,
+        patterns: ["needle"],
+      });
+      expect(result.results.map((hit) => hit.content)).toEqual(["needle"]);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      await chmod(locked, 0o755);
+    }
   });
 });
