@@ -21,6 +21,8 @@ const MAX_MATCHES = 1000;
 const MAX_FILES = 10_000;
 const EXCERPT_BYTES = 2048;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const UNREADABLE_DIRECTORY_MESSAGE =
+  "A directory under the source root was unreadable; oversized transcript discovery continued.";
 
 class RipgrepMissingError extends Error {
   readonly code = "ENOENT";
@@ -39,6 +41,7 @@ export type OversizedSearchInput = {
   include?: string[];
   timeoutMs?: number;
   maxResults?: number;
+  oversizedFileLimitBytes?: number;
   filters?: PreparedSessionFileFilters;
 };
 
@@ -119,6 +122,22 @@ export async function searchOversizedFiles(
     if (warnings.some((item) => item.code === "ripgrep_fallback_limit")) return;
     warnings.push(warning("ripgrep_fallback_limit", message));
   };
+  const reportUnreadableDirectory = () => {
+    if (
+      warnings.some(
+        (item) =>
+          item.code === "ripgrep_fallback_error" &&
+          item.message === UNREADABLE_DIRECTORY_MESSAGE
+      )
+    ) {
+      return;
+    }
+    warnings.push({
+      ...warning("ripgrep_fallback_error", UNREADABLE_DIRECTORY_MESSAGE),
+      recommendedAction:
+        "Ensure session directories under the source root are readable, then retry.",
+    });
+  };
   const reportError = (error: unknown) => {
     if (error instanceof RipgrepMissingError) {
       warnings.push({
@@ -154,6 +173,8 @@ export async function searchOversizedFiles(
 
   const deadline = Date.now() + budgetMs;
   const resultLimit = Math.min(input.maxResults ?? MAX_MATCHES, MAX_MATCHES);
+  const oversizedFileLimitBytes =
+    input.oversizedFileLimitBytes ?? FFF_MAX_FILE_BYTES;
 
   let root: string;
   try {
@@ -170,123 +191,123 @@ export async function searchOversizedFiles(
     return { results, warnings, filesSearched };
   }
 
-  try {
-    const oversized = new Set<string>();
-    const budget: DiscoveryBudget = {
-      deadline,
-      maxEntries: MAX_FILES,
-      entries: 0,
-      limited: false,
-    };
-    const consider = async (path: string) => {
-      if (!pathIsWithin(path, root) && !pathIsWithin(path, input.root)) return;
+  const oversized = new Set<string>();
+  const budget: DiscoveryBudget = {
+    deadline,
+    maxEntries: MAX_FILES,
+    entries: 0,
+    limited: false,
+  };
+  const consider = async (path: string) => {
+    if (!pathIsWithin(path, root) && !pathIsWithin(path, input.root)) return;
+    try {
+      const canonical = await realpath(path);
+      if (
+        !pathIsWithin(canonical, root) ||
+        !pathMatchesInclude(root, canonical, input.include)
+      ) {
+        return;
+      }
+      const info = await stat(canonical);
+      if (!info.isFile() || info.size <= oversizedFileLimitBytes) {
+        return;
+      }
+      if (
+        input.filters &&
+        !(
+          await resultPassesSessionFileFilters(
+            { source: input.source, path: canonical },
+            input.filters
+          )
+        ).passes
+      ) {
+        return;
+      }
+      oversized.add(canonical);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      reportError(error);
+    }
+  };
+
+  if (input.paths?.length) {
+    for (const path of new Set(input.paths)) {
+      if (++budget.entries > budget.maxEntries || Date.now() >= deadline) {
+        budget.limited = true;
+        break;
+      }
+      await consider(path);
+    }
+  } else {
+    for await (const path of walkFiles(
+      root,
+      budget,
+      reportUnreadableDirectory
+    )) {
+      await consider(path);
+    }
+  }
+  if (budget.limited) {
+    limitWarning(
+      "Oversized transcript discovery reached its file or time budget; narrow the source or select evidence paths."
+    );
+  }
+
+  const searched = new Set<string>();
+  const byLine = new Map<string, SearchResult>();
+  // Preserve the query planner's exact-first order across every file.
+  search: for (const pattern of input.patterns) {
+    for (const path of oversized) {
+      if (Date.now() >= deadline) {
+        limitWarning(
+          "Oversized transcript search exceeded its time budget; results are partial."
+        );
+        break search;
+      }
       try {
-        const canonical = await realpath(path);
-        if (
-          !pathIsWithin(canonical, root) ||
-          !pathMatchesInclude(root, canonical, input.include)
-        ) {
-          return;
-        }
-        const info = await stat(canonical);
-        if (!info.isFile() || info.size <= FFF_MAX_FILE_BYTES) {
-          return;
-        }
-        if (
-          input.filters &&
-          !(
-            await resultPassesSessionFileFilters(
-              { source: input.source, path: canonical },
-              input.filters
-            )
-          ).passes
-        ) {
-          return;
-        }
-        oversized.add(canonical);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-        reportError(error);
-      }
-    };
-
-    if (input.paths?.length) {
-      for (const path of new Set(input.paths)) {
-        if (++budget.entries > budget.maxEntries || Date.now() >= deadline) {
-          budget.limited = true;
-          break;
-        }
-        await consider(path);
-      }
-    } else {
-      for await (const path of walkFiles(root, budget)) {
-        await consider(path);
-      }
-    }
-    if (budget.limited) {
-      limitWarning(
-        "Oversized transcript discovery reached its file or time budget; narrow the source or select evidence paths."
-      );
-    }
-
-    const searched = new Set<string>();
-    const byLine = new Map<string, SearchResult>();
-    // Preserve the query planner's exact-first order across every file.
-    search: for (const pattern of input.patterns) {
-      for (const path of oversized) {
-        if (Date.now() >= deadline) {
-          limitWarning(
-            "Oversized transcript search exceeded its time budget; results are partial."
-          );
-          break search;
-        }
-        try {
-          const matches = await grepFile(
+        const matches = await grepFile(
+          path,
+          pattern,
+          deadline - Date.now(),
+          resultLimit - results.length
+        );
+        searched.add(path);
+        filesSearched = searched.size;
+        for (const match of matches.hits) {
+          const key = searchLineKey({
+            source: input.source,
+            root: input.root,
             path,
+            line: match.line,
+          });
+          const existing = byLine.get(key);
+          if (existing) {
+            addPattern(existing, pattern);
+            continue;
+          }
+          const result: SearchResult = {
+            source: input.source,
+            root: input.root,
+            path,
+            line: match.line,
+            content: await readExcerpt(path, match.offset),
             pattern,
-            deadline - Date.now(),
-            resultLimit - results.length
-          );
-          searched.add(path);
-          filesSearched = searched.size;
-          for (const match of matches.hits) {
-            const key = searchLineKey({
-              source: input.source,
-              root: input.root,
-              path,
-              line: match.line,
-            });
-            const existing = byLine.get(key);
-            if (existing) {
-              addPattern(existing, pattern);
-              continue;
-            }
-            const result: SearchResult = {
-              source: input.source,
-              root: input.root,
-              path,
-              line: match.line,
-              content: await readExcerpt(path, match.offset),
-              pattern,
-              patterns: [pattern],
-            };
-            results.push(result);
-            byLine.set(key, result);
-          }
-          if (matches.limited && input.maxResults === undefined) {
-            limitWarning(
-              `Ripgrep reached its match budget for ${path}; results are partial.`
-            );
-          }
-          if (results.length >= resultLimit) break search;
-        } catch (error) {
-          reportError(error);
-          if (error instanceof RipgrepMissingError) break search;
+            patterns: [pattern],
+          };
+          results.push(result);
+          byLine.set(key, result);
         }
+        if (matches.limited && input.maxResults === undefined) {
+          limitWarning(
+            `Ripgrep reached its match budget for ${path}; results are partial.`
+          );
+        }
+        if (results.length >= resultLimit) break search;
+      } catch (error) {
+        reportError(error);
+        if (error instanceof RipgrepMissingError) break search;
       }
     }
-  } catch (error) {
-    reportError(error);
   }
   return { results: results.slice(0, MAX_MATCHES), warnings, filesSearched };
 }
@@ -316,9 +337,17 @@ type DiscoveryBudget = {
   limited: boolean;
 };
 
+function walkDirectoryErrorAction(error: unknown): "skip" | "warn" | "throw" {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") return "skip";
+  if (code === "EACCES" || code === "EPERM" || code === "ELOOP") return "warn";
+  return "throw";
+}
+
 async function* walkFiles(
   root: string,
-  budget: DiscoveryBudget
+  budget: DiscoveryBudget,
+  onUnreadable: () => void
 ): AsyncGenerator<string> {
   const pending = [root];
   while (pending.length) {
@@ -339,10 +368,14 @@ async function* walkFiles(
         if (entry.isDirectory()) pending.push(path);
         else if (entry.isFile()) yield path;
       }
-    } catch {
-      // Skip missing or unreadable directories so one EACCES/ELOOP sibling
-      // cannot abort grep of oversized files already discovered elsewhere.
-      continue;
+    } catch (error) {
+      const action = walkDirectoryErrorAction(error);
+      if (action === "skip") continue;
+      if (action === "warn") {
+        onUnreadable();
+        continue;
+      }
+      throw error;
     }
   }
 }

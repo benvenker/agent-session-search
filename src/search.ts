@@ -31,7 +31,6 @@ import { SearchSessionsInputError } from "./tool.js";
 import type { Dirent } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import {
-  OneRootFffBackend,
   type CreateFffMcpClientOptions,
   type OneRootFffSearchOutput,
 } from "./fff-backend.js";
@@ -76,6 +75,7 @@ export type SessionSearchBackendInput = {
 export type SessionSearchBackend = {
   search(input: SessionSearchBackendInput): Promise<OneRootFffSearchOutput>;
   close?(): Promise<void>;
+  readonly oversizedFileLimitBytes?: number;
 };
 
 export type CreateSessionSearchBackend = (
@@ -438,9 +438,11 @@ async function searchSourceSlot({
 
     const started = Date.now();
     const fffOutput = await backend.search(backendInput);
+    const oversizedFileLimitBytes = backend.oversizedFileLimitBytes;
     const output =
-      backend instanceof OneRootFffBackend
-        ? await applyOversizedFallback(fffOutput, {
+      oversizedFileLimitBytes === undefined
+        ? fffOutput
+        : await applyOversizedFallback(fffOutput, {
             source: source.name,
             root: source.root,
             patterns: expandedPatterns,
@@ -448,11 +450,11 @@ async function searchSourceSlot({
             include: backendInput.include,
             timeoutMs: timeoutMs - (Date.now() - started),
             maxResults: backendInput.maxResults,
+            oversizedFileLimitBytes,
             ...(hasActiveSessionFilters(input)
               ? { filters: sessionFileFilters }
               : {}),
-          })
-        : fffOutput;
+          });
     backendMetadata = output.backend;
     warnings.push(...output.warnings);
     const canonicalResults = await Promise.all(

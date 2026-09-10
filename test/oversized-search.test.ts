@@ -386,6 +386,44 @@ describe("oversized transcript fallback", () => {
     await search.close?.();
   });
 
+  it("runs oversized fallback when a custom backend declares a file-size limit", async () => {
+    const root = await fixture();
+    const configPath = join(root, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({ roots: [{ name: "codex", path: root }] })
+    );
+    const selected = join(root, "session.jsonl");
+    await writeFile(selected, padding + "\nneedle\n");
+    const search = createSessionSearch({
+      configPath,
+      defaultRoots: [],
+      createBackend(source) {
+        return {
+          oversizedFileLimitBytes: 10 * 1024 * 1024,
+          async search() {
+            return {
+              warnings: [],
+              results: [],
+              backend: { mode: "custom" },
+            };
+          },
+        };
+      },
+    });
+    const result = await search.searchSessions({
+      query: "needle",
+      sources: ["codex"],
+      resultsDisplayMode: "evidence",
+    });
+    expect(result.results).toMatchObject([{ path: selected }]);
+    expect(result.metadata.backend.oversizedFallback).toEqual({
+      engine: "ripgrep",
+      filesSearched: 1,
+    });
+    await search.close?.();
+  });
+
   it("skips oversized discovery when FFF already filled maxResults", async () => {
     const root = await fixture();
     await writeFile(join(root, "session.jsonl"), padding + "\nneedle\n");
@@ -446,7 +484,12 @@ describe("oversized transcript fallback", () => {
         patterns: ["needle"],
       });
       expect(result.results.map((hit) => hit.content)).toEqual(["needle"]);
-      expect(result.warnings).toEqual([]);
+      expect(result.warnings).toEqual([
+        expect.objectContaining({
+          code: "ripgrep_fallback_error",
+          message: expect.stringContaining("unreadable"),
+        }),
+      ]);
     } finally {
       await chmod(locked, 0o755);
     }

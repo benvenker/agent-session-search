@@ -93,6 +93,8 @@ const DEFAULT_TOOL_DISCOVERY_TIMEOUT_MS = 15_000;
 const MAX_TOOL_DISCOVERY_PAGES = 50;
 
 export class OneRootFffBackend {
+  // FFF MCP 0.9.6 and 0.10.6 hardcode this limit in make_grep_options.
+  readonly oversizedFileLimitBytes = 10 * 1024 * 1024;
   private hasCompletedSearch = false;
   private multiGrepStatus:
     | { state: "unknown" }

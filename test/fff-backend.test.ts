@@ -40,6 +40,7 @@ describe("OneRootFffBackend", () => {
       patterns: ["needle"],
       paths: [large],
     });
+    expect(backend.oversizedFileLimitBytes).toBe(10 * 1024 * 1024);
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([]);
     expect(result.backend?.oversizedFallback).toBeUndefined();
