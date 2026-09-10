@@ -257,7 +257,10 @@ async function resultMatchesWorkspaceMetadata(
   );
 }
 
-function pathIsWithin(candidatePath: string, workspacePath: string): boolean {
+export function pathIsWithin(
+  candidatePath: string,
+  workspacePath: string
+): boolean {
   const child = normalize(candidatePath);
   const parent = normalize(workspacePath);
   const pathFromParent = relative(parent, child);

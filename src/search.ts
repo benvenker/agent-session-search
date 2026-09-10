@@ -31,7 +31,6 @@ import { SearchSessionsInputError } from "./tool.js";
 import type { Dirent } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import {
-  OneRootFffBackend,
   type CreateFffMcpClientOptions,
   type OneRootFffSearchOutput,
 } from "./fff-backend.js";
@@ -54,6 +53,7 @@ import {
   type PreparedSessionFileFilters,
   type SessionFileFilterDropReason,
 } from "./session-filters.js";
+import { applyOversizedFallback } from "./oversized-search.js";
 import {
   basename,
   dirname,
@@ -75,6 +75,7 @@ export type SessionSearchBackendInput = {
 export type SessionSearchBackend = {
   search(input: SessionSearchBackendInput): Promise<OneRootFffSearchOutput>;
   close?(): Promise<void>;
+  readonly oversizedFileLimitBytes?: number;
 };
 
 export type CreateSessionSearchBackend = (
@@ -197,6 +198,7 @@ export class CoordinatedSessionSearch implements SessionSearch {
           isDefaultUnscopedEvidenceCapApplied,
           maxResultsPerSource,
           sessionFileFilters,
+          timeoutMs: this.options.fffTimeoutMs ?? DEFAULT_FFF_TIMEOUT_MS,
         })
       )
     );
@@ -361,6 +363,7 @@ type SourceSearchSlotInput = {
   isDefaultUnscopedEvidenceCapApplied: boolean;
   maxResultsPerSource: number | undefined;
   sessionFileFilters: PreparedSessionFileFilters;
+  timeoutMs: number;
 };
 
 type SourceSearchSlotResult = {
@@ -389,6 +392,7 @@ async function searchSourceSlot({
   isDefaultUnscopedEvidenceCapApplied,
   maxResultsPerSource,
   sessionFileFilters,
+  timeoutMs,
 }: SourceSearchSlotInput): Promise<SourceSearchSlotResult> {
   if (source.status !== "ok") {
     return {
@@ -432,7 +436,25 @@ async function searchSourceSlot({
       backendInput.include = source.include;
     }
 
-    const output = await backend.search(backendInput);
+    const started = Date.now();
+    const fffOutput = await backend.search(backendInput);
+    const oversizedFileLimitBytes = backend.oversizedFileLimitBytes;
+    const output =
+      oversizedFileLimitBytes === undefined
+        ? fffOutput
+        : await applyOversizedFallback(fffOutput, {
+            source: source.name,
+            root: source.root,
+            patterns: expandedPatterns,
+            paths: backendInput.paths,
+            include: backendInput.include,
+            timeoutMs: timeoutMs - (Date.now() - started),
+            maxResults: backendInput.maxResults,
+            oversizedFileLimitBytes,
+            ...(hasActiveSessionFilters(input)
+              ? { filters: sessionFileFilters }
+              : {}),
+          });
     backendMetadata = output.backend;
     warnings.push(...output.warnings);
     const canonicalResults = await Promise.all(
@@ -1966,19 +1988,27 @@ function searchMetadata({
 function summarizeBackendMetadata(
   metadata: SearchBackendMetadata[]
 ): SearchBackendMetadata {
+  const filesSearched = metadata.reduce(
+    (sum, item) => sum + (item.oversizedFallback?.filesSearched ?? 0),
+    0
+  );
+  const oversizedFallback =
+    filesSearched > 0
+      ? { oversizedFallback: { engine: "ripgrep" as const, filesSearched } }
+      : {};
   const fallback = metadata.find(
     (item) => item.mode === "sequential_grep_fallback"
   );
   if (fallback) {
-    return fallback;
+    return { ...fallback, ...oversizedFallback };
   }
   if (metadata.some((item) => item.mode === "multi_grep")) {
-    return { mode: "multi_grep" };
+    return { mode: "multi_grep", ...oversizedFallback };
   }
   if (metadata.some((item) => item.mode === "sequential_grep")) {
-    return { mode: "sequential_grep" };
+    return { mode: "sequential_grep", ...oversizedFallback };
   }
-  return { mode: "custom" };
+  return { mode: "custom", ...oversizedFallback };
 }
 
 function expandPatternPlans(input: SearchSessionsInput, config: ConfigFile) {

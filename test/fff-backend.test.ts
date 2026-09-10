@@ -1,4 +1,11 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -12,6 +19,33 @@ import {
 import { getTrackedChildProcessPids } from "../src/child-process-cleanup.js";
 
 describe("OneRootFffBackend", () => {
+  it("does not search transcripts above FFF's file size limit", async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "agent-session-search-size-"))
+    );
+    const large = join(root, "large.jsonl");
+    await writeFile(large, "x".repeat(10 * 1024 * 1024 + 1) + "\nneedle\n");
+    const backend = new OneRootFffBackend({
+      source: "codex",
+      root,
+      emptyResultRetryAttempts: 0,
+      client: {
+        async grep() {
+          return { content: [] };
+        },
+      },
+    });
+
+    const result = await backend.search({
+      patterns: ["needle"],
+      paths: [large],
+    });
+    expect(backend.oversizedFileLimitBytes).toBe(10 * 1024 * 1024);
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(result.backend?.oversizedFallback).toBeUndefined();
+  });
+
   it("normalizes one-root FFF grep output into session search results", async () => {
     const calls: unknown[] = [];
     const client: FffClient = {

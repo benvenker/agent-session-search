@@ -33,6 +33,8 @@ Do not add these to the mainline product without a new design pass:
 
 Use FFF for normal lexical recall. Keep the wrapper small.
 
+The managed lane also uses ripgrep for transcripts larger than the 10 MiB file limit hardcoded by FFF MCP 0.9.6 and 0.10.6. This user-authorized fallback searches raw files without an index, follows the planner's literal probe order, respects source includes and selected paths, and feeds results through the same session filters and ranking. It reads bounded excerpts around ripgrep byte offsets rather than returning whole JSONL records. Backend metadata reports `oversizedFallback` with the engine and number of files searched. Missing ripgrep, file errors, and discovery/search budget exhaustion produce warnings; zero matches from ripgrep is a successful search. The native lane is unchanged.
+
 ## Source Roots
 
 Built-in source roots are defined in `src/roots.ts` and are merged with the optional user config at `~/.config/agent-session-search/config.json`.

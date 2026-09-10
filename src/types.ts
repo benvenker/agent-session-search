@@ -181,6 +181,7 @@ export type BackendMode =
 export type SearchBackendMetadata = {
   mode: BackendMode;
   fallbackReason?: string;
+  oversizedFallback?: { engine: "ripgrep"; filesSearched: number };
 };
 
 export type SearchSessionsMetadata = {
