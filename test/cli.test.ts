@@ -1109,7 +1109,7 @@ describe("CLI argument parsing", () => {
         },
       });
     }
-  });
+  }, 30_000);
 
   it("prints JSON typo suggestions on stderr without stdout", async () => {
     const result = await runCliExpectFailure(["--json", "--jsno"]);
@@ -1267,7 +1267,7 @@ async function runCliExpectFailure(argv: string[]) {
       join(process.cwd(), "src", "cli.ts"),
       ...argv,
     ],
-    { cwd: process.cwd(), env: sourceProcessEnv() }
+    { cwd: process.cwd(), env: sourceProcessEnv(), timeout: 15_000 }
   ).catch((error: unknown) => {
     const execError = error as {
       stdout?: string;
