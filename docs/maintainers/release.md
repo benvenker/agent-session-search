@@ -51,4 +51,4 @@ git push origin main --follow-tags
 
 The pushed `vX.Y.Z` tag runs CI, checks that the tag matches `package.json`, publishes that version to npm, and creates the GitHub Release marked as latest.
 
-The publish workflow runs the tests that do not require a locally installed `fff-mcp`; local smoke testing covers the stdio MCP path.
+The publish workflow runs the tests that do not require a locally installed `fff-mcp`; local smoke testing covers the stdio MCP path. It installs `ripgrep` so oversized-transcript fallback tests can run on GitHub-hosted runners.
